@@ -20,7 +20,6 @@ __pycache__/
 *.log
 
 # Temp files
-_*
 *.tmp
 *.bak
 

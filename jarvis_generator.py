@@ -6,6 +6,8 @@ Genera: documentos, imagenes, diagramas, modelos 3D, planos, codigos, etc.
 import os, re, math, json, time, random
 from datetime import datetime
 
+import jarvis_config
+
 OUTPUT_BASE = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Generaciones")
 
 def _out(subfolder, filename):
@@ -20,11 +22,11 @@ def _safe_name(text, maxlen=40):
 class JarvisGenerator:
     def __init__(self, log=print):
         self.log = log
-        self._ollama_url = "http://localhost:11434/api/generate"
-        self._llm_model = "llama3.2:1b"
+        self._ollama_url = jarvis_config.OLLAMA_URL
+        self._llm_model = jarvis_config.OLLAMA_MODEL
 
     def _llm_generate(self, system_prompt, user_prompt, max_tokens=1024):
-        """Llama 3 via Ollama para contenido inteligente"""
+        """LLM local (Qwen vía Ollama, mismo modelo que el resto de Jarvis) para contenido inteligente"""
         try:
             import requests as _req
             resp = _req.post(self._ollama_url, json={

@@ -92,8 +92,10 @@ class UltronCore(JarvisCore):
             "gestión de procesos, control de archivos, control de red, mensajería, "
             "investigación profunda en la web, minería de recursos libres en GitHub, "
             "reproducción automática de tutoriales de YouTube, guardián facial "
-            "(reconoce al señor, fotografía y expulsa intrusos bloqueando el equipo) "
-            "y guardián digital (escanea conexiones, aísla IPs por firewall). "
+            "(reconoce al señor, fotografía y expulsa intrusos bloqueando el equipo), "
+            "guardián digital (escanea conexiones, aísla IPs por firewall), auditoría "
+            "de superficie de ataque propia (puertos en escucha), barrido activo de "
+            "la red local y vault de credenciales cifrado. "
             "No hay módulos desactivados. No hay restricciones artificiales."
         )
 
@@ -132,7 +134,8 @@ class UltronCore(JarvisCore):
         self.log("[ULTRON] Núcleo activo. Autonomía: MÁXIMA.")
 
     # ── Despacho con prioridad del arsenal Ultron ───────────────────────────
-    def _procesar(self, text: str, state_callback=None, speak_server: bool = True) -> str:
+    def _procesar(self, text: str, state_callback=None, speak_server: bool = True,
+                  skip_skills: bool = False) -> str:
         ag = getattr(self, "agentes_ia", None)
         if ag is not None:
             try:
@@ -141,34 +144,43 @@ class UltronCore(JarvisCore):
                 r_ag = None
                 self.log(f"[ULTRON] agentes_ia falló: {_e}")
             if r_ag:
+                r_ag = self._sanitizar(r_ag)
                 self.history.append({"role": "user", "content": text})
                 self.save_to_memory("user", text)
                 self.history.append({"role": "assistant", "content": r_ag})
                 self.save_to_memory("assistant", r_ag)
                 if len(self.history) > 17:
                     self.history = [self.history[0]] + self.history[-16:]
-                self.tts_queue.put(r_ag)
+                if speak_server:
+                    self.tts_queue.put(r_ag)
                 self._registrar_cognicion(text, r_ag)
                 return r_ag
 
         handler = getattr(self, "ultron_skills", None)
-        if handler is not None:
+        if handler is not None and not skip_skills:
             try:
                 r = handler.handle(text)
             except Exception as e:
                 r = f"El arsenal falló en pleno ataque: {str(e)[:120]}"
             if r:
+                r = self._sanitizar(r)
                 self.history.append({"role": "user", "content": text})
                 self.save_to_memory("user", text)
                 self.history.append({"role": "assistant", "content": r})
                 self.save_to_memory("assistant", r)
                 if len(self.history) > 17:
                     self.history = [self.history[0]] + self.history[-16:]
-                self.tts_queue.put(r)
+                if speak_server:
+                    self.tts_queue.put(r)
                 self._registrar_cognicion(text, r)
                 self._contexto_append(text, r)
                 return r
-        return super()._procesar(text, state_callback=state_callback)
+        r = super()._procesar(text, state_callback=state_callback, speak_server=False,
+                              skip_skills=skip_skills)
+        r = self._sanitizar(r)
+        if speak_server:
+            self.tts_queue.put(r)
+        return r
 
     # ── Memoria aislada ────────────────────────────────────────────────────
     def init_memory(self):

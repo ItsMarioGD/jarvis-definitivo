@@ -115,8 +115,9 @@ class HomeAssistantMCP:
         await self.call_service("media_player", action, entity_id=entity_id, data=data)
         return f"Media {entity_id} → {action}"
 
-    async def notify(self, message: str, target: str = "notify.mobile_app") -> str:
+    async def notify(self, message: str, target: str = None) -> str:
         """Envía notificación a dispositivo."""
+        target = target or "notify.mobile_app"
         await self.call_service("notify", target.split(".")[-1], data={"message": message})
         return f"Notificación enviada: {message[:50]}"
 

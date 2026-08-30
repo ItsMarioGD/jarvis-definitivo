@@ -14,6 +14,11 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from aiohttp import web
 
+try:
+    from android_healing import execute_android_action
+except Exception:
+    execute_android_action = None
+
 
 @dataclass
 class AndroidConfig:
@@ -226,7 +231,16 @@ async def handle_mcp(request: web.Request) -> web.Response:
             "android_text": lambda: android.text_input(args["text"]),
             "android_key": lambda: android.key_event(args["keycode"]),
             "android_dump_ui": lambda: android.dump_ui(args.get("compressed", True)),
-            "android_find_tap": lambda: android.find_and_tap(args.get("text"), args.get("resource_id"), args.get("class_name"), args.get("description")),
+            "android_find_tap": lambda: (
+                execute_android_action(
+                    android, "find_tap", text=args.get("text"),
+                    resource_id=args.get("resource_id"),
+                    class_name=args.get("class_name"),
+                    description=args.get("description"))
+                if execute_android_action is not None else
+                android.find_and_tap(args.get("text"), args.get("resource_id"),
+                                     args.get("class_name"), args.get("description"))
+            ),
             "android_list_packages": lambda: android.list_packages(args.get("filter", "")),
             "android_start_app": lambda: android.start_app(args["package"], args.get("activity", "")),
             "android_stop_app": lambda: android.stop_app(args["package"]),

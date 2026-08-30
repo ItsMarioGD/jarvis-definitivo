@@ -9,7 +9,7 @@ Habilidades:
   Alarma | Captura de pantalla | Portapapeles | Bloquear/Apagar/Reiniciar
   Batería | Web search
 """
-import os, re, subprocess, threading, time, urllib.request, json, tempfile, unicodedata
+import os, re, socket, subprocess, threading, time, urllib.request, json, tempfile, unicodedata
 from datetime import datetime, timedelta
 import jarvis_config
 
@@ -179,8 +179,8 @@ class SkillsManager:
             self._investigar, self._archivos, self._organizar_descargas, self._descargar_video,
             self._arduino, self._navegador, self._movil, self._recordatorio, self._alarma,
             self._temporizador, self._volumen_a,
-            self._volumen, self._mutar, self._clima, self._noticias,
-            self._ocr, self._captura, self._portapapeles, self._buscar_web,
+            self._volumen, self._mutar, self._clima,
+            self._captura, self._buscar_web,
             self._notas, self._cancela_apagado, self._bloquear,
             self._apagar, self._reiniciar, self._bateria,
             self._red, self._sistema, self._conversor, self._calculadora, self._wifi, self._qr, self._azar,
@@ -220,7 +220,6 @@ class SkillsManager:
         except Exception as e:
             self.log(f"No pude abrir {name}: {e}")
             return f"Señor, tuve un problema al abrir {name}."
-        return None
 
     def _cerrar_app(self, t: str):
         m = re.search(r"(cierra|cerrar|termina|finaliza)\s+(?:(?:el|la|lo)\s+)?([a-záéíóúñ ]+)", t)
@@ -243,7 +242,6 @@ class SkillsManager:
         except Exception as e:
             self.log(f"No pude cerrar {name}: {e}")
             return f"Señor, no logré cerrar {name}."
-        return None
 
     # ── VOLUMEN ──────────────────────────────────────────────────────────────
     def _send_vol(self, pulses: int, key: int):
@@ -336,20 +334,6 @@ class SkillsManager:
                     self.notify("Señor, no pude tomar la captura de pantalla.")
         threading.Thread(target=_do, daemon=True).start()
         return "Tomando la captura de pantalla, señor."
-
-    # ── PORTAPAPELES ─────────────────────────────────────────────────────────
-    def _portapapeles(self, t: str):
-        m = re.search(r"(copia|copiar|pon)\s+(?:en el portapapeles|al portapapeles)?\s*[::,-]?\s*(.+)", t)
-        if not m or "portapapeles" not in t:
-            return None
-        mo = re.search(r"(copia|copiar|pon)\s+(?:en el portapapeles|al portapapeles)?\s*[::,-]?\s*(.+)", self._orig_lower)
-        txt = (mo.group(2) if mo else m.group(2)).strip().strip("\"'")
-        if not txt or len(txt) > 4000:
-            return None
-        subprocess.Popen(["powershell", "-NoProfile", "-Command",
-                          f"Set-Clipboard -Value '{txt.replace(chr(39), chr(39)*2)}'"],
-                         creationflags=0x08000000)
-        return "Copiado al portapapeles, señor. Listo para pegar donde necesite."
 
     # ── WEB SEARCH ───────────────────────────────────────────────────────────
     def _buscar_web(self, t: str):
@@ -2783,7 +2767,6 @@ if ($global:dictado) { Write-Output $global:dictado.Trim() }
         except Exception as e:
             self.log(f"Tarea fallo: {e}")
             return f"Señor, no pude crear la tarea: {str(e)[:80]}"
-        return None
 
     def _tareas_lista(self, t: str):
         if not re.search(r"que tareas (programadas|tengo)|lista mis tareas|mis tareas programadas|"
@@ -5483,48 +5466,6 @@ $s.Dispose()
         threading.Thread(target=_do, daemon=True).start()
         return "Midiendo su velocidad de internet, señor. Unos segundos por favor."
 
-    # ── NOTICIAS DEL DÍA (RSS) ─────────────────────────────────────────────
-    _RSS_FUENTES = [
-        ("El País", "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada"),
-        ("El Mundo", "https://e00-elmundo.uecdn.es/elmundo/rss/portada.xml"),
-        ("Marca", "https://e00-marca.uecdn.es/rss/portada.xml"),
-        ("Xataka", "https://www.xataka.com/feed"),
-    ]
-
-    def _noticias(self, t: str):
-        if not re.search(r"dame las noticias|noticias del dia|noticias de hoy|que noticias hay|"
-                         r"resumen de noticias|cuales son las noticias", t):
-            return None
-        if self.safe:
-            return "(modo seguro: no consultaría las noticias)"
-        def _do():
-            try:
-                import xml.etree.ElementTree as ET
-                lineas = []
-                for fuente, url in self._RSS_FUENTES:
-                    try:
-                        with urllib.request.urlopen(url, timeout=12) as r:
-                            xml = r.read().decode("utf-8", "ignore")
-                        raiz = ET.fromstring(xml)
-                        items = raiz.findall(".//item")[:3]
-                        for it in items:
-                            titulo = (it.findtext("title") or "").strip()
-                            if titulo:
-                                lineas.append(f"{titulo}")
-                        if lineas:
-                            break
-                    except Exception:
-                        continue
-                if not lineas:
-                    self._avisar("Señor, no pude obtener las noticias ahora mismo.")
-                    return
-                self._avisar("Noticias de hoy, señor: " + " | ".join(lineas[:6]))
-            except Exception as e:
-                self.log(f"Noticias fallo: {e}")
-                self._avisar("Señor, no pude obtener las noticias.")
-        threading.Thread(target=_do, daemon=True).start()
-        return "Consultando las noticias del día, señor. Un momento."
-
     # ── PRONÓSTICO 5 DÍAS ──────────────────────────────────────────────────
     def _pronostico(self, t: str):
         m = re.search(r"(?:que tiempo hará|qué tiempo hará|que tiempo hara|como estara el tiempo|"
@@ -5708,61 +5649,6 @@ try {
     exit 1
 }
 """
-
-    def _ocr(self, t: str):
-        es_pantalla = bool(re.search(r"lee lo que hay en pantalla|lee lo que esta en pantalla|"
-                                     r"lee lo que veo en pantalla|lee la pantalla|"
-                                     r"lee el texto de la pantalla", t))
-        m = re.search(r"(?:lee el texto|saca el texto|extrae el texto|reconoce el texto|lee lo que dice)"
-                      r"\s+(?:de\s+|de\s+la\s+|de\s+esta\s+|de\s+esta\s+foto\s+|de\s+esta\s+imagen\s+|en\s+)?"
-                      r"(?P<f>.+?)\s*$", t)
-        if not m and not es_pantalla:
-            return None
-        if es_pantalla:
-            if self.safe:
-                return "(modo seguro: no haría el OCR)"
-            def _do_pantalla():
-                try:
-                    from PIL import ImageGrab
-                    ruta_img = os.path.join(tempfile.gettempdir(), "jarvis_ocr_pantalla.png")
-                    ImageGrab.grab().save(ruta_img, "PNG")
-                    self._ocr_ejecutar(ruta_img)
-                except Exception as e:
-                    self.log(f"OCR pantalla fallo: {e}")
-                    self._avisar("Señor, no pude leer la pantalla.")
-            threading.Thread(target=_do_pantalla, daemon=True).start()
-            return "Leyendo lo que hay en pantalla, señor. Un momento."
-        nombre = m.group("f").strip().strip("?.")
-        candidatos = [nombre,
-                      os.path.join(os.path.expanduser("~"), "Downloads", nombre),
-                      os.path.join(os.path.expanduser("~"), "Desktop", nombre),
-                      os.path.join(os.path.expanduser("~"), "Documents", nombre),
-                      os.path.join(os.path.expanduser("~"), "Descargas", nombre)]
-        ruta = next((c for c in candidatos if os.path.isfile(c)), None)
-        if not ruta:
-            return f"Señor, no encontré la imagen «{nombre}»."
-        if self.safe:
-            return "(modo seguro: no haría el OCR)"
-        threading.Thread(target=self._ocr_ejecutar, args=(ruta,), daemon=True).start()
-        return "Leyendo el texto de la imagen, señor. Un momento."
-
-    def _ocr_ejecutar(self, ruta: str):
-        try:
-            script = os.path.join(tempfile.gettempdir(), "jarvis_ocr.ps1")
-            with open(script, "w", encoding="utf-8") as f:
-                f.write(self._OCR_SCRIPT)
-            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                                "-File", script, ruta],
-                               capture_output=True, text=True, timeout=60,
-                               creationflags=0x08000000)
-            salida = (r.stdout or "").strip()
-            if not salida or salida.startswith("OCR_"):
-                self._avisar("Señor, no pude leer el texto de esa imagen.")
-                return
-            self._avisar(f"Texto de la imagen, señor: {salida[:400]}")
-        except Exception as e:
-            self.log(f"OCR fallo: {e}")
-            self._avisar("Señor, no pude leer el texto de la imagen.")
 
     # ── TRANSCRIBIR AUDIO (System.Speech) ──────────────────────────────────
     def _transcribir(self, t: str):

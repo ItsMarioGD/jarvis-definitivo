@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ultron_skills/self_healing.py - Self-Healing Selectors para Android
+android_healing/self_healing.py - Self-Healing Selectors para Android
 ====================================================================
 Cuando un selector (resource-id, xpath, class) falla por actualización de app:
 1. Captura error + dump UI actual
@@ -308,7 +308,7 @@ UI actual (truncado):
 {ui_truncated}
 
 Propon hasta 3 selectores alternativos que SÍ funcionen.
-Formato JSON: [{{"type": "resource_id|text|class|description|xpath", "value": "selector", "reason": "por qué"}]]"""
+Formato JSON: [{{"type": "resource_id|text|class|description|xpath", "value": "selector", "reason": "por qué"}}]"""
 
             # Llamar LLM (adaptar a tu cliente OpenAI/Ollama)
             response = await self.llm.chat.completions.create(

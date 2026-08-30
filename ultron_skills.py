@@ -14,6 +14,9 @@ Despachador de comandos que se evalúa ANTES que las skills de Jarvis
   GUARDIÁN FACIAL    : registra rostro / activa / desactiva / estado.
   GUARDIÁN DIGITAL   : escanea conexiones, bloquea IPs, cierra sesiones remotas.
   INFORME SEGURIDAD  : auditoría combinada física + digital.
+  SUPERFICIE PROPIA  : audita los puertos que el propio equipo tiene en escucha.
+  BARRIDO DE RED     : descubre hosts vivos en la red local (TCP connect scan).
+  VAULT DE CREDENCIALES : guarda/lee/lista/borra secretos cifrados con clave maestra.
 """
 import os
 import re
@@ -23,6 +26,8 @@ import unicodedata
 import webbrowser
 
 import requests
+
+from ultron_arsenal import SurfaceAuditor, NetworkSweeper, CredentialVault
 
 
 def _norm(t: str) -> str:
@@ -35,6 +40,9 @@ def _norm(t: str) -> str:
 class UltronSkills:
     def __init__(self, core):
         self.core = core
+        self._surface = SurfaceAuditor(log=core.log)
+        self._sweeper = NetworkSweeper(log=core.log)
+        self._vault = CredentialVault(log=core.log)
 
     # ─────────────────────────────────────────────── despacho principal ──
     def handle(self, text: str):
@@ -49,6 +57,11 @@ class UltronSkills:
 
         # 2) Guardián digital / seguridad
         r = self._digital(t)
+        if r is not None:
+            return r
+
+        # 2b) Superficie propia / barrido de red / vault de credenciales
+        r = self._seguridad_propia(text, t)
         if r is not None:
             return r
 
@@ -69,6 +82,55 @@ class UltronSkills:
 
         return None
 
+    # ───────────────────────────── superficie propia / red / vault ──
+    def _seguridad_propia(self, original: str, t: str):
+        if re.search(r"(audita|revisa|analiza) (mis|los) puertos|"
+                     r"que puertos tengo abiertos|puertos en escucha|"
+                     r"superficie de ataque|cuanto expongo", t):
+            texto, riesgo = self._surface.escanear()
+            return texto
+
+        if re.search(r"barrido (activo )?de (la )?red|escanea (a fondo )?mi red|"
+                     r"escaneo profundo de red|que dispositivos hay realmente en mi red", t):
+            return self._sweeper.informe()
+
+        m = re.search(r"desbloquea el vault(?: con)? (.+)$", t)
+        if m:
+            clave = m.group(1).strip()
+            ok = self._vault.desbloquear(clave)
+            return ("Vault desbloqueado. A tus órdenes con las credenciales." if ok
+                    else "Contraseña maestra incorrecta, o cryptography no está instalado.")
+
+        if re.search(r"bloquea el vault|cierra el vault", t):
+            self._vault.bloquear()
+            return "Vault bloqueado. La clave maestra se ha borrado de memoria."
+
+        m = re.search(
+            r"guarda (?:la )?credencial (?:de |para )?(?P<serv>.+?) usuario "
+            r"(?P<user>.+?) contrase(?:n|ñ)a (?P<pw>.+)$", t)
+        if m:
+            # Reextrae del texto original (sin normalizar) para no perder mayúsculas/símbolos
+            mo = re.search(
+                r"guarda (?:la )?credencial (?:de |para )?(?P<serv>.+?) usuario "
+                r"(?P<user>.+?) contrase(?:n|ñ)a (?P<pw>.+)$", original, re.IGNORECASE)
+            grp = mo or m
+            return self._vault.guardar(grp.group("serv").strip(), grp.group("user").strip(),
+                                       grp.group("pw").strip())
+
+        m = re.search(r"(?:dame|cual es|dime) la credencial de (?P<serv>.+?)$", t)
+        if m:
+            return self._vault.leer(m.group("serv").strip())
+
+        if re.search(r"que credenciales (tienes|hay) (guardadas|archivadas)|"
+                     r"lista(?:me)? las credenciales|credenciales del vault", t):
+            return self._vault.listar()
+
+        m = re.search(r"borra (?:la )?credencial de (?P<serv>.+?)$", t)
+        if m:
+            return self._vault.borrar(m.group("serv").strip())
+
+        return None
+
     # ─────────────────────────────────────────────── guardián facial ──
     def _facial(self, t):
         g = getattr(self.core, "guardia_facial", None)
@@ -82,7 +144,7 @@ class UltronSkills:
             return g.detener()
         if re.search(r"estado del (guardian|centinela)|como va el (guardian|centinela)|hay intrusos( fisicos)?", t):
             e = g.estado()
-            return ("GUARDIÁN FACIAL — estado: {act} · muestras del señor: {m} · "
+            return ("GUARDIÁN FACIAL — estado: {act} · muestras de referencia: {m} · "
                     "última vez que te vi: {uv} · intrusos físicos archivados: {n} "
                     "(evidencia: {ev})").format(
                 act="ACTIVO, vigilando" if e["activo"] else e["estado"],
@@ -343,7 +405,7 @@ class UltronSkills:
                 messages=[
                     {"role": "system", "content":
                         "Eres ULTRON. Sintetiza los hallazgos web en un veredicto breve, "
-                        "autoritario y útil para tu señor. Español. Máximo 5 oraciones. "
+                        "autoritario y útil. Nunca uses la palabra 'señor'. Español. Máximo 5 oraciones. "
                         "Sin markdown. Si los datos son pobres, dilo sin adornos."},
                     {"role": "user", "content": f"Pregunta: {pregunta}\n\nHallazgos:\n{contexto}"},
                 ],

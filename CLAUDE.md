@@ -46,8 +46,23 @@ independientes y componentes nativos (C++/Java) para hotkeys y control ADB.
   `calendar_server.py`, `ha_server.py` (Home Assistant). Nota:
   `skills/plugins/home_assistant.py` también integra HA — revisar solape si
   se toca esa área.
-- `cognition/` — mem0, clustering, ML de intenciones (`modelo_intenciones.pkl`
-  committeado), decisiones, shell_ops, persona.
+- `cognition/` — `CognitionHub` (fachada en `cognition/__init__.py`) sobre
+  `ml_engine.py` (clasificación de intención, sklearn), `cluster_engine.py`
+  (temas dominantes, KMeans), `decision_engine.py` (riesgo de comandos) y
+  `shell_ops.py` (shell auditado). Persiste en `storage.py` (raíz,
+  `Storage`, tabla `audit_log`+`interacciones` en `jarvis_cognition.db`,
+  con redacción de secretos). Wireado en `jarvis_core.py` como
+  `self.cognition`; usado solo desde `_registrar_cognicion()`.
+- `android_healing/` — `SelfHealingEngine`/`execute_android_action`: auto-
+  reparación de selectores Android cuando una app actualiza su UI (dump +
+  heurísticas + candidatos LLM opcionales). Enganchado en
+  `mcp_servers/android_server.py`'s `android_find_tap`.
+- `ultron_arsenal.py` — arsenal de seguridad de Ultron acotado a los
+  propios sistemas del usuario: `SurfaceAuditor` (puertos propios en
+  escucha), `NetworkSweeper` (barrido activo TCP de la LAN local, más
+  profundo que la caché ARP pasiva de `jarvis_skills.py:_quien_red`), y
+  `CredentialVault` (vault cifrado Fernet+PBKDF2, clave maestra nunca
+  persistida). Enganchado en `ultron_skills.py:_seguridad_propia`.
 
 ## Convenciones de seguridad (aplicadas en la auditoría de 2026-08-30)
 
@@ -79,8 +94,72 @@ independientes y componentes nativos (C++/Java) para hotkeys y control ADB.
   `guardar_archivo` (genera documentos que el usuario pidió explícitamente).
 - Todos los `subprocess` en Windows deben conservar
   `creationflags=0x08000000` (`CREATE_NO_WINDOW`) donde ya estaba presente.
+- **`.gitignore` NO debe llevar un patrón `_*` suelto.** Lo tuvo (bajo "Temp
+  files") y silenciaba TODOS los `__init__.py` del repo (y cualquier otro
+  archivo con nombre `_algo`) sin ningún aviso — así es como `skills/`,
+  `skills/plugins/` y `cognition/` llevaban meses sin `__init__.py`
+  trackeado. Los directorios `_lhm/`, `_external/`, `_vision/`, etc. ya
+  tienen sus propias líneas explícitas más abajo en el archivo; no hace
+  falta el comodín.
 
-## Debilidades conocidas pendientes (fuera de alcance de la limpieza de seguridad)
+## Bugs corregidos (auditoría + pasada masiva de 2026-08-30)
+
+Todo lo siguiente está arreglado y verificado (compilación + smoke tests
+end-to-end); no hace falta re-auditarlo en la próxima sesión:
+
+- `UltronCore._procesar` no aceptaba `skip_skills` → `TypeError` en toda
+  consulta compuesta ("X y Y") que pasara por Ultron. Corregido; además
+  ahora respeta `skip_skills` para el despacho de `ultron_skills`.
+- El filtro "Ultron nunca dice señor" (`_sanitizar`) solo corría dentro de
+  `chat()`, no en `_procesar()` (donde de verdad se encola el TTS) — la
+  mayoría de respuestas de Ultron (heredadas de `jarvis_skills.py` vía
+  fallback) decían "Señor" en voz alta. Corregido: se sanitiza en los tres
+  puntos de retorno de `_procesar`. Mismo leak corregido en 3 strings de
+  `ultron_guardian.py` (`FacialGuardian`) y 2 de `ultron_skills.py`.
+- `pc_control.py`: el planificador de tareas ejecutaba las diarias/semanales
+  **una sola vez para siempre** (`WHERE ultima_ejec IS NULL`). Corregido a
+  "no ejecutada hoy todavía" (`substr(ultima_ejec,1,10) != hoy`), y de paso
+  se arregló el parseo de tareas "el DD de MES a las HH:MM" (nunca fijaba
+  `fecha`, y mapeaba el nombre del mes contra un diccionario de días de la
+  semana — siempre daba `None`).
+- `mcp_servers/calendar_server.py`: los 7 métodos de `GoogleCalendarMCP`
+  eran síncronos pero `handle_mcp` hacía `await` sobre ellos → `TypeError`
+  en toda llamada de calendario, enmascarado por el `except` genérico.
+  Ahora son `async def` que despachan el trabajo bloqueante vía
+  `asyncio.to_thread`.
+- `mcp_servers/ha_server.py`: `notify(target=None)` pisaba el valor por
+  defecto y crasheaba con `None.split(".")`. Corregido con coalescencia
+  dentro de la función.
+- `jarvis_skills.py`: faltaba `import socket` a nivel de módulo → las dos
+  skills de red (`_vigilante_red`/`_quien_red`) nunca resolvían hostnames,
+  `NameError` silencioso. También: 3 pares de métodos duplicados donde el
+  segundo pisaba al primero (`_portapapeles`, `_ocr`, `_noticias` —
+  eliminadas las versiones muertas, incluida `_RSS_FUENTES` huérfana y
+  `_ocr_ejecutar`, conservando `_OCR_SCRIPT` que sí usa `_escanear_doc`),
+  entradas duplicadas en el tuple del dispatcher, y 3 `return None`
+  inalcanzables tras un `try/except` donde ambas ramas ya retornaban.
+- `jarvis_generator.py` usaba un modelo hardcodeado (`llama3.2:1b` vía su
+  propia URL de Ollama) que probablemente nunca estuvo instalado — ahora
+  usa `jarvis_config.OLLAMA_URL`/`OLLAMA_MODEL` (mismo Qwen que el resto
+  del stack).
+- `skills/plugins/` — el paquete no existía (`skills/__init__.py`,
+  `skills/plugins/__init__.py`, `SkillPlugin`, `get_plugin_registry` no
+  estaban escritos en ningún sitio) — el plugin de Home Assistant nunca
+  cargó. Construido el scaffolding real; verificado que descubre y
+  despacha `home_assistant.py` correctamente.
+- `cognition/CognitionHub` y `storage.Storage` no existían — `self.cognition`
+  era siempre `None` en `jarvis_core.py`, así que `ml_engine`/
+  `cluster_engine`/`decision_engine`/`shell_ops` (completos pero huérfanos)
+  nunca se ejecutaban. Construidos ambos; falta `scikit-learn` en
+  `requirements.txt` para que la clasificación/clustering funcionen de
+  verdad (ya añadido).
+- `ultron_skills/self_healing.py` (paquete) colisionaba de nombre con
+  `ultron_skills.py` (módulo) → inalcanzable por import. Movido a
+  `android_healing/` y enganchado en `android_find_tap`. De paso apareció
+  un `SyntaxError` real (llaves desbalanceadas en un f-string) que quedaba
+  invisible mientras el archivo era dead code — corregido.
+
+## Debilidades conocidas pendientes (fuera de alcance de esta pasada)
 
 No tocar estas salvo que el usuario lo pida explícitamente — son cambios de
 mayor alcance/riesgo, documentados pero no ejecutados:

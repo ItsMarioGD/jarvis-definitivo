@@ -55,6 +55,12 @@ google-auth-httplib2>=0.1.0
 # Mem0 (memoria tripartita)
 mem0ai>=0.1.0
 
+# Cognición (clasificación de intención + clustering temático, cognition/)
+scikit-learn>=1.3.0
+
+# Arsenal de seguridad de Ultron (vault de credenciales cifrado)
+cryptography>=42.0.0
+
 # Headroom (compresión contexto) — paquete interno NO publicado en PyPI.
 # El import en jarvis_core.py está protegido con try/except, así que la app
 # funciona sin esta dependencia (se omite la compresión de contexto).

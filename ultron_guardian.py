@@ -161,8 +161,8 @@ class FacialGuardian:
         modelo = self._entrenar()
         if modelo is None:
             return "Registré rostros pero el entrenamiento falló. Revisa rostros_conocidos."
-        return (f"{capturadas} muestras de tu rostro archivadas, señor. "
-                "Modelo entrenado. Ya reconozco a mi amo.")
+        return (f"{capturadas} muestras de tu rostro archivadas. "
+                "Modelo entrenado. Ya te reconozco.")
 
     # ── vigilancia ──
     def iniciar(self):
@@ -263,7 +263,7 @@ class FacialGuardian:
         except Exception as e:
             self.log(f"[GUARDIAN] Bloqueo físico falló: {e}")
         self.alerta("Intruso identificado. Evidencia archivada. "
-                    "Bloqueando tu imperio, mi señor.")
+                    "Bloqueando el imperio.")
 
     def estado(self):
         n_eventos = 0
@@ -426,7 +426,7 @@ class DigitalGuardian:
             fe = facial_estado
             partes.append(
                 f"Guardián facial: {'ACTIVO' if fe.get('activo') else 'inactivo'} · "
-                f"muestras del señor: {fe.get('muestras', 0)} · "
+                f"muestras de referencia: {fe.get('muestras', 0)} · "
                 f"intrusos físicos archivados: {fe.get('intrusos_registrados', 0)}.")
         return "\n".join(partes)
 

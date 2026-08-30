@@ -870,9 +870,24 @@ class PCControl:
             elif m.group(10):
                 hora = _hmm(m.group(10), m.group(11))
             elif m.group(12) and m.group(13):
-                dia = {"lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3,
-                       "viernes": 4, "sabado": 5, "domingo": 6}.get(m.group(13), None)
+                meses = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5,
+                         "junio": 6, "julio": 7, "agosto": 8, "septiembre": 9,
+                         "octubre": 10, "noviembre": 11, "diciembre": 12}
+                mes_num = meses.get(_norm(m.group(13)))
                 hora = _hmm(m.group(14), m.group(15))
+                if mes_num:
+                    hoy_dt = datetime.now()
+                    candidata = None
+                    for anio in (hoy_dt.year, hoy_dt.year + 1):
+                        try:
+                            cand = datetime(anio, mes_num, int(m.group(12)))
+                        except ValueError:
+                            continue
+                        if cand.date() >= hoy_dt.date():
+                            candidata = cand
+                            break
+                    if candidata:
+                        fecha = candidata.strftime("%Y-%m-%d")
             elif m.group(16):
                 # cada N minutos/horas → se guarda como diaria con hora ahora
                 hora = datetime.now().strftime("%H:%M")
@@ -955,10 +970,17 @@ class PCControl:
             try:
                 ahora = datetime.now()
                 clave = ahora.strftime("%H:%M")
+                hoy = ahora.strftime("%Y-%m-%d")
                 with self._db_lock, self._dbconn() as c:
+                    # Diarias/semanales (fecha NULL): disparan cada vez que toque el
+                    # horario, pero como mucho una vez por día natural (ultima_ejec).
+                    # De una sola vez (fecha fijada): solo disparan en su fecha exacta;
+                    # una vez pasada esa fecha jamás vuelven a matchear.
                     rows = c.execute(
-                        "SELECT * FROM pc_tasks WHERE activo=1 AND hora=? AND ultima_ejec IS NULL",
-                        (clave,)).fetchall()
+                        "SELECT * FROM pc_tasks WHERE activo=1 AND hora=? "
+                        "AND (fecha IS NULL OR fecha=?) "
+                        "AND (ultima_ejec IS NULL OR substr(ultima_ejec,1,10)!=?)",
+                        (clave, hoy, hoy)).fetchall()
                     for r in rows:
                         if r["dia"] is None or r["dia"] == ahora.weekday():
                             c.execute("UPDATE pc_tasks SET ultima_ejec=? WHERE id=?",

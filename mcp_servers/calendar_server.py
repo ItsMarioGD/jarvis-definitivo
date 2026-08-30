@@ -9,6 +9,7 @@ import os
 import json
 import sys
 import pickle
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
@@ -72,98 +73,102 @@ class GoogleCalendarMCP:
 
     # ─── Herramientas MCP ───
 
-    def list_events(self, time_min: str = None, time_max: str = None,
-                    max_results: int = 20, query: str = None) -> List[Dict]:
+    async def list_events(self, time_min: str = None, time_max: str = None,
+                          max_results: int = 20, query: str = None) -> List[Dict]:
         """Lista eventos en rango temporal."""
-        service = self._get_service()
-        now = datetime.now(timezone.utc).isoformat()
+        def _run():
+            service = self._get_service()
+            now = datetime.now(timezone.utc).isoformat()
+            events_result = service.events().list(
+                calendarId=self.config.calendar_id,
+                timeMin=time_min or now,
+                timeMax=time_max,
+                maxResults=max_results,
+                singleEvents=True,
+                orderBy="startTime",
+                q=query
+            ).execute()
+            events = events_result.get("items", [])
+            return [self._format_event(e) for e in events]
+        return await asyncio.to_thread(_run)
 
-        events_result = service.events().list(
-            calendarId=self.config.calendar_id,
-            timeMin=time_min or now,
-            timeMax=time_max,
-            maxResults=max_results,
-            singleEvents=True,
-            orderBy="startTime",
-            q=query
-        ).execute()
+    async def get_event(self, event_id: str) -> Dict:
+        def _run():
+            service = self._get_service()
+            event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
+            return self._format_event(event)
+        return await asyncio.to_thread(_run)
 
-        events = events_result.get("items", [])
-        return [self._format_event(e) for e in events]
-
-    def get_event(self, event_id: str) -> Dict:
-        service = self._get_service()
-        event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
-        return self._format_event(event)
-
-    def create_event(self, summary: str, start: str, end: str,
-                     description: str = "", location: str = "",
-                     attendees: List[str] = None, reminders: List[Dict] = None) -> Dict:
+    async def create_event(self, summary: str, start: str, end: str,
+                           description: str = "", location: str = "",
+                           attendees: List[str] = None, reminders: List[Dict] = None) -> Dict:
         """Crea evento. start/end en ISO format (2024-01-15T10:00:00)."""
-        service = self._get_service()
+        def _run():
+            service = self._get_service()
+            event = {
+                "summary": summary,
+                "location": location,
+                "description": description,
+                "start": {"dateTime": start, "timeZone": "Europe/Madrid"},
+                "end": {"dateTime": end, "timeZone": "Europe/Madrid"},
+            }
+            if attendees:
+                event["attendees"] = [{"email": email} for email in attendees]
+            if reminders:
+                event["reminders"] = {"useDefault": False, "overrides": reminders}
+            else:
+                event["reminders"] = {"useDefault": True}
+            created = service.events().insert(calendarId=self.config.calendar_id, body=event).execute()
+            return self._format_event(created)
+        return await asyncio.to_thread(_run)
 
-        event = {
-            "summary": summary,
-            "location": location,
-            "description": description,
-            "start": {"dateTime": start, "timeZone": "Europe/Madrid"},
-            "end": {"dateTime": end, "timeZone": "Europe/Madrid"},
-        }
-
-        if attendees:
-            event["attendees"] = [{"email": email} for email in attendees]
-
-        if reminders:
-            event["reminders"] = {"useDefault": False, "overrides": reminders}
-        else:
-            event["reminders"] = {"useDefault": True}
-
-        created = service.events().insert(calendarId=self.config.calendar_id, body=event).execute()
-        return self._format_event(created)
-
-    def update_event(self, event_id: str, **updates) -> Dict:
+    async def update_event(self, event_id: str, **updates) -> Dict:
         """Actualiza campos de un evento."""
-        service = self._get_service()
-        event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
+        def _run():
+            service = self._get_service()
+            event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
+            for key, value in updates.items():
+                if key in ("summary", "description", "location"):
+                    event[key] = value
+                elif key == "start":
+                    event["start"]["dateTime"] = value
+                elif key == "end":
+                    event["end"]["dateTime"] = value
+                elif key == "attendees":
+                    event["attendees"] = [{"email": e} for e in value]
+            updated = service.events().update(calendarId=self.config.calendar_id,
+                                               eventId=event_id, body=event).execute()
+            return self._format_event(updated)
+        return await asyncio.to_thread(_run)
 
-        for key, value in updates.items():
-            if key in ("summary", "description", "location"):
-                event[key] = value
-            elif key == "start":
-                event["start"]["dateTime"] = value
-            elif key == "end":
-                event["end"]["dateTime"] = value
-            elif key == "attendees":
-                event["attendees"] = [{"email": e} for e in value]
+    async def delete_event(self, event_id: str) -> bool:
+        def _run():
+            service = self._get_service()
+            service.events().delete(calendarId=self.config.calendar_id, eventId=event_id).execute()
+            return True
+        return await asyncio.to_thread(_run)
 
-        updated = service.events().update(calendarId=self.config.calendar_id,
-                                           eventId=event_id, body=event).execute()
-        return self._format_event(updated)
-
-    def delete_event(self, event_id: str) -> bool:
-        service = self._get_service()
-        service.events().delete(calendarId=self.config.calendar_id, eventId=event_id).execute()
-        return True
-
-    def get_free_busy(self, time_min: str, time_max: str,
-                      calendars: List[str] = None) -> Dict:
+    async def get_free_busy(self, time_min: str, time_max: str,
+                            calendars: List[str] = None) -> Dict:
         """Consulta disponibilidad (free/busy)."""
-        service = self._get_service()
-        cal_list = calendars or [self.config.calendar_id]
+        def _run():
+            service = self._get_service()
+            cal_list = calendars or [self.config.calendar_id]
+            body = {
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "items": [{"id": cal} for cal in cal_list]
+            }
+            result = service.freebusy().query(body=body).execute()
+            return result.get("calendars", {})
+        return await asyncio.to_thread(_run)
 
-        body = {
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "items": [{"id": cal} for cal in cal_list]
-        }
-
-        result = service.freebusy().query(body=body).execute()
-        return result.get("calendars", {})
-
-    def list_calendars(self) -> List[Dict]:
-        service = self._get_service()
-        result = service.calendarList().list().execute()
-        return result.get("items", [])
+    async def list_calendars(self) -> List[Dict]:
+        def _run():
+            service = self._get_service()
+            result = service.calendarList().list().execute()
+            return result.get("items", [])
+        return await asyncio.to_thread(_run)
 
     @staticmethod
     def _format_event(event: Dict) -> Dict:
