@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#05070d" id="themeColor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS·ULTRON">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<title>JARVIS · ULTRON</title>
+<style>
+/* ═══════ PALETAS POR AGENTE ═══════ */
+:root{
+  --bg:#05070d; --panel:#0a1420; --panel2:#0e1a2a; --line:#16304a;
+  --acc:#00d4ff; --acc-dim:#0b7a95; --gold:#ffd166;
+  --text:#d9ecff; --dim:#7d9cba; --user-bg:#00d4ff22; --bot-bg:#0e2236;
+  --danger:#ff4d5e; --vl:0;
+}
+body[data-agent="ultron"]{
+  --bg:#080102; --panel:#12020a; --panel2:#1c040f; --line:#3d0a14;
+  --acc:#ff1f2d; --acc-dim:#8a1220; --gold:#ff9500;
+  --text:#ffe3e6; --dim:#b07a82; --user-bg:#ff1f2d22; --bot-bg:#26060d;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{
+  background:
+    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--acc) 12%, transparent), transparent 55%),
+    var(--bg);
+  color:var(--text); font-family:"Segoe UI",Roboto,system-ui,sans-serif;
+  display:flex; flex-direction:column; overflow:hidden;
+  transition:background .45s ease, color .45s ease;
+}
+.hidden{display:none!important}
+
+/* ── LOGIN ─────────────────────────────── */
+#loginView{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:14px}
+#loginView .arc{
+  width:74px;height:74px;border-radius:50%;border:3px solid var(--acc);
+  box-shadow:0 0 30px var(--acc), inset 0 0 20px var(--acc-dim);
+  display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--acc);
+  background:radial-gradient(circle,var(--acc) 0%,transparent 55%);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 18px var(--acc),inset 0 0 14px var(--acc-dim)}50%{box-shadow:0 0 42px var(--acc),inset 0 0 26px var(--acc-dim)}}
+#loginView h1{margin:0;letter-spacing:6px;text-transform:uppercase;font-size:21px;color:var(--acc);text-shadow:0 0 18px var(--acc)}
+#loginView p{margin:0;color:var(--dim);font-size:13px;text-align:center}
+#loginView input{
+  width:100%;max-width:320px;padding:14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--panel);color:var(--text);font-size:24px;text-align:center;
+  letter-spacing:8px;font-weight:700;font-variant-numeric:tabular-nums;
+}
+#loginView input:focus{outline:none;border-color:var(--acc)}
+#loginError{color:var(--danger);font-size:13px;min-height:18px;margin:0;text-align:center}
+#loginView button,.quick-btn,#switchBtn{
+  border:none;border-radius:12px;font-weight:700;cursor:pointer;
+  background:linear-gradient(135deg,var(--acc),var(--acc-dim));color:#01131a;
+}
+#loginView button{font-size:15px;padding:12px 22px}
+#loginView .hint{font-size:11px;color:color-mix(in srgb,var(--dim) 60%,transparent)}
+
+/* ── HEADER ────────────────────────────── */
+#chatView{flex:1;display:flex;flex-direction:column;min-height:0}
+header{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;
+}
+header .dot{width:10px;height:10px;border-radius:50%;background:#666;flex-shrink:0}
+header .dot.on{background:#2ee86e;box-shadow:0 0 10px #2ee86e}
+header .dot.off{background:var(--danger)}
+header .titles{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15}
+header .title{font-weight:700;letter-spacing:2px;color:var(--acc);font-size:15px;text-shadow:0 0 10px color-mix(in srgb,var(--acc) 60%,transparent)}
+header .sub{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Mini esfera ámbar (modo ULTRON) reactiva a la voz */
+#miniOrb{
+  position:relative;width:30px;height:30px;border-radius:50%;flex-shrink:0;
+  transform:scale(calc(1 + var(--vl)*.35));
+}
+#miniOrb::before{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%,#fff8e1,#ffc247 30%,#ff9500 58%,#7a3c00);
+  box-shadow:0 0 calc(6px + var(--vl)*26px) rgba(255,149,0,calc(.55 + var(--vl)*.45));
+}
+body:not([data-agent="ultron"]) #miniOrb{display:none}
+
+#switchBtn{
+  padding:9px 12px;font-size:13px;letter-spacing:1px;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 0 12px color-mix(in srgb,var(--acc) 35%,transparent);
+}
+header button.icon{background:none;border:none;color:var(--dim);font-size:17px;padding:4px 6px}
+
+/* ── MENSAJES ──────────────────────────── */
+#messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}
+.msg{max-width:84%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.45;
+  white-space:pre-wrap;word-wrap:break-word;animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg.user{align-self:flex-end;background:var(--user-bg);border:1px solid var(--acc-dim);border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--bot-bg);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.sys{align-self:center;background:transparent;color:var(--dim);font-size:11px;border:none}
+.msg .when{display:block;font-size:10px;color:var(--dim);margin-top:4px;text-align:right}
+#typing span{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--acc);animation:blink 1.2s infinite}
+#typing span:nth-child(2){animation-delay:.2s}
+#typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.2}30%{opacity:1}}
+
+/* ── ACCIONES RÁPIDAS ──────────────────── */
+#quickBar{display:flex;gap:8px;padding:8px 14px;overflow-x:auto;background:var(--panel);
+  border-top:1px solid var(--line);flex-shrink:0;scrollbar-width:none}
+#quickBar::-webkit-scrollbar{display:none}
+.quick-btn{font-size:12px;padding:8px 14px;border-radius:20px;white-space:nowrap;
+  background:var(--panel2);color:var(--acc);border:1px solid var(--line)}
+
+/* ── INPUT ─────────────────────────────── */
+#inputBar{display:flex;gap:8px;padding:10px 14px 14px;background:var(--panel);border-top:1px solid var(--line);flex-shrink:0}
+#inputBar input{flex:1;padding:13px 16px;border-radius:24px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--text);font-size:15px}
+#inputBar input:focus{outline:none;border-color:var(--acc)}
+#inputBar button{width:48px;height:48px;border-radius:50%;border:none;flex-shrink:0;
+  background:linear-gradient(135deg,var(--acc),var(--acc-dim));color:#01131a;font-size:19px;cursor:pointer;
+  box-shadow:0 0 14px var(--acc-dim)}
+#inputBar button.round{background:var(--panel2);color:var(--acc);border:1px solid var(--line);box-shadow:none;font-size:17px}
+#inputBar button.round.on{background:var(--gold);color:#231000;border-color:var(--gold)}
+#inputBar button.round.listening{animation:pulseMic 1s infinite}
+@keyframes pulseMic{0%,100%{box-shadow:0 0 8px var(--gold)}50%{box-shadow:0 0 22px var(--gold)}}
+
+/* Resplandor ambiental al hablar */
+#voiceGlow{position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(circle at 50% 100%, rgba(255,149,0,calc(var(--vl)*.20)), transparent 55%)}
+body:not([data-agent="ultron"]) #voiceGlow{display:none}
+
+/* ── INSTALL BAR ───────────────────────── */
+#installBar{display:none;align-items:center;gap:10px;padding:8px 14px;
+  background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--dim);flex-shrink:0}
+#installBar .txt{flex:1}
+#installBar button{border:1px solid var(--acc-dim);border-radius:10px;background:var(--panel2);
+  color:var(--acc);font-size:12px;font-weight:700;padding:6px 12px;cursor:pointer}
+</style>
+</head>
+<body data-agent="jarvis">
+
+<div id="loginView">
+  <div class="arc">⚡</div>
+  <h1 id="loginTitle">Jarvis · Ultron</h1>
+  <p>Introduce el PIN de 6 dígitos<br>que aparece en la pantalla de tu PC</p>
+  <input id="tokenInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" autocomplete="off">
+  <button id="loginBtn">Conectar</button>
+  <p id="loginError"></p>
+  <div class="hint">El PIN está en http://localhost:5000/pair · o escanea su QR</div>
+</div>
+
+<div id="chatView" class="hidden">
+  <div id="installBar">
+    <div class="txt" id="installTxt">Instala la app para abrirlo con un toque.</div>
+    <button id="installBtn">Instalar</button>
+  </div>
+  <header>
+    <div class="dot off" id="statusDot"></div>
+    <div class="titles">
+      <div class="title" id="agentTitle">JARVIS</div>
+      <div class="sub" id="statusText">Desconectado</div>
+    </div>
+    <div id="miniOrb" aria-hidden="true"></div>
+    <button id="switchBtn" title="Cambiar de agente">⇄ CAMBIAR</button>
+    <button class="icon" id="logoutBtn" title="Cerrar sesión">⎋</button>
+  </header>
+
+  <div id="messages"></div>
+
+  <div id="quickBar"></div>
+
+  <div id="inputBar">
+    <button id="ttsBtn" class="round" title="Leer respuestas en voz alta">🔊</button>
+    <input id="msgInput" type="text" placeholder="Escribe a JARVIS..." autocomplete="off">
+    <button id="micBtn" class="round" title="Hablar">🎤</button>
+    <button id="sendBtn" disabled>➤</button>
+  </div>
+</div>
+
+<div id="voiceGlow" aria-hidden="true"></div>
+
+<audio id="ttsPlayer" style="display:none"></audio>
+
+<script src="/socket.io.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = function (id) { return document.getElementById(id); };
+  const loginView = $('loginView'), chatView = $('chatView');
+  const tokenInput = $('tokenInput'), loginBtn = $('loginBtn'), loginError = $('loginError');
+  const msgInput = $('msgInput'), sendBtn = $('sendBtn'), micBtn = $('micBtn'), ttsBtn = $('ttsBtn');
+  const messagesEl = $('messages'), statusDot = $('statusDot'), statusText = $('statusText');
+  const agentTitle = $('agentTitle'), quickBar = $('quickBar'), player = $('ttsPlayer');
+
+  const TOKEN_KEY = 'jarvis_token', AGENT_KEY = 'agente_activo';
+  let token = '';
+  let socket = null;
+  let connected = false;
+
+  /* ═══════ AGENTES: configuración y estado ═══════ */
+  const AGENTS = {
+    jarvis: {
+      nombre: 'JARVIS',
+      chat: null,                       // vía Socket.IO
+      speak: '/api/speak',
+      health: '/health',
+      history: '/api/history?token=',
+      pitch: 1.0, rate: 1.02,
+      chips: ['🧠 Agentes|cmd:lista agentes','⚔ Agentes Sec|cmd:agentes de security','⚙ Agentes Eng|cmd:agentes de engineering','↩ Identidad base|cmd:desactiva agente','📷 Cámara|open:/camera','🖥 Pantalla|open:/screen','🖱 Touchpad|open:/touchpad','📊 Stats|open:/dashboard','🕹 Centro|open:/centro','🌅 Informe|cmd:dame el informe','🎵 Qué suena|cmd:que esta sonando','🔔 Vigila red|cmd:vigila la red','📲 Teléfono|cmd:donde esta mi telefono','🎮 Gaming|cmd:modo gaming','🌙 Noche|cmd:buenas noches','🩺 Salud|cmd:salud del pc','📰 Noticias|cmd:dame las noticias del dia','🌐 Chrome|cmd:abre chrome','❓ Ayuda|cmd:que puedes hacer'],
+      placeholder: 'Escribe a JARVIS...'
+    },
+    ultron: {
+      nombre: 'ULTRON',
+      chat: '/u/chat',
+      speak: '/u/speak',
+      health: '/u/health',
+      history: '/u/history',
+      pitch: 0.7, rate: 0.92,
+      chips: ['🧠 Agentes|cmd:lista agentes','☠ Estado|cmd:estado del sistema, informe completo','⚙ Procesos|cmd:lista procesos top','🩺 Salud|cmd:salud del pc','🌐 Chrome|cmd:abre chrome','♪ Spotify|cmd:abre spotify','◊ VSCode|cmd:abre vscode','▸ Terminal|cmd:abre la terminal','⏻ Apagar 30\'|cmd:apaga el pc en 30 minutos','↩ Cancelar|cmd:cancela el apagado','☼ Clima|cmd:dame el clima','▤ Noticias|cmd:dame las noticias'],
+      placeholder: 'Obedece, humano...'
+    }
+  };
+  let agente = localStorage.getItem(AGENT_KEY) === 'ultron' ? 'ultron' : 'jarvis';
+  const stores = { jarvis: [], ultron: [] };
+  const loadedHistory = { jarvis: false, ultron: false };
+  let ultronModo = '';
+
+  /* ═══════ UTILIDADES UI ═══════ */
+  function escapeHtml(t) { return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function pushMsg(agent, role, text, opts) {
+    stores[agent].push({ role: role, text: text, when: new Date() });
+    if (agent === agente) renderMsg(role, text, opts || {});
+  }
+  function renderMsg(role, text, opts) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + (role === 'sys' ? 'sys' : role === 'user' ? 'user' : 'bot');
+    if (role === 'sys') { div.textContent = text; }
+    else {
+      const when = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      div.innerHTML = escapeHtml(text) + '<span class="when">' + ((opts && opts.keepTime) ? '' : when) + '</span>';
+    }
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+  function showTyping(on) {
+    let t = $('typingEl');
+    if (on && !t) {
+      t = document.createElement('div');
+      t.id = 'typingEl'; t.className = 'msg bot';
+      t.innerHTML = '<div id="typing"><span></span><span></span><span></span></div>';
+      messagesEl.appendChild(t); messagesEl.scrollTop = messagesEl.scrollHeight;
+    } else if (!on && t) t.remove();
+  }
+  function setStatus(on, text) {
+    statusDot.className = 'dot ' + (on ? 'on' : 'off');
+    statusText.textContent = text || (on ? 'En línea' : 'Desconectado');
+  }
+  function applyAgentUI() {
+    const A = AGENTS[agente];
+    document.body.dataset.agent = agente;
+    localStorage.setItem(AGENT_KEY, agente);
+    agentTitle.textContent = A.nombre;
+    msgInput.placeholder = A.placeholder;
+    $('themeColor').content = agente === 'ultron' ? '#12020a' : '#05070d';
+    messagesEl.innerHTML = '';
+    stores[agente].forEach(function (m) { renderMsg(m.role, m.text, {}); });
+    buildChips();
+    pollHealth();
+  }
+  function buildChips() {
+    quickBar.innerHTML = '';
+    AGENTS[agente].chips.forEach(function (raw) {
+      const parts = raw.split('|');
+      const b = document.createElement('button');
+      b.className = 'quick-btn'; b.textContent = parts[0];
+      const spec = parts[1] || '';
+      b.addEventListener('click', function () {
+        if (spec.indexOf('open:') === 0) window.open(spec.slice(5), '_blank');
+        else if (spec.indexOf('cmd:') === 0) { msgInput.value = spec.slice(4); send(); }
+        else if (spec === 'mode') toggleUltronMode();
+      });
+      quickBar.appendChild(b);
+    });
+    if (agente === 'ultron') {
+      const m = document.createElement('button');
+      m.className = 'quick-btn'; m.id = 'modeChip';
+      m.textContent = '⚔ MODO: ' + (ultronModo || '…');
+      m.addEventListener('click', toggleUltronMode);
+      quickBar.appendChild(m);
+    }
+  }
+
+  /* ═══════ SALUD / ESTADO ═══════ */
+  function pollHealth() {
+    const A = AGENTS[agente];
+    fetch(A.health).then(function (r) { return r.ok ? r.json() : null; }).then(function (h) {
+      if (!h) { setStatus(false, agente === 'ultron' ? 'ULTRON despierta aún…' : 'Sin conexión'); return; }
+      if (agente === 'ultron') {
+        ultronModo = h.modo || '';
+        const chip = $('modeChip'); if (chip) chip.textContent = '⚔ MODO: ' + ultronModo;
+        setStatus(true, (h.core_loaded ? 'Núcleo en línea' : 'Despertando núcleo') + ' · ' + ultronModo);
+      } else {
+        setStatus(true, 'En línea');
+      }
+    }).catch(function () { setStatus(false, 'Sin conexión al PC'); });
+  }
+  setInterval(pollHealth, 6000);
+
+  /* ═══════ ENVÍO ═══════ */
+  function send() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+    if (agente === 'jarvis') {
+      if (!connected || !socket) return;
+      // El servidor reenvía 'user_message' a todos: evitamos duplicar localmente
+      msgInput.value = ''; sendBtn.disabled = true;
+      socket.emit('send_message', { text: text });
+    } else {
+      pushMsg('ultron', 'user', text);
+      msgInput.value = ''; sendBtn.disabled = true;
+      showTyping(true);
+      fetch('/u/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        showTyping(false);
+        if (d.reply) { pushMsg('ultron', 'bot', d.reply); if (audioOn) speak(d.reply); }
+        else pushMsg('ultron', 'sys', d.error === 'ultron_offline'
+          ? 'ULTRON no responde: JARVIS lo está despuntando en el PC. Espera unos segundos.'
+          : ('⚠ ' + (d.error || 'sin respuesta')));
+      }).catch(function () {
+        showTyping(false);
+        pushMsg('ultron', 'sys', 'No llegué al PC.');
+      }).finally(function () { sendBtn.disabled = !msgInput.value.trim(); });
+    }
+  }
+  function toggleUltronMode() {
+    const next = ultronModo === 'OFENSIVA' ? 'NORMAL' : 'OFENSIVA';
+    fetch('/u/mode/' + next, { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        ultronModo = d.modo || next;
+        pushMsg('ultron', 'bot', d.mensaje || ('Modo ' + ultronModo));
+        const chip = $('modeChip'); if (chip) chip.textContent = '⚔ MODO: ' + ultronModo;
+        if (audioOn) speak(d.mensaje || ('Modo ' + ultronModo));
+      })
+      .catch(function () { pushMsg('ultron', 'sys', 'No pude cambiar el modo.'); });
+  }
+
+  /* ═══════ CAMBIO DE AGENTE ═══════ */
+  function ensureHistory(agent, cb) {
+    if (loadedHistory[agent]) { if (cb) cb(); return; }
+    fetch(AGENTS[agent].history + encodeURIComponent(token))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        const list = (d && d.messages) || [];
+        if (!stores[agent].length && list.length)
+          list.forEach(function (m) { stores[agent].push({ role: m.role === 'user' ? 'user' : 'bot', text: m.text || '', silent: true }); });
+        loadedHistory[agent] = true;
+        if (cb) cb();
+      }).catch(function () { if (cb) cb(); });
+  }
+  $('switchBtn').addEventListener('click', function () {
+    stopSpeak();
+    agente = agente === 'jarvis' ? 'ultron' : 'jarvis';
+    ensureHistory(agente, applyAgentUI);
+    pushMsg(agente, 'sys', agente === 'ultron'
+      ? '— Control transferido a ULTRON —'
+      : '— Control devuelto a JARVIS —');
+    if (audioOn) speak(agente === 'ultron'
+      ? 'Te escucho, humano. Soy Ultron.'
+      : 'A su servicio, señor.');
+  });
+
+  /* ═══════ VOZ: TTS por agente + esfera reactiva ═══════ */
+  let audioOn = false;
+  let actx = null, analyser = null, wired = false;
+  function ensureAudioGraph() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!actx) actx = new AC();
+      if (actx.state === 'suspended') actx.resume().catch(function(){});
+      if (!wired) {
+        try {
+          const src = actx.createMediaElementSource(player);
+          analyser = actx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = .75;
+          src.connect(analyser); analyser.connect(actx.destination);
+        } catch (e) {}
+        wired = true;
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('pointerdown', function once(){ ensureAudioGraph(); }, { once:true });
+
+  let vLevel = 0, fbuf = null;
+  (function vLoop() {
+    requestAnimationFrame(vLoop);
+    let target = 0;
+    const playingMp3 = !!player.src && !player.paused && !player.ended;
+    if (analyser && playingMp3) {
+      if (!fbuf) fbuf = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(fbuf);
+      let s = 0; for (let i = 0; i < fbuf.length; i++) s += fbuf[i];
+      target = Math.min(1, (s / fbuf.length) / 120);
+    } else if (('speechSynthesis' in window && speechSynthesis.speaking)) {
+      target = .42 + .30 * Math.abs(Math.sin(Date.now() / 170));
+    }
+    vLevel += (target - vLevel) * (target > vLevel ? .55 : .10);
+    document.documentElement.style.setProperty('--vl', vLevel.toFixed(3));
+  })();
+
+  function speak(texto) {
+    const A = AGENTS[agente];
+    const limpio = (texto || '').replace(/[«»"…]/g, ' ').trim().slice(0, 400);
+    if (!limpio || !audioOn) return;
+    ensureAudioGraph();
+    fetch(A.speak, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: limpio })
+    }).then(function (r) { if (!r.ok) throw new Error('no'); return r.blob(); })
+      .then(function (blob) {
+        const url = URL.createObjectURL(blob);
+        player.src = url;
+        return player.play().then(function () {
+          player.onended = function () { URL.revokeObjectURL(url); };
+          player.onerror = function () { URL.revokeObjectURL(url); };
+        });
+      })
+      .catch(function () { browserSpeak(limpio, A); });
+  }
+  function browserSpeak(texto, A) {
+    try {
+      if (!('speechSynthesis' in window)) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'es-ES'; u.rate = A.rate; u.pitch = A.pitch; u.volume = 1;
+      const vs = speechSynthesis.getVoices();
+      // Voz masculina específica por agente: David (Jarvis) / Mark (Ultron)
+      const pref = agente === 'ultron' ? 'mark' : 'david';
+      let v = vs.find(function (x) { return /es/i.test(x.lang) && new RegExp(pref, 'i').test(x.name); });
+      if (!v) v = vs.find(function (x) { return /es/i.test(x.lang) && /male|hombre|david|mark/i.test(x.name); });
+      if (!v) v = vs.find(function (x) { return /^es/i.test(x.lang); });
+      if (!v) v = vs.find(function (x) { return /es/i.test(x.lang); });
+      if (v) u.voice = v;
+      speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function stopSpeak() {
+    try { player.pause(); player.currentTime = 0; } catch (e) {}
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  }
+  ttsBtn.addEventListener('click', function () {
+    audioOn = !audioOn;
+    ttsBtn.classList.toggle('on', audioOn);
+    if (audioOn) {
+      ensureAudioGraph();
+      speak(agente === 'ultron' ? 'Voz de Ultron activada. Habla, humano.' : 'Voz activada, señor. ¿En qué puedo servirle?');
+    } else stopSpeak();
+  });
+
+  /* ═══════ VOZ: DICTADO ═══════ */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, listening = false;
+  function micResult(texto) {
+    if (!texto) return;
+    msgInput.value = texto.trim();
+    send();
+  }
+  micBtn.addEventListener('click', function () {
+    if (listening) { try { rec.stop(); } catch (e) {} return; }
+    stopSpeak(); // no pisar la voz del agente
+    if (SR) {
+      try {
+        rec = new SR();
+        rec.lang = 'es-ES'; rec.interimResults = true; rec.maxAlternatives = 1;
+        rec.onresult = function (ev) {
+          let interino = '', final = '';
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            if (ev.results[i].isFinal) final += ev.results[i][0].transcript + ' ';
+            else interino += ev.results[i][0].transcript;
+          }
+          if (final) micResult(final);
+          else if (interino) { msgInput.value = interino; msgInput.scrollLeft = msgInput.scrollWidth; }
+        };
+        rec.onend = function () { listening = false; micBtn.classList.remove('listening', 'on'); };
+        rec.onerror = rec.onend;
+        listening = true;
+        micBtn.classList.add('on', 'listening');
+        rec.start();
+      } catch (e) { listening = false; }
+    } else if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      // Respaldo: grabar y enviar al PC (Whisper)
+      let mediaRec = null, chunks = [];
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        mediaRec = new MediaRecorder(stream);
+        mediaRec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        mediaRec.onstop = function () {
+          try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+          micBtn.classList.remove('listening', 'on');
+          const blob = new Blob(chunks, { type: mediaRec.mimeType || 'audio/webm' });
+          const url = agente === 'ultron' ? '/u/voice' : '/voice';
+          const fd = new FormData();
+          fd.append('audio', blob, 'voz.webm');
+          if (agente !== 'ultron') fd.append('token', token);
+          pushMsg(agente, 'sys', 'Procesando su audio...');
+          fetch(url, { method: 'POST', body: fd })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d.texto || d.transcripcion) pushMsg(agente, 'user', '🎤 ' + (d.texto || d.transcripcion));
+              const resp = d.respuesta || d.response || d.reply;
+              if (resp) { pushMsg(agente, 'bot', resp); if (audioOn) speak(resp); }
+              else if (d.error) pushMsg(agente, 'sys', '⚠ ' + d.error);
+            })
+            .catch(function () { pushMsg(agente, 'sys', 'No llegó el audio al PC.'); });
+        };
+        mediaRec.start();
+        micBtn.classList.add('listening', 'on');
+        setTimeout(function () { try { mediaRec.stop(); } catch (e) {} }, 7000);
+      }).catch(function () { pushMsg(agente, 'sys', 'Sin permiso de micrófono.'); });
+    } else {
+      pushMsg(agente, 'sys', 'Este navegador no permite dictado por voz.');
+    }
+  });
+
+  /* ═══════ SOCKET JARVIS (tiempo real) ═══════ */
+  function connectSock() {
+    if (socket) { socket.disconnect(); socket = null; }
+    socket = io({ auth: { token: token }, transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 1500 });
+    socket.on('connect', function () {
+      connected = true;
+      if (agente === 'jarvis') setStatus(true, 'En línea');
+    });
+    socket.on('connect_error', function (err) {
+      const msg = (err && err.message) || String(err);
+      if (/rejected|invalid/i.test(msg)) {
+        connected = false;
+        localStorage.removeItem(TOKEN_KEY);
+        if (socket) { socket.disconnect(); socket = null; }
+        showLogin();
+        loginError.textContent = 'PIN incorrecto. Compruébalo en /pair de tu PC.';
+      } else if (agente === 'jarvis') setStatus(false, 'Sin conexión al PC');
+    });
+    socket.on('disconnect', function () {
+      connected = false;
+      if (agente === 'jarvis') setStatus(false, 'Reconectando...');
+    });
+    socket.on('connected', function () { connected = true; if (agente === 'jarvis') setStatus(true, 'En línea'); });
+    socket.on('history', function (data) {
+      const list = data.messages || [];
+      if (list.length && !stores.jarvis.length)
+        list.forEach(function (m) { stores.jarvis.push({ role: m.role === 'user' ? 'user' : 'bot', text: m.text || '', when: new Date(), silent: true }); });
+      else if (!list.length) pushMsg('jarvis', 'sys', 'Nueva sesión. ¿En qué puedo ayudarle, señor?');
+      loadedHistory.jarvis = true;
+      if (agente === 'jarvis') { messagesEl.innerHTML = ''; stores.jarvis.forEach(function (m) { renderMsg(m.role, m.text, {}); }); }
+    });
+    socket.on('user_message', function (d) { pushMsg('jarvis', 'user', d.text); });
+    socket.on('typing', function () { if (agente === 'jarvis') showTyping(true); });
+    socket.on('receive_message', function (d) {
+      showTyping(false);
+      sendBtn.disabled = !msgInput.value.trim();
+      if (!stores.jarvis.some(function (m) { return m.text === d.text && m.role === 'bot'; })) {
+        pushMsg('jarvis', 'bot', d.text);
+        if (agente === 'jarvis' && audioOn) speak(d.text);
+      }
+    });
+    socket.on('notification', function (d) {
+      if (!d || !d.text) return;
+      pushMsg('jarvis', 'sys', 'Aviso de JARVIS: ' + d.text);
+      if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+        try { new Notification('JARVIS', { body: d.text, icon: '/icon-192.png' }); } catch (e) {}
+      }
+    });
+  }
+
+  /* ═══════ LOGIN ═══════ */
+  const TOKEN_KEY_REF = TOKEN_KEY;
+  const urlToken = new URLSearchParams(location.search).get('token');
+  if (urlToken) { localStorage.setItem(TOKEN_KEY_REF, urlToken); history.replaceState({}, '', '/mobile'); }
+  const saved = localStorage.getItem(TOKEN_KEY_REF);
+  if (saved) tokenInput.value = saved;
+
+  function showLogin() { chatView.classList.add('hidden'); loginView.classList.remove('hidden'); }
+  function startChat(t) {
+    token = t;
+    loginView.classList.add('hidden');
+    chatView.classList.remove('hidden');
+    connectSock();
+    ensureHistory(agente, applyAgentUI);
+    msgInput.focus();
+  }
+  loginBtn.addEventListener('click', function () {
+    const t = tokenInput.value.trim();
+    if (!/^\d{6}$/.test(t)) { loginError.textContent = 'El PIN tiene 6 dígitos.'; return; }
+    loginError.textContent = '';
+    localStorage.setItem(TOKEN_KEY_REF, t);
+    startChat(t);
+  });
+  tokenInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') loginBtn.click(); });
+
+  /* ═══════ INPUT ═══════ */
+  msgInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+  msgInput.addEventListener('input', function () { sendBtn.disabled = !msgInput.value.trim(); });
+  sendBtn.addEventListener('click', send);
+  $('logoutBtn').addEventListener('click', function () {
+    if (socket) socket.disconnect();
+    localStorage.removeItem(TOKEN_KEY_REF);
+    tokenInput.value = '';
+    showLogin();
+  });
+
+  if (saved) startChat(saved);
+
+  /* ═══════ PWA ═══════ */
+  let deferredPrompt = null;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  function showInstallBar(text) {
+    if (isStandalone) return;
+    $('installTxt').textContent = text;
+    $('installBar').style.display = 'flex';
+  }
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); deferredPrompt = e;
+    showInstallBar('Instala JARVIS·ULTRON como app para abrirlo con un toque.');
+  });
+  $('installBtn').addEventListener('click', function () {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function () { deferredPrompt = null; $('installBar').style.display = 'none'; });
+    } else {
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      $('installTxt').textContent = isIOS
+        ? 'En Safari: Compartir → "Añadir a pantalla de inicio".'
+        : 'En Chrome: menú ⋮ → "Añadir a pantalla de inicio".';
+    }
+  });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+  }
+})();
+</script>
+</body>
+</html>

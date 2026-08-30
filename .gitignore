@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# Auth tokens
+*.jarvis_auth
+*.ultron_auth
+.jarvis_auth
+.ultron_auth
+
+# Logs
+*.log
+
+# Temp files
+_*
+*.tmp
+*.bak
+
+# IDE
+.vscode/
+
+# Node
+node_modules/
+jarvis-fui/node_modules/
+jarvis-fui/dist/
+liquid-glass-jarvis/node_modules/
+liquid-glass-jarvis/dist/
+web-hud/node_modules/
+web-hud/dist/
+_ext_jarvis_hud/node_modules/
+
+# External libs
+_lhm/
+_external/
+_freebuff/
+.freebuff/
+
+# Build artifacts
+*.exe
+*.obj
+*.o
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated / runtime
+Descargas/
+storage/
+jarvis_log/
+_vision/
+ultron_web.log
+flask_log.txt
+codegen_test*.txt
+test*_output.txt
+test*_log.txt

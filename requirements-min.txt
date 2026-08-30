@@ -1,0 +1,43 @@
+# Dependencias MINIMAS de Jarvis - Solo chat y UI
+# Instalar con: pip install -r requirements-min.txt
+# Esto evita descargar ~300 MB de pipecat/aiortc que no se usan en Fase 1.
+
+# Cliente OpenAI-compatible para hablar con Ollama (Qwen3 local)
+openai>=1.12.0
+
+# Reconocimiento de voz (Google Speech Recognition gratuito)
+SpeechRecognition>=3.10.0
+# PyAudio requiere compilación; en Windows es habitual que falle.
+# Jarvis detecta la ausencia y usa solo el chat.
+
+# Telemetría del sistema (CPU, RAM, red, disco)
+psutil>=5.9.0
+
+# Carga de variables de entorno (.env)
+python-dotenv>=1.0.0
+
+# Peticiones HTTP (ElevenLabs, health checks)
+requests>=2.31.0
+
+# Interfaz gráfica HUD (Arc Reactor sobre Tkinter)
+customtkinter>=5.2.0
+
+# Reproducción local de audio TTS (opcional: si falta, usa reproductor nativo)
+pygame>=2.5.0
+
+# Generación local de imágenes de respaldo (Pillow)
+Pillow>=10.0.0
+
+# ----------------------------------------------------------------------
+# Dependencias OPCIONALES del generador universal (jarvis_generator.py)
+# Si solo quieres chatear, NO necesitas instalar estas. Se cargan
+# perezosamente y el módulo reporta error si falta alguna.
+# ----------------------------------------------------------------------
+# numpy
+# matplotlib
+# numpy-stl
+# openpyxl
+# python-pptx
+# python-docx
+# reportlab
+# flask          # solo si vas a usar la web_interface

@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #02060a;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: #cfeffd;
+  -webkit-font-smoothing: antialiased;
+  cursor: crosshair;
+}
+
+/* ---------- Liquid Glass panel base ---------- */
+.glass {
+  position: relative;
+  background: linear-gradient(
+    135deg,
+    rgba(10, 42, 48, 0.42) 0%,
+    rgba(2, 12, 18, 0.55) 45%,
+    rgba(4, 20, 26, 0.38) 100%
+  );
+  backdrop-filter: blur(22px) saturate(160%) brightness(1.05);
+  -webkit-backdrop-filter: blur(22px) saturate(160%) brightness(1.05);
+  border-radius: 18px;
+  box-shadow:
+    0 0 0 1px rgba(33, 230, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 40px rgba(33, 230, 255, 0.06),
+    0 30px 80px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* faint refraction sheen across the glass */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    120% 80% at 20% 0%,
+    rgba(255, 255, 255, 0.1),
+    transparent 60%
+  );
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* ---------- Neon gas-flow border tube ---------- */
+.glass-tube {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  padding: 1.5px;
+  background: linear-gradient(
+    115deg,
+    rgba(33, 230, 255, 0) 0%,
+    rgba(33, 230, 255, 0.9) 18%,
+    rgba(255, 122, 24, 0.95) 38%,
+    rgba(255, 255, 255, 0.1) 52%,
+    rgba(33, 230, 255, 0.9) 70%,
+    rgba(31, 107, 255, 0.85) 88%,
+    rgba(33, 230, 255, 0) 100%
+  );
+  background-size: 200% 200%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: gasflow 6s linear infinite;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(33, 230, 255, 0.5));
+}
+
+/* ---------- Chromatic edge accents (aberration on corners) ---------- */
+.aberration-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  pointer-events: none;
+  box-shadow:
+    -1px 0 0 rgba(255, 40, 80, 0.35),
+    1px 0 0 rgba(40, 160, 255, 0.35),
+    0 -1px 0 rgba(255, 120, 0, 0.25),
+    0 1px 0 rgba(0, 255, 220, 0.25);
+}
+
+/* ---------- Liquid fill cylinder ---------- */
+.liquid-cyl {
+  position: relative;
+  width: 64px;
+  height: 200px;
+  border-radius: 32px;
+  background: linear-gradient(180deg, rgba(8, 30, 36, 0.6), rgba(2, 10, 14, 0.75));
+  box-shadow:
+    inset 0 0 0 2px rgba(33, 230, 255, 0.35),
+    inset 0 0 30px rgba(33, 230, 255, 0.15),
+    0 0 30px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.liquid-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(33, 230, 255, 0.85), rgba(31, 107, 255, 0.55));
+  box-shadow: 0 0 22px rgba(33, 230, 255, 0.7);
+  transition: height 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.liquid-surface {
+  position: absolute;
+  top: -8px;
+  left: -20%;
+  width: 140%;
+  height: 16px;
+  background: radial-gradient(ellipse at center, rgba(180, 250, 255, 0.9), transparent 70%);
+  filter: blur(2px);
+  animation: wobble 3.5s ease-in-out infinite;
+  border-radius: 50%;
+}
+.heat-haze {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 30px;
+  background: radial-gradient(ellipse at center, rgba(255, 122, 24, 0.35), transparent 70%);
+  filter: blur(6px);
+  animation: flicker 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ---------- Scanline / film grain overlay ---------- */
+.film-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: flicker 0.8s steps(3) infinite;
+}
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 49;
+  background: radial-gradient(120% 120% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+/* ---------- Text laser caret ---------- */
+.laser-caret {
+  display: inline-block;
+  width: 9px;
+  height: 1.1em;
+  margin-left: 2px;
+  background: linear-gradient(180deg, #fff, #21e6ff);
+  box-shadow: 0 0 10px #21e6ff;
+  animation: flicker 1.1s infinite;
+  vertical-align: text-bottom;
+}
+
+/* welding-spark projectile */
+@keyframes sparkfly {
+  0% { transform: translate(0,0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.3); opacity: 0; }
+}
+
+/* global click ripple (digital liquid reaction) */
+.ripple-ring {
+  position: fixed;
+  border-radius: 50%;
+  border: 2px solid rgba(33, 230, 255, 0.6);
+  box-shadow: 0 0 18px rgba(33, 230, 255, 0.5), inset 0 0 18px rgba(255, 122, 24, 0.3);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: ripplespread 0.7s ease-out forwards;
+  z-index: 60;
+}
+@keyframes ripplespread {
+  0% { width: 0; height: 0; opacity: 0.9; }
+  100% { width: 240px; height: 240px; opacity: 0; }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(33, 230, 255, 0.4); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }

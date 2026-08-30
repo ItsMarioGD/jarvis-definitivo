@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>ULTRON · móvil</title>
+<style>
+  :root {
+    --bg:#050000; --panel:#0a0000; --border:#3a0606; --border2:#5a0a0a;
+    --red:#ff1a1a; --bright:#ff4d4d; --dred:#b30000; --muted:#8a4040; --text:#ffd9d9;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:'Consolas','Courier New',monospace;overflow:hidden}
+  .app{display:flex;flex-direction:column;height:100vh;padding:8px;gap:8px}
+  .hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;
+    background:linear-gradient(90deg,#1a0000,#0a0000);border:1px solid var(--border2);border-radius:4px}
+  .brand{font-weight:900;font-size:16px;letter-spacing:4px;color:var(--bright);
+    text-shadow:0 0 6px var(--red)}
+  .pill{padding:3px 8px;border-radius:3px;border:1px solid var(--border2);
+    background:#1a0000;color:var(--bright);font-size:11px;font-weight:bold}
+  .live{animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 4px var(--red)}50%{box-shadow:0 0 12px var(--red)}}
+  .chat{flex:1;overflow:auto;padding:6px;border:1px solid var(--border);border-radius:4px;
+    background:var(--panel);scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+  .msg{margin:6px 0;padding:8px 10px;border-left:3px solid var(--border2);
+    background:rgba(20,0,0,0.5);border-radius:2px;line-height:1.35;white-space:pre-wrap;font-size:13px}
+  .msg.user{border-left-color:var(--dred);background:rgba(40,0,0,0.55)}
+  .msg.ultron{border-left-color:var(--bright);color:var(--bright);text-shadow:0 0 3px rgba(255,0,0,0.4)}
+  .msg .r{font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:3px}
+  .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px;
+    background:var(--panel);border:1px solid var(--border);border-radius:4px}
+  .quick button{background:#1a0000;border:1px solid var(--border2);color:var(--bright);
+    padding:8px 4px;border-radius:3px;font-family:inherit;font-size:10px;cursor:pointer}
+  .quick button:active{background:var(--dred);color:#fff}
+  .bar{display:flex;gap:4px;padding:6px;background:var(--panel);border:1px solid var(--border);border-radius:4px}
+  .bar input{flex:1;background:#0a0000;border:1px solid var(--border2);color:var(--bright);
+    padding:10px;border-radius:3px;font-family:inherit;font-size:14px;outline:none}
+  .bar button{background:var(--dred);color:#fff;border:none;padding:10px 14px;border-radius:3px;
+    font-family:inherit;font-weight:bold;cursor:pointer}
+  .bar .v{background:#1a0000;color:var(--bright);border:1px solid var(--border2)}
+  .bar .v.rec{background:var(--bright);color:#000}
+  .stats{display:flex;gap:8px;padding:6px;background:var(--panel);border:1px solid var(--border);border-radius:4px;font-size:11px}
+  .stats div{flex:1;text-align:center;color:var(--muted)}
+  .stats div b{color:var(--bright);display:block;font-size:14px}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#0a0000}::-webkit-scrollbar-thumb{background:var(--border2)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="brand">U L T R O N</div>
+    <div style="display:flex;gap:6px">
+      <span class="pill off" id="st">OFFLINE</span>
+      <span class="pill" id="mo">--</span>
+      <span class="pill" id="clk">--:--:--</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div>CPU<b id="cpu">--</b></div>
+    <div>RAM<b id="ram">--</b></div>
+    <div>DISCO<b id="dsk">--</b></div>
+    <div>TEMP<b id="tmp">--</b></div>
+  </div>
+
+  <div class="chat" id="msgs"></div>
+
+  <div class="quick">
+    <button onclick="q('abre chrome')">Chrome</button>
+    <button onclick="q('abre spotify')">Spotify</button>
+    <button onclick="q('abre vscode')">VSCode</button>
+    <button onclick="q('abre la terminal')">Terminal</button>
+    <button onclick="q('dame el clima')">Clima</button>
+    <button onclick="q('dame las noticias')">Noticias</button>
+    <button onclick="q('dame las stats del pc')">Stats</button>
+    <button onclick="q('salud del pc')">Salud</button>
+    <button onclick="toggleMode()">MODO</button>
+  </div>
+
+  <div class="bar">
+    <button class="v" id="mic" onclick="mic()">●</button>
+    <input id="q" placeholder="Órden…" onkeydown="if(event.key==='Enter')send()">
+    <button onclick="send()">▶</button>
+  </div>
+</div>
+
+<script>
+  const $ = (id)=>document.getElementById(id);
+  const msgs = $('msgs');
+  function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}
+  function add(role,text){
+    const d=document.createElement('div'); d.className='msg '+role;
+    d.innerHTML='<div class="r">'+role+'</div>'+esc(text); msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;
+  }
+  function q(t){$('q').value=t; send();}
+
+  async function send(){
+    const t=$('q').value.trim(); if(!t)return;
+    $('q').value=''; add('user',t);
+    try{
+      const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});
+      const j=await r.json();
+      add('ultron', j.reply||j.error||'sin respuesta');
+    }catch(e){add('ultron','⚠ '+e.message);}
+  }
+  async function toggleMode(){
+    const cur=$('mo').textContent.trim();
+    const next=cur==='OFENSIVA'?'NORMAL':'OFENSIVA';
+    try{const r=await fetch('/mode/'+next,{method:'POST'});const j=await r.json();
+      $('mo').textContent=next; add('ultron', j.mensaje||'modo '+next);
+    }catch(e){add('ultron','⚠ '+e.message);}
+  }
+  let mediaRec=null;
+  function mic(){
+    const btn=$('mic');
+    if(mediaRec && mediaRec.state==='recording'){mediaRec.stop();btn.classList.remove('rec');return;}
+    if(!navigator.mediaDevices){add('ultron','⚠ sin mic');return;}
+    navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+      mediaRec=new MediaRecorder(stream); const chunks=[];
+      mediaRec.ondataavailable=e=>chunks.push(e.data);
+      mediaRec.onstop=async()=>{
+        const blob=new Blob(chunks,{type:'audio/webm'});
+        const fd=new FormData(); fd.append('audio',blob,'u.webm');
+        add('ultron','⏳ procesando…');
+        try{const r=await fetch('/voice',{method:'POST',body:fd});const j=await r.json();
+          if(j.texto)add('user',j.texto);
+          add('ultron',j.respuesta||j.error||'sin respuesta');
+        }catch(e){add('ultron','⚠ '+e.message);}
+        stream.getTracks().forEach(t=>t.stop());
+      };
+      mediaRec.start(); btn.classList.add('rec');
+    }).catch(e=>add('ultron','⚠ '+e.message));
+  }
+
+  async function poll(){
+    try{
+      const h=await fetch('/health').then(r=>r.json());
+      $('st').textContent=h.core_loaded?'EN LÍNEA':'OFFLINE';
+      $('st').className='pill '+(h.core_loaded?'live':'off');
+      $('mo').textContent=h.modo||'--';
+      const t=await fetch('/stats').then(r=>r.json());
+      if(!t.error){
+        $('cpu').textContent=(t.cpu||0).toFixed(0)+'%';
+        $('ram').textContent=(t.ram_used_gb||0).toFixed(1)+'G';
+        $('dsk').textContent=(t.disco_libre_gb||0).toFixed(0)+'G';
+        $('tmp').textContent=t.temp?t.temp+'°':'--';
+      }
+    }catch(e){}
+  }
+  setInterval(poll,2500); poll();
+  setInterval(()=>{$('clk').textContent=new Date().toTimeString().slice(0,8);},500);
+
+  // Auto-rellenar PIN si viene en URL
+  (function(){
+    var q=new URLSearchParams(location.search);
+    if(q.get('token')) localStorage.setItem('ultron_pin', q.get('token'));
+  })();
+  add('ultron','ULTRON listo. Órdenes sin confirmación. ¿Objetivo?');
+</script>
+</body>
+</html>

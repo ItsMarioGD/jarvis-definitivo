@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ULTRON · emparejar</title>
+<style>
+  :root{
+    --bg:#050000; --panel:#0a0000; --border:#3a0606; --border2:#5a0a0a;
+    --red:#ff1a1a; --bright:#ff4d4d; --dred:#b30000; --muted:#8a4040; --text:#ffd9d9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Consolas',monospace;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center}
+  h1{margin:0 0 8px 0;font-size:32px;color:var(--bright);letter-spacing:8px;
+    text-shadow:0 0 10px var(--red), 0 0 22px rgba(255,0,0,0.5);text-transform:uppercase}
+  h2{margin:0 0 16px 0;font-size:12px;color:var(--muted);letter-spacing:4px;font-weight:normal}
+  .pin{font-size:56px;font-weight:900;letter-spacing:18px;color:var(--bright);background:#1a0000;
+    border:2px solid var(--border2);border-radius:12px;padding:10px 26px;margin:6px 0;
+    text-shadow:0 0 14px var(--red);display:inline-block}
+  .qr{border:6px solid var(--border2);border-radius:14px;background:#fff;padding:14px;margin:14px 0;
+    box-shadow:0 0 22px rgba(255,0,0,0.4)}
+  .url{font-size:14px;color:var(--bright);background:#0a0000;padding:8px 14px;border-radius:6px;
+    border:1px solid var(--border2);margin:6px 0;display:inline-block;word-break:break-all}
+  .lbl{color:var(--muted);font-size:11px;letter-spacing:2px;margin-top:16px}
+  .danger{color:var(--bright);font-size:10px;letter-spacing:2px;margin-top:18px;opacity:0.7}
+</style>
+</head>
+<body>
+<h1>U L T R O N</h1>
+<h2>// emparejamiento de dispositivo móvil //</h2>
+
+<div class="lbl">CÓDIGO PIN</div>
+<div class="pin" id="pin">— — — — — —</div>
+
+<div class="lbl">ESCANEA CON LA CÁMARA DEL TELÉFONO</div>
+<img class="qr" src="/qr" alt="QR de emparejamiento" width="240">
+
+<div class="lbl">URL DEL NÚCLEO</div>
+<div class="url" id="url">http://…</div>
+
+<p class="danger">SIN CONFIRMACIÓN · AUTONOMÍA TOTAL · MODO OFENSIVA</p>
+
+<script>
+  fetch('/pair_info').then(r=>r.json()).then(j=>{
+    document.getElementById('pin').textContent = (j.pin||'').match(/.{1,2}/g).join(' ');
+    document.getElementById('url').textContent = j.url||'';
+  }).catch(e=>{
+    document.getElementById('url').textContent='(no se pudo obtener URL)';
+  });
+</script>
+</body>
+</html>

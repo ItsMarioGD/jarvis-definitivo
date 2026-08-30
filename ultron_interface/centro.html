@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>ULTRON · Centro de Mando</title>
+<style>
+  :root{
+    --bg:#050000; --panel:#0a0000; --border:#3a0606; --border2:#5a0a0a;
+    --red:#ff1a1a; --bright:#ff4d4d; --dred:#b30000; --muted:#8a4040; --text:#ffd9d9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Consolas',monospace;padding:14px}
+  h1{margin:0 0 14px 0;font-size:18px;color:var(--bright);letter-spacing:4px;text-transform:uppercase;
+    text-shadow:0 0 8px var(--red)}
+  .card{background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:12px;margin:10px 0}
+  .card h2{margin:0 0 8px 0;font-size:11px;letter-spacing:3px;color:var(--bright);text-transform:uppercase}
+  .g{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  button{background:#1a0000;border:1px solid var(--border2);color:var(--bright);padding:10px 6px;
+    border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
+  button:active{background:var(--dred);color:#fff;transform:scale(0.97)}
+  input{width:100%;background:#0a0000;border:1px solid var(--border2);color:var(--bright);
+    padding:10px;border-radius:4px;font-family:inherit;font-size:14px;outline:none}
+  input:focus{box-shadow:0 0 6px var(--red)}
+  .pin-row{display:flex;gap:6px;align-items:center}
+  .pin-row input{flex:1}
+  .pin-row button{flex:0;padding:10px 14px}
+  #log{white-space:pre-wrap;font-size:12px;color:var(--text);max-height:280px;overflow:auto;
+    background:#0a0000;border:1px solid var(--border);border-radius:4px;padding:8px}
+  .row{display:flex;gap:6px}
+  .row input{flex:1}
+  .row button{flex:0;padding:10px 18px;background:var(--dred);color:#fff;font-weight:bold}
+  .row button:hover{background:var(--bright)}
+  a.btn{background:#1a0000;color:var(--bright);border:1px solid var(--border2);
+    padding:8px 12px;border-radius:4px;text-decoration:none;font-size:11px;display:inline-block;margin:2px}
+  .danger{color:var(--bright);font-size:10px;letter-spacing:2px;opacity:0.7;margin-top:12px;text-align:center}
+</style>
+</head>
+<body>
+<h1>// CENTRO DE MANDO //</h1>
+
+<div class="card">
+  <h2>// PIN DE ACCESO</h2>
+  <div class="pin-row">
+    <input id="pin" placeholder="PIN" inputmode="numeric">
+    <button onclick="savePin()">Guardar</button>
+  </div>
+  <div style="margin-top:6px"><a class="btn" href="/pair">↻ Ver QR</a><a class="btn" href="/">Panel</a><a class="btn" href="/dashboard">Dashboard</a></div>
+</div>
+
+<div class="card">
+  <h2>// SATURACIÓN · ACCIONES RÁPIDAS</h2>
+  <div class="g">
+    <button onclick="cmd('abre chrome')">⌬ Chrome</button>
+    <button onclick="cmd('abre spotify')">♪ Spotify</button>
+    <button onclick="cmd('abre vscode')">◊ VSCode</button>
+    <button onclick="cmd('abre la terminal')">▸ Terminal</button>
+    <button onclick="cmd('abre el bloc de notas')">▭ Notas</button>
+    <button onclick="cmd('abre la calculadora')">∑ Calc</button>
+    <button onclick="cmd('dame el clima')">☼ Clima</button>
+    <button onclick="cmd('dame las noticias')">▤ Noticias</button>
+    <button onclick="cmd('dame las stats del pc')">▥ Stats</button>
+    <button onclick="cmd('salud del pc')">⌬ Salud</button>
+    <button onclick="cmd('apaga el pc en 30 minutos')">⏻ Apagar 30'</button>
+    <button onclick="cmd('cancela el apagado')">↩ Cancelar</button>
+    <button onclick="cmd('bloquea el pc')">🔒 Bloquear</button>
+    <button onclick="cmd('informe matutino')">⎗ Informe</button>
+    <button onclick="cmd('diagnostica el pc')">⏿ Diagnóstico</button>
+    <button onclick="cmd('vigila la red')">▣ Vigilar</button>
+    <button onclick="cmd('modo gaming')">▣ Gaming</button>
+    <button onclick="cmd('modo invitado')">▣ Invitado</button>
+    <button onclick="cmd('lista procesos top')">▣ Top</button>
+    <button onclick="cmd('dame el análisis bursátil de AAPL')">$ AAPL</button>
+    <button onclick="cmd('autodiagnóstico completo')">⎔ Diagnóstico IA</button>
+    <button onclick="toggleMode()">⎘ MODO</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>// ORDEN DIRECTA</h2>
+  <div class="row">
+    <input id="txt" placeholder="Instrucción directa al núcleo…" onkeydown="if(event.key==='Enter')cmd(document.getElementById('txt').value)">
+    <button onclick="cmd(document.getElementById('txt').value)">▶</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>// BITÁCORA</h2>
+  <div id="log">ULTRON listo. Sin confirmación. Órdenes directas.</div>
+</div>
+
+<div class="danger">SIN CONFIRMACIÓN · AUTONOMÍA TOTAL · MODO OFENSIVA</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}
+function getTok(){return localStorage.getItem('ultron_pin')||'';}
+function savePin(){var p=$('pin').value.trim(); if(p) localStorage.setItem('ultron_pin',p);}
+function log(t){var l=$('log'); l.textContent=t+'\n'+l.textContent.split('\n').slice(0,40).join('\n');}
+
+async function cmd(texto){
+  texto=(texto||'').trim(); if(!texto)return;
+  log('> '+texto);
+  try{
+    const r=await fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({texto:texto,token:getTok()})});
+    const j=await r.json();
+    log('← '+(j.respuesta||j.error||'?'));
+  }catch(e){log('⚠ '+e.message);}
+}
+async function toggleMode(){
+  try{
+    const cur=await fetch('/status').then(r=>r.json());
+    const next=(cur.modo_agresivo?'NORMAL':'OFENSIVA');
+    const r=await fetch('/mode/'+next,{method:'POST'});
+    const j=await r.json();
+    log('MODO → '+next+': '+(j.mensaje||''));
+  }catch(e){log('⚠ '+e.message);}
+}
+
+(function(){var q=new URLSearchParams(location.search); if(q.get('token')) localStorage.setItem('ultron_pin',q.get('token'));})();
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>J.A.R.V.I.S. // LIQUID GLASS FUI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- WebGL stage (optimized) sits behind everything -->
+    <canvas id="stage"></canvas>
+
+    <!-- Atmospheric grade + film grain overlays (CSS only) -->
+    <div id="atmos" aria-hidden="true"></div>
+    <div id="grain" aria-hidden="true"></div>
+
+    <!-- ════ SPLASH ════ -->
+    <div class="splash" id="splash">
+      <div class="logo">J.A.R.V.I.S.</div>
+      <div class="ring"></div>
+      <div class="boot" id="bootBox"></div>
+      <div class="bar"><i id="bootBar"></i></div>
+      <div class="pct" id="bootPct">0%</div>
+    </div>
+
+    <!-- ════ HEADER ════ -->
+    <header class="hdr">
+      <div class="brand">
+        <h1>J.A.R.V.I.S.</h1>
+        <div class="sub">LIQUID GLASS // NEURAL CORE v2.0</div>
+      </div>
+      <div class="hdr-actions">
+        <div class="st"><span class="dot"></span> SISTEMAS OPERATIVOS</div>
+        <button class="mbtn on" id="mSleep">SUEÑO</button>
+        <button class="mbtn" id="mFocus">FOCO</button>
+        <button class="mbtn" id="mMod">MÓDULOS</button>
+      </div>
+    </header>
+
+    <!-- ════ MAIN GRID ════ -->
+    <main class="main">
+      <!-- LEFT COLUMN -->
+      <section class="col-l">
+        <article class="card" data-tip="Núcleos neuronales biomiméticos en línea">
+          <div class="card-t">NEUROCORE</div>
+          <div class="card-b">
+            <div class="big" id="cpuV">34<span class="sm">%</span></div>
+            <div class="cpu-bars" id="cpuB"></div>
+          </div>
+        </article>
+
+        <article class="card" data-tip="Latencia de la red de comunicaciones">
+          <div class="card-t">ENLACE</div>
+          <div class="card-b">
+            <div class="big" id="sigV">−42<span class="sm">dBm</span></div>
+            <div class="sm" id="latV">LATENCIA 12ms</div>
+          </div>
+        </article>
+
+        <article class="card" data-tip="Memoria del sistema">
+          <div class="card-t">MEMORIA</div>
+          <div class="card-b">
+            <div class="ram-bar"><span class="rs" id="ramV" style="width:62%"></span></div>
+            <div class="sm" style="margin-top:6px">RAM 62% · 8.1 / 13.0 GB</div>
+          </div>
+        </article>
+      </section>
+
+      <!-- CENTER: HOLOGRAPHIC SPHERE -->
+      <section class="col-c">
+        <div class="sphere-box" id="sphereBox">
+          <div class="sphere">
+            <div class="sphere-body"></div>
+            <div class="orbit o1"></div>
+            <div class="orbit o2"></div>
+            <div class="orbit o3"></div>
+          </div>
+          <div class="sphere-info left">
+            <div>ESTADO <b id="stState">ACTIVO</b></div>
+            <div>TEMP <b id="stTemp">41°C</b></div>
+          </div>
+          <div class="sphere-info right">
+            <div>CARGA <b id="stLoad">0.34</b></div>
+            <div>FLUJO <b id="stFlux">1.2 Tb/s</b></div>
+          </div>
+        </div>
+        <div class="clock" id="clock">00:00:00</div>
+      </section>
+
+      <!-- RIGHT COLUMN -->
+      <section class="col-r">
+        <article class="card" data-tip="Estado de seguridad del sistema">
+          <div class="card-t">SEGURIDAD</div>
+          <div class="card-b">
+            <div class="big" style="color: var(--green)">OK</div>
+            <div class="sm">FIREWALL · ACL · TPM</div>
+          </div>
+        </article>
+
+        <article class="card" data-tip="Tiempo de actividad del núcleo">
+          <div class="card-t">UPTIME</div>
+          <div class="card-b"><div class="big" id="upV">00:00:00</div></div>
+        </article>
+
+        <article class="card" data-tip="Nivel de acceso del usuario">
+          <div class="card-t">ACCESO</div>
+          <div class="card-b"><div class="big">NVL 5</div><div class="sm">ADMIN · BIOMETRÍA</div></div>
+        </article>
+      </section>
+    </main>
+
+    <!-- ════ CALL + GENERATOR ROW ════ -->
+    <div class="callrow">
+      <section class="call">
+        <div class="call-l">
+          <div class="avatar on"></div>
+          <div class="call-st">
+            <div class="s">CONVERSACIÓN</div>
+            <div class="n">J.A.R.V.I.S.</div>
+          </div>
+          <div class="call-btns">
+            <button class="cbtn mic on" id="bMic" title="Micrófono">●</button>
+            <button class="cbtn" id="bEnd" title="Finalizar">⏻</button>
+          </div>
+        </div>
+        <div class="call-r">
+          <div class="call-hdr">
+            <div class="t">CANAL LÓGICO</div>
+            <div class="on"><span class="dot"></span> EN LÍNEA</div>
+          </div>
+          <div class="call-msgs" id="msgs"></div>
+          <div class="chips" id="chips">
+            <span class="chip">resumen</span><span class="chip">clima</span>
+            <span class="chip">traducir</span><span class="chip">noticias</span>
+          </div>
+          <form class="call-in" id="chatForm">
+            <input id="chatInput" placeholder="Emita un comando..." autocomplete="off" />
+            <button type="submit">ENVIAR</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="gen">
+        <div class="gen-hdr">
+          <h3>GENERADOR UNIVERSAL</h3>
+          <span class="badge">ONLINE</span>
+        </div>
+        <div class="gen-body">
+          <form class="gen-row" id="genForm">
+            <input class="gen-input" id="genInput" placeholder="Describa lo que desea generar..." />
+            <button class="gen-go" type="submit">GENERAR</button>
+          </form>
+          <div class="gen-tags" id="genTags">
+            <span class="gtag on">texto</span><span class="gtag">imagen</span>
+            <span class="gtag">código</span><span class="gtag">audio</span>
+          </div>
+          <div class="gen-status" id="genStatus">Listo.</div>
+          <div class="gen-list" id="genList"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ════ SYSTEM BAR ════ -->
+    <section class="sys">
+      <div class="si">
+        <div class="si-l">CPU</div>
+        <div class="si-v" id="sysCpu">34</div>
+        <div class="si-b cpu-bars" id="sysCpuB"></div>
+      </div>
+      <div class="si">
+        <div class="si-l">RAM</div>
+        <div class="ram-bar" style="flex:1"><span class="rs" id="sysRam" style="width:62%"></span></div>
+        <div class="si-s">62%</div>
+      </div>
+      <div class="si">
+        <div class="si-l">RED</div>
+        <div class="hm"></div>
+        <div class="si-s" id="sysNet">12ms</div>
+      </div>
+    </section>
+
+    <!-- ════ FOOTER ════ -->
+    <footer class="ftr">
+      <span>J.A.R.V.I.S. CORE · <b>LIQUID GLASS FUI</b> · TS/WebGL</span>
+      <span id="ftrClock">--:--:--</span>
+    </footer>
+
+    <!-- ════ MODULES OVERLAY ════ -->
+    <div class="modules-overlay" id="modulesOverlay">
+      <div class="modules-head">
+        <div><h2>CENTRO DE MÓDULOS</h2><p>Arquitectura de capacidades distribuidas</p></div>
+        <button class="mbtn" id="mModClose">CERRAR</button>
+      </div>
+      <div class="modules-grid" id="modulesGrid"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

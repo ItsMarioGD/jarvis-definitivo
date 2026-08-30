@@ -1,0 +1,20 @@
+{
+  "name": "jarvis-fui",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "J.A.R.V.IS — Liquid Glass FUI. Optimized WebGL + TypeScript + Vite. Separated HTML/CSS.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.169.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}

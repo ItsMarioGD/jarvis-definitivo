@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ULTRON · Dashboard</title>
+<style>
+  :root{
+    --bg:#050000; --panel:#0a0000; --border:#3a0606; --border2:#5a0a0a;
+    --red:#ff1a1a; --bright:#ff4d4d; --dred:#b30000; --muted:#8a4040; --text:#ffd9d9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Consolas',monospace;padding:14px}
+  h1{margin:0 0 12px 0;font-size:18px;color:var(--bright);letter-spacing:4px;
+    text-shadow:0 0 8px var(--red);text-transform:uppercase}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px;
+    position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;left:0;top:0;width:3px;height:100%;background:var(--dred)}
+  .card h2{margin:0 0 8px 0;font-size:11px;letter-spacing:3px;color:var(--bright);text-transform:uppercase}
+  .big{font-size:28px;font-weight:bold;color:var(--bright);text-shadow:0 0 6px rgba(255,0,0,0.5)}
+  .sub{font-size:11px;color:var(--muted);margin-top:4px}
+  .bar{height:8px;background:#1a0000;border:1px solid var(--border);border-radius:2px;margin-top:8px;overflow:hidden}
+  .bar > div{height:100%;background:linear-gradient(90deg,var(--dred),var(--bright));transition:width .6s}
+  .top{font-size:12px;margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
+  .top div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1a0000}
+  .top div:last-child{border-bottom:none}
+  .top span:first-child{color:var(--muted)}
+  .top span:last-child{color:var(--bright);font-weight:bold}
+  .net{font-size:11px;color:var(--muted);margin-top:4px}
+  .blink{animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:.4}}
+  a.btn{display:inline-block;margin-top:10px;background:#1a0000;color:var(--bright);
+    border:1px solid var(--border2);padding:6px 12px;border-radius:3px;text-decoration:none;font-size:11px}
+  a.btn:hover{background:var(--dred);color:#fff}
+</style>
+</head>
+<body>
+<h1>U L T R O N · DASHBOARD <span id="hora" style="float:right;font-size:11px;color:var(--muted)"></span></h1>
+<div class="grid">
+  <div class="card">
+    <h2>CPU</h2>
+    <div class="big" id="cpuV">--%</div>
+    <div class="sub">carga actual del procesador</div>
+    <div class="bar"><div id="cpuB" style="width:0%"></div></div>
+  </div>
+  <div class="card">
+    <h2>RAM</h2>
+    <div class="big" id="ramV">--</div>
+    <div class="sub">memoria en uso</div>
+    <div class="bar"><div id="ramB" style="width:0%"></div></div>
+  </div>
+  <div class="card">
+    <h2>DISCO</h2>
+    <div class="big" id="diskV">--</div>
+    <div class="sub">espacio libre (C:)</div>
+    <div class="bar"><div id="diskB" style="width:0%"></div></div>
+  </div>
+  <div class="card">
+    <h2>TEMPERATURA</h2>
+    <div class="big" id="tempV">n/d</div>
+    <div class="sub">CIM térmica</div>
+    <div class="bar"><div id="tempB" style="width:0%"></div></div>
+  </div>
+  <div class="card">
+    <h2>PROCESOS TOP</h2>
+    <div class="top" id="top">—</div>
+  </div>
+  <div class="card">
+    <h2>NÚCLEO ULTRON</h2>
+    <div id="nucleo" class="sub">cargando…</div>
+    <a class="btn" href="/">← Panel principal</a>
+    <a class="btn" href="/centro">Centro móvil</a>
+  </div>
+</div>
+<div class="net" id="net"></div>
+
+<script>
+async function load(){
+  try{
+    const t = await fetch('/stats').then(r=>r.json());
+    if(t.error){document.getElementById('net').textContent='⚠ '+t.error;return;}
+    document.getElementById('cpuV').textContent=(t.cpu||0).toFixed(1)+'%';
+    document.getElementById('cpuB').style.width=Math.min(100,t.cpu||0)+'%';
+    document.getElementById('ramV').textContent=(t.ram_used_gb||0).toFixed(1)+' / '+(t.ram_total_gb||0).toFixed(1)+' GB';
+    document.getElementById('ramB').style.width=(t.ram_pct||0)+'%';
+    const dp=Math.round((1-(t.disco_libre_gb||1)/(t.disco_total_gb||1))*100);
+    document.getElementById('diskV').textContent=(t.disco_libre_gb||0).toFixed(1)+' GB libres';
+    document.getElementById('diskB').style.width=dp+'%';
+    document.getElementById('tempV').textContent=t.temp!==null&&t.temp!==undefined?t.temp+'°C':'n/d';
+    document.getElementById('tempB').style.width=t.temp?Math.min(100,t.temp)+'%':'0%';
+    document.getElementById('top').innerHTML=(t.top||[]).map(p=>
+      `<div><span>${p.nombre}</span><span>${p.cpu}% · ${p.mem}%</span></div>`).join('')||'—';
+    document.getElementById('hora').textContent=t.hora||'';
+    document.getElementById('net').textContent='Red ↓ '+(t.net_mb||0).toFixed(1)+' MB';
+  }catch(e){document.getElementById('net').textContent='⚠ '+e.message}
+  try{
+    const s=await fetch('/status').then(r=>r.json());
+    const h=await fetch('/health').then(r=>r.json());
+    document.getElementById('nucleo').innerHTML=
+      'Modelo: <b style="color:var(--bright)">'+(h.llm||'?')+'</b><br>'+
+      'Modo: <b style="color:var(--bright)">'+(h.modo||'?')+'</b><br>'+
+      'Último: <b style="color:var(--bright)">'+(s.ultimo_comando||'—')+'</b><br>'+
+      'Tokens: <b style="color:var(--bright)">'+s.ultimo_tokens+'</b> · '+
+      'Latencia: <b style="color:var(--bright)">'+s.ultima_latencia_ms+' ms</b><br>'+
+      'Uptime: <b style="color:var(--bright)">'+s.uptime_s+' s</b>';
+  }catch(e){}
+}
+load(); setInterval(load, 2500);
+</script>
+</body>
+</html>
