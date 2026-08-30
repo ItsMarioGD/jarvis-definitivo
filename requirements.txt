@@ -55,5 +55,10 @@ google-auth-httplib2>=0.1.0
 # Mem0 (memoria tripartita)
 mem0ai>=0.1.0
 
-# Headroom (compresión contexto)
-headroom @ file:///_external/headroom
+# Headroom (compresión contexto) — paquete interno NO publicado en PyPI.
+# El import en jarvis_core.py está protegido con try/except, así que la app
+# funciona sin esta dependencia (se omite la compresión de contexto).
+# Si tienes acceso al paquete interno, instálalo manualmente:
+#   pip install -e /ruta/a/headroom
+# o coloca el código en _external/headroom y descomenta la línea de abajo:
+# headroom @ file:///_external/headroom

@@ -8,12 +8,13 @@ Uso:
     python jarvis_mcp_server.py            # modo stdio (MCP estándar)
     python jarvis_mcp_server.py --http 5001 # modo HTTP ligero para pruebas
 """
-import sys, json, os, time
+import sys, json, os, time, secrets
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from jarvis_skills import SkillsManager
+import jarvis_redact
 
 
 class JarvisMcpTools:
@@ -53,6 +54,7 @@ class JarvisMcpTools:
         """Guarda un mensaje en la memoria persistente de Jarvis."""
         rol = rol if rol in ("user", "assistant") else "user"
         ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        contenido = jarvis_redact.redact(contenido)
         self._query("INSERT INTO interactions (timestamp, role, content) VALUES (?, ?, ?)",
                     (ts, rol, contenido[:4000]))
         return f"Memoria guardada ({rol})."
@@ -148,10 +150,41 @@ def main_stdio():
         sys.stdout.flush()
 
 
+def _get_mcp_token() -> str:
+    """Token compartido para autenticar POST /call. Prioriza la variable de
+    entorno JARVIS_MCP_TOKEN; si no está definida, genera/persiste uno en
+    .jarvis_mcp_auth junto a este archivo."""
+    env_token = os.environ.get("JARVIS_MCP_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    token_file = Path(__file__).resolve().parent / ".jarvis_mcp_auth"
+    try:
+        t = token_file.read_text(encoding="utf-8").strip()
+        if t:
+            return t
+    except Exception:
+        pass
+    t = secrets.token_hex(32)
+    try:
+        token_file.write_text(t, encoding="utf-8")
+    except Exception:
+        pass
+    return t
+
+
 def main_http(port=5001):
-    """Modo HTTP ligero (para pruebas rápidas con curl/JS)."""
+    """Modo HTTP ligero (para pruebas rápidas con curl/JS).
+    Requiere autenticación: enviar la cabecera 'X-Auth-Token: <token>' en
+    cada POST /call. El token se imprime en consola al arrancar, o puede
+    fijarse de antemano con la variable de entorno JARVIS_MCP_TOKEN.
+    Ejemplo:
+        curl -X POST http://127.0.0.1:5001/call \\
+             -H "X-Auth-Token: <token>" -H "Content-Type: application/json" \\
+             -d '{"tool": "estadisticas_sistema", "arguments": {}}'
+    """
     from http.server import BaseHTTPRequestHandler, HTTPServer
     tools = JarvisMcpTools()
+    token = _get_mcp_token()
     IMPL = {
         "ejecutar_habilidad": tools.ejecutar_habilidad,
         "guardar_memoria": tools.guardar_memoria,
@@ -184,6 +217,10 @@ def main_http(port=5001):
             if self.path != "/call":
                 self._send({"error": "not found"}, 404)
                 return
+            req_token = self.headers.get("X-Auth-Token", "")
+            if not secrets.compare_digest(req_token, token):
+                self._send({"error": "no autorizado"}, 401)
+                return
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             except json.JSONDecodeError:
@@ -201,6 +238,7 @@ def main_http(port=5001):
                 self._send({"error": str(e)}, 500)
 
     print(f"JARVIS MCP (HTTP) en http://127.0.0.1:{port}")
+    print(f"  Token: {token}")
     HTTPServer(("127.0.0.1", port), H).serve_forever()
 
 

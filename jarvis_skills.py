@@ -2182,7 +2182,9 @@ void loop() {
             if self.safe:
                 return f"(modo seguro: no mataría «{pr}»)"
             exe = CLOSE_MAP.get(pr) or (pr if pr.lower().endswith(".exe") else pr + ".exe")
-            subprocess.Popen(f"taskkill /IM {exe} /F", shell=True, creationflags=0x08000000)
+            if re.search(r'[&|;<>^$`"]', exe):
+                return f"Señor, «{pr}» no es un nombre de proceso válido."
+            subprocess.Popen(["taskkill", "/IM", exe, "/F"], creationflags=0x08000000)
             return f"Proceso {pr} terminado, señor."
         if re.search(r"procesos?\s+(?:pesados|que\s+pesan|top)|que\s+procesos\s+pesan|mayor\s+uso\s+de\s+memoria|mas\s+memoria", t):
             if self.safe:
@@ -6315,8 +6317,9 @@ Write-Output ("{0:N1}" -f $total)
         def _do():
             try:
                 r = subprocess.run(
-                    f'winget uninstall --name "{app}" --silent --accept-source-agreements --disable-interactivity',
-                    capture_output=True, text=True, timeout=180, shell=True, creationflags=0x08000000)
+                    ["winget", "uninstall", "--name", app, "--silent",
+                     "--accept-source-agreements", "--disable-interactivity"],
+                    capture_output=True, text=True, timeout=180, creationflags=0x08000000)
                 if r.returncode == 0 or "se ha desinstalado" in (r.stdout or "").lower():
                     self._avisar(f"«{app}» desinstalado correctamente, señor.")
                 else:

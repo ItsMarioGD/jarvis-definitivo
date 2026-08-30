@@ -55,6 +55,7 @@ from flask_socketio import SocketIO, emit
 
 # ── AUTENTICACIÓN (token persistente) ─────────────────────────────────────────
 AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.jarvis_auth')
+SECRET_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.jarvis_secret_key')
 
 
 def get_token():
@@ -72,6 +73,25 @@ def get_token():
     except Exception:
         pass
     return t
+
+
+def get_secret_key():
+    """Secreto de firma de sesión Flask: NUNCA se muestra al usuario, a
+    diferencia del PIN de pareo. Se persiste por separado con alta entropía."""
+    try:
+        with open(SECRET_KEY_FILE, 'r', encoding='utf-8') as f:
+            k = f.read().strip()
+            if k:
+                return k
+    except Exception:
+        pass
+    k = secrets.token_hex(32)
+    try:
+        with open(SECRET_KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(k)
+    except Exception:
+        pass
+    return k
 
 
 AUTH_TOKEN = get_token()
@@ -204,7 +224,7 @@ except Exception as e:
     generator = None
 
 app = Flask(__name__, static_folder='.')
-app.config['SECRET_KEY'] = AUTH_TOKEN
+app.config['SECRET_KEY'] = get_secret_key()
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 

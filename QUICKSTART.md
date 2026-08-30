@@ -22,6 +22,9 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 3. Instala dependencias
 pip install -r requirements.txt
+# Nota: "headroom" (compresión de contexto) es una dependencia interna no
+# publicada y viene comentada en requirements.txt — la instalación funciona
+# sin ella (el import está protegido con try/except en jarvis_core.py).
 
 # 4. Configura tus credenciales
 cp .env.example .env
@@ -87,6 +90,13 @@ Usa una voz marcada como masculina. Si ElevenLabs no está disponible, Jarvis pr
 ### Modo offline/online:
 - **Online**: Usa tu API key de Qwen en la nube
 - **Offline local**: Ejecuta Ollama y apunta `QWEN_BASE_URL` a `http://localhost:11434`
+
+## 🖥️ Frontend web
+
+El frontend activo y soportado es `web-hud/` (arrancado por `jarvis_web_start.bat`,
+incluye su propio BFF en `web-hud/server/`). Los directorios `jarvis-fui/` y
+`liquid-glass-jarvis/` son prototipos/UIs alternativas no conectadas a ningún
+script de arranque actual — decisión pendiente de conservarlos o eliminarlos.
 
 ## 📱 Integración con la arquitectura completa
 

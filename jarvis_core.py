@@ -454,6 +454,7 @@ class JarvisCore:
     def save_media_history(self, media_type: str, prompt: str, path: str):
         """Registra un medio generado (imagen, 3D, video) en su tabla dedicada."""
         ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        prompt = jarvis_redact.redact(prompt)
         with self._db_lock:
             try:
                 self.cursor.execute(
@@ -522,7 +523,7 @@ class JarvisCore:
             try:
                 self.cursor.execute(
                     "INSERT INTO reminders (timestamp, due, text) VALUES (?, ?, ?)",
-                    (ts, due, text.strip()[:500]),
+                    (ts, due, jarvis_redact.redact(text.strip())[:500]),
                 )
                 self.conn.commit()
             except sqlite3.Error as e:

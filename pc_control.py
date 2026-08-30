@@ -817,7 +817,9 @@ class PCControl:
                 return f"Tarea «{accion}»: copia de seguridad de Documentos completada."
             if "abre " in a or "abrir " in a:
                 app = re.sub(r"^(abre|abrir|la aplicacion)\s+", "", accion.strip())
-                subprocess.Popen(f"start {app}", shell=True, creationflags=0x08000000)
+                if re.search(r'[&|;<>^$`]', app):
+                    return f"Tarea «{accion}»: nombre de aplicación no válido."
+                subprocess.Popen(["cmd", "/c", "start", "", app], creationflags=0x08000000)
                 return f"Tarea «{accion}»: abrí {app}."
             if "apaga" in a:
                 subprocess.Popen("shutdown /s /t 60", shell=True, creationflags=0x08000000)

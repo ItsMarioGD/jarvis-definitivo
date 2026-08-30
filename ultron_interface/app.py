@@ -76,6 +76,7 @@ os.environ["QWEN_MODEL"] = ULTRON_MODEL
 
 # Auth token independiente (no compartir con Jarvis)
 _AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".ultron_auth")
+_SECRET_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".ultron_secret_key")
 
 
 def _get_token() -> str:
@@ -92,6 +93,24 @@ def _get_token() -> str:
     except Exception:
         pass
     return t
+
+
+def _get_secret_key() -> str:
+    """Secreto de firma de sesión Flask: NUNCA se muestra al usuario, a
+    diferencia del PIN de pareo. Se persiste por separado con alta entropía."""
+    try:
+        k = open(_SECRET_KEY_FILE, "r", encoding="utf-8").read().strip()
+        if k:
+            return k
+    except Exception:
+        pass
+    k = secrets.token_hex(32)
+    try:
+        with open(_SECRET_KEY_FILE, "w", encoding="utf-8") as f:
+            f.write(k)
+    except Exception:
+        pass
+    return k
 
 
 AUTH_TOKEN = _get_token()
@@ -162,7 +181,7 @@ core = _UltronProxy()
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=os.path.dirname(os.path.abspath(__file__)))
-app.config["SECRET_KEY"] = AUTH_TOKEN
+app.config["SECRET_KEY"] = _get_secret_key()
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 

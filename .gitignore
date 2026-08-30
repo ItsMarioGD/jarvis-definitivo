@@ -12,6 +12,9 @@ __pycache__/
 *.ultron_auth
 .jarvis_auth
 .ultron_auth
+.jarvis_secret_key
+.ultron_secret_key
+.jarvis_mcp_auth
 
 # Logs
 *.log
