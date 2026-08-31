@@ -512,8 +512,13 @@
         self.onState('think');
         var fd = new FormData();
         fd.append('audio', blob, 'v.webm');
-        fetch(self.base + '/voice?token=' + encodeURIComponent(self.token || ''), {
-          method: 'POST', body: fd
+        fetch(self.base + '/voice', {
+          method: 'POST',
+          // En cabecera, no en la URL: asi no queda en logs de acceso,
+          // historial ni Referer. No fijamos Content-Type a proposito: el
+          // navegador debe poner el boundary del multipart.
+          headers: { 'X-Token': self.token || '' },
+          body: fd
         }).then(function (r) { return r.json(); })
           .then(function (j) {
             if (j && j.texto) { self.onPartial(j.texto); self.onFinal(j.texto, j.respuesta || ''); }
@@ -546,12 +551,22 @@
         return;
       }
       self._meterStream = st;
-      var ac = new AC();
-      var src = ac.createMediaStreamSource(st);
-      var an = ac.createAnalyser();
-      an.fftSize = 512; an.smoothingTimeConstant = 0.7;
-      src.connect(an);
-      var buf = new Uint8Array(an.frequencyBinCount);
+      var ac, src, an, buf;
+      try {
+        ac = new AC();
+        src = ac.createMediaStreamSource(st);
+        an = ac.createAnalyser();
+        an.fftSize = 512; an.smoothingTimeConstant = 0.7;
+        src.connect(an);
+        buf = new Uint8Array(an.frequencyBinCount);
+      } catch (e) {
+        // Sin analizador no hay medidor, y sin esto el microfono se quedaba
+        // abierto hasta el siguiente stop().
+        st.getTracks().forEach(function (t) { t.stop(); });
+        if (self._meterStream === st) self._meterStream = null;
+        try { if (ac) ac.close(); } catch (e2) {}
+        return;
+      }
       (function loop() {
         if (!self.listening || gen !== self._gen) {
           self.onLevel(0);

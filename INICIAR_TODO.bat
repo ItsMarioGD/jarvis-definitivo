@@ -41,13 +41,30 @@ if errorlevel 1 (
 ::    ULTRON_MODE no se toca aqui a proposito: si quedara en la sesion, el
 ::    proceso de JARVIS tambien lo heredaria.
 if exist ".env" (
-    for /f "usebackq eol=# tokens=1,2 delims==" %%A in (".env") do (
+    for /f "usebackq eol=# tokens=1* delims==" %%A in (".env") do (
         if not "%%A"=="" if not "%%B"=="" set "%%A=%%B"
     )
 )
 
 if "%JARVIS_PORT%"=="" set "JARVIS_PORT=5000"
 if "%ULTRON_PORT%"=="" set "ULTRON_PORT=8766"
+
+:: Los puertos se interpolan en lineas de comandos, asi que solo digitos.
+:: El truco: con todos los digitos como delimitadores, un valor puramente
+:: numerico no produce ningun token y el bucle no llega a ejecutarse.
+set "_chk=%JARVIS_PORT%"
+for /f "delims=0123456789" %%X in ("%JARVIS_PORT%") do set "_chk="
+if not defined _chk (
+    echo  [!] JARVIS_PORT no es un numero; uso 5000.
+    set "JARVIS_PORT=5000"
+)
+set "_chk=%ULTRON_PORT%"
+for /f "delims=0123456789" %%X in ("%ULTRON_PORT%") do set "_chk="
+if not defined _chk (
+    echo  [!] ULTRON_PORT no es un numero; uso 8766.
+    set "ULTRON_PORT=8766"
+)
+set "_chk="
 
 :: -- Dependencias minimas ---------------------------------------------------
 "%PYTHON%" -c "import flask, flask_socketio, psutil, requests" >nul 2>&1
