@@ -25,21 +25,47 @@ VOICES = {
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium",
         "size_mb": 63,
         "quality": "high",
-        "speaker": "davefx"
+        "speaker": "davefx",
+        "genero": "masculino",
+        "nota": "Castellano equilibrado. Voz por defecto de JARVIS.",
     },
     "es_ES-carlfm-x_low": {
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/carlfm/x_low",
         "size_mb": 8,
         "quality": "low",
-        "speaker": "carlfm"
+        "speaker": "carlfm",
+        "genero": "masculino",
+        "nota": "El mas ligero y rapido; calidad justa.",
     },
     "es_ES-sharvard-medium": {
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/sharvard/medium",
         "size_mb": 58,
         "quality": "high",
-        "speaker": "sharvard"
+        "speaker": "sharvard",
+        "genero": "masculino",
+        "nota": "Castellano de timbre mas grave. Voz por defecto de ULTRON.",
+    },
+    "es_MX-claude-high": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_MX/claude/high",
+        "size_mb": 110,
+        "quality": "very_high",
+        "speaker": "claude",
+        "genero": "masculino",
+        "nota": "La mejor calidad en espanol del catalogo. Neutro latino.",
+    },
+    "es_MX-ald-medium": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_MX/ald/medium",
+        "size_mb": 63,
+        "quality": "high",
+        "speaker": "ald",
+        "genero": "masculino",
+        "nota": "Latino, timbre calido.",
     },
 }
+
+# Todas las voces del catalogo son masculinas a proposito: es_AR-daniela-high,
+# la unica femenina del repositorio rhasspy en espanol, queda fuera para que
+# ninguna ruta de respaldo acabe dando una voz femenina.
 
 DEFAULT_VOICE = "es_ES-davefx-medium"
 
@@ -235,3 +261,38 @@ if __name__ == "__main__":
         print("\nModelo no descargado. Ejecuta:")
         print("  from jarvis_piper import descargar_modelo")
         print("  descargar_modelo()")
+
+
+# ── Sintesis por perfil de agente ────────────────────────────────────────────
+def hablar_como(agente: str, texto: str) -> bool:
+    """Sintetiza con la voz masculina del agente ("jarvis" o "ultron").
+
+    Recorre la cadena de modelos del perfil: si el preferido no esta descargado
+    y la descarga falla (sin red, por ejemplo), prueba el siguiente en vez de
+    quedarse mudo. La velocidad sale del propio perfil, de modo que ULTRON
+    habla mas lento que JARVIS con el mismo motor.
+    """
+    if not texto or not texto.strip():
+        return False
+    try:
+        import jarvis_voice
+        perfil = jarvis_voice.perfil(agente)
+        cadena = jarvis_voice.cadena_piper(agente)
+        speed = perfil.rate
+    except Exception:
+        cadena, speed = [DEFAULT_VOICE], 1.0
+
+    for voice_id in cadena:
+        if voice_id not in VOICES:
+            continue
+        # Sin modelo en disco y sin poder descargarlo: pasa al siguiente.
+        if not disponible(voice_id) and not _descargar(voice_id):
+            continue
+        if hablar(texto, voice_id=voice_id, speed=speed):
+            return True
+    return False
+
+
+def voces_masculinas() -> Dict[str, Dict[str, Any]]:
+    """Catalogo filtrado a voces masculinas (hoy, todas las del modulo)."""
+    return {k: v for k, v in VOICES.items() if v.get("genero", "masculino") == "masculino"}

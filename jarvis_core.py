@@ -76,6 +76,10 @@ ACCIONES = {
 class JarvisCore:
     """Motor principal: STT + LLM + TTS + habilidades del sistema."""
 
+    # Identidad del agente. UltronCore la sobrescribe con "ULTRON"; de ella
+    # depende que perfil de voz masculina se carga en __init__.
+    nombre_agente: str = "JARVIS"
+
     def __log_both(self, level: str, message: str):
         """Escribe una línea tanto en el callback de UI como en el log de disco."""
         ts = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -116,7 +120,19 @@ class JarvisCore:
             print(f"No se pudo abrir el log persistente: {e}")
 
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "")
-        self.voice_id       = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        # Perfil de voz masculina del agente (JARVIS o ULTRON). Antes el
+        # respaldo era 21m00Tcm4TlvDq8ikWAM (Rachel), una voz femenina: sin
+        # ELEVENLABS_VOICE_ID configurado, el agente hablaba en femenino.
+        try:
+            import jarvis_voice
+            self.perfil_voz = jarvis_voice.perfil(getattr(self, "nombre_agente", "JARVIS"))
+            self.voice_id = jarvis_voice.voz_elevenlabs(
+                getattr(self, "nombre_agente", "JARVIS"), log=print)
+        except Exception as _e:                      # modulo ausente o corrupto
+            self.perfil_voz = None
+            self.voice_id = os.getenv("ELEVENLABS_VOICE_ID", "").strip() \
+                or "onwK4e9ZLuTAKqWW03F9"            # Daniel: masculino
+            print(f"[VOZ] jarvis_voice no disponible ({_e}); uso la voz masculina por defecto.")
         self.base_url       = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1")
         self.api_key        = os.getenv("QWEN_API_KEY", "ollama")
         self.model          = os.getenv("QWEN_MODEL", "qwen3:4b-instruct")
@@ -1224,7 +1240,10 @@ class JarvisCore:
         if self._voz_piper_activa():
             try:
                 import jarvis_piper
-                if jarvis_piper.hablar(text):
+                # hablar_como recorre la cadena de modelos del perfil y aplica
+                # la velocidad del agente (ULTRON habla mas lento que JARVIS).
+                agente = getattr(self, "nombre_agente", "JARVIS")
+                if jarvis_piper.hablar_como(agente, text):
                     return True
                 self.log("Piper no disponible; continúo con la cadena normal.")
             except Exception as e:
@@ -1244,10 +1263,15 @@ class JarvisCore:
             "Content-Type": "application/json",
             "xi-api-key": self.elevenlabs_key,
         }
+        try:
+            import jarvis_voice
+            ajustes = jarvis_voice.ajustes_elevenlabs(getattr(self, "nombre_agente", "JARVIS"))
+        except Exception:
+            ajustes = {"stability": 0.5, "similarity_boost": 0.8}
         payload = {
             "text": text,
             "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.8},
+            "voice_settings": ajustes,
         }
         tmp = None
         try:
@@ -1343,6 +1367,12 @@ class JarvisCore:
             self.log("Voz local no disponible en este sistema; la respuesta permanece en texto.")
             return False
 
+        # La velocidad sale del perfil: ULTRON habla mas lento que JARVIS aun
+        # cuando ambos caen al sintetizador integrado de Windows.
+        p = getattr(self, "perfil_voz", None)
+        sapi_rate = int(getattr(p, "sapi_rate", 0) or 0)
+        sapi_rate = max(-10, min(10, sapi_rate))
+
         # json.dumps inserta el texto como literal seguro en PowerShell. Se codifica
         # el comando completo para evitar problemas con tildes, comillas o símbolos.
         script = f"""
@@ -1358,7 +1388,7 @@ if (-not $maleVoice) {{
         Select-Object -First 1
 }}
 if ($maleVoice) {{ $speaker.SelectVoice($maleVoice.VoiceInfo.Name) }}
-$speaker.Rate = 0
+$speaker.Rate = {sapi_rate}
 $speaker.Speak({json.dumps(text, ensure_ascii=False)})
 """
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")

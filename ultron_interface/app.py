@@ -236,9 +236,51 @@ def index():
     return send_from_directory(".", "index.html")
 
 
+# ── Interfaz AETHER: recursos compartidos con JARVIS ────────────────────────
+_ASSETS = os.path.join(_ROOT, "hud_assets")
+
+
+@app.route("/assets/<path:archivo>")
+def aether_assets(archivo):
+    """Sirve el sistema de diseno compartido (CSS, orbe WebGL, motor de voz).
+
+    send_from_directory ya bloquea el path traversal, pero filtramos por
+    extension para no exponer nada mas que los estaticos del HUD.
+    """
+    if not archivo.lower().endswith((".css", ".js", ".svg", ".woff2", ".png")):
+        return jsonify({"error": "no permitido"}), 404
+    resp = send_from_directory(_ASSETS, archivo)
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
+@app.route("/classic")
+def index_classic():
+    """La interfaz anterior, por si hace falta volver a ella."""
+    return send_from_directory(".", "index_classic.html")
+
+
+@app.route("/mobile/classic")
+def mobile_classic():
+    """La vista movil anterior."""
+    resp = send_from_directory(".", "mobile.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resp
+
+
+@app.route("/api/local_token")
+def api_local_token():
+    """Token de voz solo para el navegador local: evita teclear el PIN en el HUD."""
+    if request.remote_addr in ("127.0.0.1", "::1"):
+        return jsonify({"token": AUTH_TOKEN})
+    return jsonify({"token": ""}), 403
+
+
 @app.route("/mobile")
 def mobile():
-    resp = send_from_directory(".", "mobile.html")
+    # El HUD AETHER ya es responsive y lee ?token= igual que la vista movil
+    # antigua, que sigue disponible en /mobile/classic.
+    resp = send_from_directory(".", "index.html")
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
 
@@ -509,22 +551,33 @@ def api_speak():
     if not key or "tu_api" in key:
         return jsonify({"error": "no_key"}), 502
 
-    # Cadena de voces: voz de Ultron primero, luego la voz global de respaldo
+    # Cadena de voces masculinas: la configurada por el usuario primero y, si
+    # no hay ninguna, la del perfil de ULTRON. Antes esto devolvia 502 cuando
+    # el .env estaba vacio, dejando al agente mudo en el navegador.
     voices = []
     _uv = os.getenv("ULTRON_VOICE_ID", "").strip()
     _gv = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
-    if _uv:
-        voices.append(_uv)
-    if _gv and _gv not in voices:
-        voices.append(_gv)
-    if not voices:
-        return jsonify({"error": "no_voice"}), 502
+    for _v in (_uv, _gv):
+        if _v and "tu_" not in _v.lower() and _v not in voices:
+            voices.append(_v)
+
+    ajustes = {"stability": 0.32, "similarity_boost": 0.88, "style": 0.45,
+               "use_speaker_boost": True}
+    try:
+        import jarvis_voice
+        _def = jarvis_voice.perfil("ultron").elevenlabs_voice
+        if _def not in voices:
+            voices.append(_def)
+        ajustes = jarvis_voice.ajustes_elevenlabs("ultron")
+    except Exception:
+        if "N2lVS1w4EtoT3dr4eOWO" not in voices:
+            voices.append("N2lVS1w4EtoT3dr4eOWO")   # Callum: masculino, intenso
 
     payload = {
         "text": text,
         "model_id": "eleven_multilingual_v2",
-        # Tono conqueror: más expresividad/drama, menos estabilidad plana
-        "voice_settings": {"stability": 0.35, "similarity_boost": 0.85},
+        # Tono conqueror: mas expresividad, menos estabilidad plana
+        "voice_settings": ajustes,
     }
     headers = {
         "Accept": "audio/mpeg",

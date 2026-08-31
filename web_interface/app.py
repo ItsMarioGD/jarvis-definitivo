@@ -244,9 +244,43 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
+# ── Interfaz AETHER: recursos compartidos con ULTRON ────────────────────────
+_ASSETS = os.path.join(_ROOT, 'hud_assets')
+
+
+@app.route('/assets/<path:archivo>')
+def aether_assets(archivo):
+    """Sirve el sistema de diseno compartido (CSS, orbe WebGL, motor de voz).
+
+    send_from_directory ya bloquea el path traversal, pero filtramos por
+    extension para no exponer nada mas que los estaticos del HUD.
+    """
+    if not archivo.lower().endswith(('.css', '.js', '.svg', '.woff2', '.png')):
+        return jsonify({'error': 'no permitido'}), 404
+    resp = send_from_directory(_ASSETS, archivo)
+    resp.headers['Cache-Control'] = 'public, max-age=300'
+    return resp
+
+
+@app.route('/classic')
+def index_classic():
+    """La interfaz anterior, por si hace falta volver a ella."""
+    return send_from_directory('.', 'index_classic.html')
+
+
+@app.route('/mobile/classic')
+def mobile_classic():
+    """La vista movil anterior."""
+    resp = send_from_directory('.', 'mobile.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
 @app.route('/mobile')
 def mobile():
-    resp = send_from_directory('.', 'mobile.html')
+    # El HUD AETHER ya es responsive (verificado a 414 px) y lee ?token= igual
+    # que la vista movil antigua, que sigue disponible en /mobile/classic.
+    resp = send_from_directory('.', 'index.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
@@ -744,14 +778,25 @@ def api_speak():
     key = os.getenv('ELEVENLABS_API_KEY', '')
     if not key or 'tu_api' in key:
         return jsonify({'error': 'no_key'}), 502
-    voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
-    if not voice:
-        return jsonify({'error': 'no_voice'}), 502
+    # Voz masculina de JARVIS. Si el .env no define ninguna, caemos al perfil
+    # en vez de devolver 502: antes eso dejaba mudo al HUD del navegador.
+    voice = (os.getenv('JARVIS_VOICE_ID', '').strip()
+             or os.getenv('ELEVENLABS_VOICE_ID', '').strip())
+    ajustes = {'stability': 0.55, 'similarity_boost': 0.80,
+               'style': 0.10, 'use_speaker_boost': True}
+    try:
+        import jarvis_voice
+        if not voice or 'tu_' in voice.lower():
+            voice = jarvis_voice.perfil('jarvis').elevenlabs_voice
+        ajustes = jarvis_voice.ajustes_elevenlabs('jarvis')
+    except Exception:
+        if not voice or 'tu_' in voice.lower():
+            voice = 'onwK4e9ZLuTAKqWW03F9'          # Daniel: masculino, britanico
     # Tono servicial: voz calmada y profesional
     payload = {
         'text': text,
         'model_id': 'eleven_multilingual_v2',
-        'voice_settings': {'stability': 0.5, 'similarity_boost': 0.8},
+        'voice_settings': ajustes,
     }
     headers = {'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': key}
     url = f'https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream'
