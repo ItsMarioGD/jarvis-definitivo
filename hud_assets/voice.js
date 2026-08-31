@@ -136,6 +136,7 @@
     this.voice = null;
     this.voiceOverride = null;    // voiceURI elegido a mano en ajustes
     this.speaking = false;
+    this._gen = 0;                // generacion de la locucion actual
     this._audio = null;
     this._ac = null;
     this._analyser = null;
@@ -239,7 +240,7 @@
   };
 
   /* ── Nivel de audio en vivo desde un <audio> ──────────────────────────── */
-  AetherVoice.prototype._attachAnalyser = function (el) {
+  AetherVoice.prototype._attachAnalyser = function (el, gen) {
     try {
       var AC = global.AudioContext || global.webkitAudioContext;
       if (!AC) return;
@@ -252,16 +253,16 @@
       src.connect(an);
       an.connect(this._ac.destination);
       this._analyser = an;
-      this._pumpLevel();
+      this._pumpLevel(gen);
     } catch (e) { /* el navegador puede bloquearlo; el orbe usará envolvente falsa */ }
   };
 
-  AetherVoice.prototype._pumpLevel = function () {
+  AetherVoice.prototype._pumpLevel = function (gen) {
     var self = this;
     if (!this._analyser) return;
     var buf = new Uint8Array(this._analyser.frequencyBinCount);
     (function loop() {
-      if (!self.speaking || !self._analyser) { self.onLevel(0); return; }
+      if (!self.speaking || !self._analyser || gen !== self._gen) { return; }
       self._levelRaf = requestAnimationFrame(loop);
       self._analyser.getByteFrequencyData(buf);
       var sum = 0;
@@ -275,10 +276,10 @@
 
   /* Envolvente sintética: cuando no hay acceso al audio (speechSynthesis),
      generamos un nivel plausible para que el orbe no se quede plano. */
-  AetherVoice.prototype._fakeEnvelope = function () {
+  AetherVoice.prototype._fakeEnvelope = function (gen) {
     var self = this, t0 = performance.now();
     (function loop() {
-      if (!self.speaking) { self.onLevel(0); return; }
+      if (!self.speaking || gen !== self._gen) { return; }
       self._levelRaf = requestAnimationFrame(loop);
       var t = (performance.now() - t0) / 1000;
       var v = 0.34
@@ -296,8 +297,15 @@
     if (!this.enabled || !t) return Promise.resolve(false);
     this.stop();
 
+    // Cada locucion lleva su numero de generacion. Si se encadenan dos
+    // seguidas, la primera puede resolver cuando la segunda ya esta hablando:
+    // sin este testigo, su done() apagaba speaking y devolvia el estado a
+    // 'idle', dejando muda a la segunda.
+    var gen = ++self._gen;
+
     return new Promise(function (resolve) {
       function done(ok) {
+        if (gen !== self._gen) { resolve(ok); return; }   // locucion superada
         self.speaking = false;
         if (self._levelRaf) cancelAnimationFrame(self._levelRaf);
         self.onLevel(0);
@@ -308,19 +316,20 @@
       self.onState('speak');
 
       if (self.preferServer) {
-        self._speakServer(t).then(function (ok) {
+        self._speakServer(t, gen).then(function (ok) {
+          if (gen !== self._gen) { resolve(false); return; }
           if (ok) { done(true); return; }
-          self._speakBrowser(t).then(done);
+          self._speakBrowser(t, gen).then(done);
         });
       } else {
-        self._speakBrowser(t).then(done);
+        self._speakBrowser(t, gen).then(done);
       }
     });
   };
 
   /* Servidor: ElevenLabs vía /api/speak. Devuelve MP3 reproducible aquí,
      lo que permite analizar el audio real y sincronizar el orbe. */
-  AetherVoice.prototype._speakServer = function (text) {
+  AetherVoice.prototype._speakServer = function (text, gen) {
     var self = this;
     return new Promise(function (resolve) {
       var ctrl = new AbortController();
@@ -342,9 +351,14 @@
         a.volume = self.profile.volume;
         // El servidor ya entrega la voz correcta; sólo afinamos el ritmo.
         try { a.playbackRate = Math.max(0.75, Math.min(1.2, self.profile.rate)); } catch (e) {}
+        if (gen !== self._gen) {          // ya la superó otra locucion
+          URL.revokeObjectURL(url);
+          resolve(false);
+          return;
+        }
         self._audio = a;
-        self._attachAnalyser(a);
-        if (!self._analyser) self._fakeEnvelope();
+        self._attachAnalyser(a, gen);
+        if (!self._analyser) self._fakeEnvelope(gen);
         a.onended = function () { URL.revokeObjectURL(url); resolve(true); };
         a.onerror = function () { URL.revokeObjectURL(url); resolve(false); };
         a.play().catch(function () { URL.revokeObjectURL(url); resolve(false); });
@@ -353,7 +367,7 @@
   };
 
   /* Navegador: speechSynthesis con la voz masculina puntuada más alta. */
-  AetherVoice.prototype._speakBrowser = function (text) {
+  AetherVoice.prototype._speakBrowser = function (text, gen) {
     var self = this;
     return new Promise(function (resolve) {
       if (!('speechSynthesis' in global)) { resolve(false); return; }
@@ -369,9 +383,12 @@
       if (cur) merged.push(cur);
 
       var i = 0;
-      self._fakeEnvelope();
+      self._fakeEnvelope(gen);
       function next() {
-        if (!self.speaking || i >= merged.length) { resolve(true); return; }
+        if (!self.speaking || gen !== self._gen || i >= merged.length) {
+          resolve(true);
+          return;
+        }
         var u = new SpeechSynthesisUtterance(merged[i++].trim());
         if (self.voice) { u.voice = self.voice; u.lang = self.voice.lang; }
         else u.lang = self.profile.lang;
@@ -390,6 +407,7 @@
   };
 
   AetherVoice.prototype.stop = function () {
+    this._gen++;                  // invalida cualquier locucion aun en vuelo
     this.speaking = false;
     if (this._levelRaf) cancelAnimationFrame(this._levelRaf);
     this.onLevel(0);
@@ -415,6 +433,7 @@
     this.onState = opts.onState || function () {};
     this.onError = opts.onError || function () {};
     this.listening = false;
+    this._gen = 0;                // generacion de la sesion de escucha actual
     this._rec = null;
     this._mr = null;
     this._stream = null;
@@ -434,10 +453,11 @@
     var self = this;
     if (this.listening) return Promise.resolve();
     this.listening = true;
+    var gen = ++this._gen;
     this.onState('listen');
     var SR = global.SpeechRecognition || global.webkitSpeechRecognition;
     // El medidor de nivel se monta siempre: alimenta el orbe mientras hablas.
-    this._meter();
+    this._meter(gen);
     if (SR) {
       var r = new SR();
       r.lang = this.lang;
@@ -462,11 +482,11 @@
       try { r.start(); } catch (e) { this.onError('no pude abrir el micrófono'); this.stop(); }
       return Promise.resolve();
     }
-    return this._recordFallback();
+    return this._recordFallback(gen);
   };
 
   /* Fallback universal: graba webm y lo manda a /voice (Whisper del servidor). */
-  AetherEars.prototype._recordFallback = function () {
+  AetherEars.prototype._recordFallback = function (gen) {
     var self = this;
     if (!navigator.mediaDevices || !global.MediaRecorder) {
       this.onError('este navegador no permite grabar audio');
@@ -474,6 +494,14 @@
       return Promise.resolve();
     }
     return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+      // getUserMedia puede tardar en resolver. Si mientras tanto se llamo a
+      // stop(), arrancar aqui la grabacion dejaria el microfono abierto para
+      // siempre: stop() ya paso y self._mr todavia era null, asi que nadie
+      // volveria a pararla.
+      if (!self.listening || gen !== self._gen) {
+        st.getTracks().forEach(function (t) { t.stop(); });
+        return null;
+      }
       self._stream = st;
       var mr = new MediaRecorder(st);
       var parts = [];
@@ -503,13 +531,20 @@
   };
 
   /* Nivel del micrófono → orbe. Independiente del motor de reconocimiento. */
-  AetherEars.prototype._meter = function () {
+  AetherEars.prototype._meter = function (gen) {
     var self = this;
     if (!navigator.mediaDevices) return;
     var AC = global.AudioContext || global.webkitAudioContext;
     if (!AC) return;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
-      if (!self.listening) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+      // Comprobar la generacion, no solo listening: tras un stop() y un
+      // start() rapidos, el stream de la sesion vieja resolveria con
+      // listening ya en true otra vez, pisando _meterStream y dejando dos
+      // bucles de medicion peleandose por el mismo orbe.
+      if (!self.listening || gen !== self._gen) {
+        st.getTracks().forEach(function (t) { t.stop(); });
+        return;
+      }
       self._meterStream = st;
       var ac = new AC();
       var src = ac.createMediaStreamSource(st);
@@ -518,7 +553,7 @@
       src.connect(an);
       var buf = new Uint8Array(an.frequencyBinCount);
       (function loop() {
-        if (!self.listening) {
+        if (!self.listening || gen !== self._gen) {
           self.onLevel(0);
           try { ac.close(); } catch (e) {}
           st.getTracks().forEach(function (t) { t.stop(); });
@@ -534,6 +569,7 @@
   };
 
   AetherEars.prototype.stop = function () {
+    this._gen++;                  // invalida cualquier getUserMedia pendiente
     this.listening = false;
     if (this._raf) cancelAnimationFrame(this._raf);
     this.onLevel(0);

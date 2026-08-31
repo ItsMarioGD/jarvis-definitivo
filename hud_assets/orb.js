@@ -169,17 +169,32 @@
     } catch (e) { gl = null; }
     if (!gl) return false;
 
-    var vs = compile(gl, gl.VERTEX_SHADER, VERT);
-    var fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) return false;
+    // A partir de aqui el lienzo ya esta ligado a WebGL: aunque fallemos, no
+    // podra dar un contexto 2D. _initCanvas2D lo tiene en cuenta.
+    this._glTainted = true;
 
-    var pr = gl.createProgram();
+    var vs = null, fs = null, pr = null;
+    function limpiar() {                 // no dejar shaders ni programa colgando
+      if (pr) { try { gl.deleteProgram(pr); } catch (e) {} }
+      if (vs) { try { gl.deleteShader(vs); } catch (e) {} }
+      if (fs) { try { gl.deleteShader(fs); } catch (e) {} }
+    }
+
+    vs = compile(gl, gl.VERTEX_SHADER, VERT);
+    fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) { limpiar(); return false; }
+
+    pr = gl.createProgram();
     gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
     if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) {
       console.warn('[orb] link:', gl.getProgramInfoLog(pr));
+      limpiar();
       return false;
     }
     gl.useProgram(pr);
+    // Ya enlazado: los shaders viven dentro del programa y pueden liberarse.
+    gl.deleteShader(vs); gl.deleteShader(fs);
+    vs = fs = null;
 
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -203,9 +218,35 @@
     return true;
   };
 
-  /* Fallback: anillos + núcleo en Canvas2D. Menos espectacular, igual de legible. */
+  /* Fallback: anillos + núcleo en Canvas2D. Menos espectacular, igual de legible.
+     Un lienzo queda ligado a su tipo de contexto de por vida: si _initGL llego
+     a pedir 'webgl' y luego fallo al compilar, este mismo lienzo devuelve null
+     para '2d' y el fallback dibujaria sobre nada. En ese caso lo sustituimos
+     por uno limpio, conservando id, clases y estilos. */
   Orb.prototype._initCanvas2D = function () {
-    this.ctx = this.canvas.getContext('2d');
+    var ctx = null;
+    if (!this._glTainted) {
+      try { ctx = this.canvas.getContext('2d'); } catch (e) { ctx = null; }
+    }
+    if (!ctx) {
+      var viejo = this.canvas;
+      var nuevo = document.createElement('canvas');
+      nuevo.id = viejo.id;
+      nuevo.className = viejo.className;
+      if (viejo.getAttribute('style')) nuevo.setAttribute('style', viejo.getAttribute('style'));
+      if (viejo.hasAttribute('aria-hidden')) nuevo.setAttribute('aria-hidden', viejo.getAttribute('aria-hidden'));
+      if (viejo.parentNode) {
+        viejo.parentNode.replaceChild(nuevo, viejo);
+        this.canvas = nuevo;
+        try { ctx = nuevo.getContext('2d'); } catch (e) { ctx = null; }
+      }
+    }
+    if (!ctx) {                     // sin 2D tampoco: mejor no arrancar el bucle
+      console.warn('[orb] sin contexto 2D disponible; el orbe queda inactivo.');
+      this.mode = 'none';
+      return false;
+    }
+    this.ctx = ctx;
     this.mode = '2d';
     this._resize();
     return true;
@@ -247,7 +288,7 @@
   };
 
   Orb.prototype.start = function () {
-    if (this.running) return;
+    if (this.running || this.mode === 'none') return;
     this.running = true;
     var self = this;
     (function loop() {
@@ -278,7 +319,7 @@
     if (this._reduced) t *= 0.25;
 
     if (this.mode === 'webgl') this._drawGL(t);
-    else this._draw2D(t);
+    else if (this.mode === '2d') this._draw2D(t);
   };
 
   Orb.prototype._drawGL = function (t) {
