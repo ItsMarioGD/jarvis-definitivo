@@ -14,8 +14,16 @@
         sesion anterior se enganchara a la nueva, con dos bucles de medicion
         peleandose por el mismo orbe.
 
-   Las tres se corrigen con un contador de generacion en AetherVoice y en
-   AetherEars. Contra la version anterior, este fichero falla 6 asserts.
+     4. stop() no cerraba la promesa devuelta por speak(): _speakServer solo
+        resolvia en 'ended', y pause() no lo dispara, asi que quien esperara
+        esa promesa se quedaba colgado para siempre.
+     5. Los callbacks de SpeechRecognition no llevaban guardia de generacion:
+        el onend del reconocedor anterior veia listening=true (ya de la
+        sesion nueva) y la mataba, y su onresult colaba una transcripcion
+        vieja como mensaje de la nueva.
+
+   Todas se corrigen con un contador de generacion en AetherVoice y en
+   AetherEars, mas un cierre explicito de la promesa en stop().
 
    Ejecutar:  node hud_assets/tests/test_voice_races.js
    Sin dependencias: usa el modulo vm de Node con dobles de navegador.
@@ -166,6 +174,61 @@ function cargar(extra) {
     ok(viejosVivos === 0,
        'los streams de la sesion anterior quedan liberados (' + viejosVivos + ' vivos)');
     ok(e._gen >= 2, 'la generacion de escucha avanzo (' + e._gen + ')');
+    e.stop();
+  }
+
+  // ── 4. stop() debe cerrar la promesa de speak(), no dejarla colgada ──────
+  console.log('\n4. speak() interrumpido por stop()');
+  {
+    const sb = cargar({
+      speechSynthesis: {
+        cancel() {},
+        getVoices: () => [{ name: 'Microsoft Pablo', lang: 'es-ES', voiceURI: 'p' }],
+        // Nunca dispara onend: simula una locucion que se corta a medias.
+        speak() {},
+      },
+      SpeechSynthesisUtterance: function (t) { this.text = t; },
+    });
+    const v = new sb.AetherVoice({ agent: 'jarvis', preferServer: false });
+    v.voices = sb.speechSynthesis.getVoices();
+    v.selectBestVoice();
+
+    let resuelta = false;
+    v.speak('Una frase larga que se va a interrumpir.').then(() => { resuelta = true; });
+    await new Promise((r) => setTimeout(r, 40));
+    v.stop();                       // corta en seco
+    await new Promise((r) => setTimeout(r, 60));
+
+    ok(resuelta === true, 'la promesa de speak() se asienta tras stop()');
+  }
+
+  // ── 5. Callbacks de un reconocedor viejo no deben tocar la sesion nueva ──
+  console.log('\n5. SpeechRecognition obsoleto tras stop() + start()');
+  {
+    const recs = [];
+    const sb = cargar({
+      navigator: { mediaDevices: { getUserMedia: () => new Promise(() => {}) } },
+      SpeechRecognition: function () {
+        const r = this;
+        r.start = () => {}; r.stop = () => {};
+        recs.push(r);
+      },
+    });
+    let finales = 0;
+    const e = new sb.AetherEars({ onFinal: () => { finales++; } });
+    e.start();                       // sesion 1 -> recs[0]
+    e.stop();
+    e.start();                       // sesion 2 -> recs[1]
+
+    // El reconocedor de la sesion 1 emite tarde, como haria de verdad.
+    recs[0].onresult({
+      resultIndex: 0,
+      results: [Object.assign([{ transcript: 'texto viejo' }], { 0: [{ transcript: 'texto viejo' }], isFinal: true, length: 1 })],
+    });
+    recs[0].onend();
+
+    ok(finales === 0, 'la transcripcion vieja no se envia (' + finales + ' enviadas)');
+    ok(e.listening === true, 'la sesion nueva sigue viva tras el onend del viejo');
     e.stop();
   }
 

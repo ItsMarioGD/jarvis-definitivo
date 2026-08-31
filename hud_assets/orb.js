@@ -38,7 +38,10 @@
     '}',
 
     // --- anillo suave ---------------------------------------------------
-    'float ring(float r, float rad, float w){ return smoothstep(w, 0.0, abs(r - rad)); }',
+    // Los bordes van siempre de menor a mayor: smoothstep con edge0 >= edge1
+    // es comportamiento indefinido segun la spec de GLSL ES, aunque en la
+    // practica los drivers lo traten como una rampa descendente.
+    'float ring(float r, float rad, float w){ return 1.0 - smoothstep(0.0, w, abs(r - rad)); }',
 
     'void main(){',
     '  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);',
@@ -64,10 +67,10 @@
     '  float n = fbm(q + fbm(q * 1.8 + t * 0.14) * (0.7 + lvl * 0.9));',
     // Un anillo de plasma en vez de un disco relleno: el centro queda oscuro y
     // el borde concentra la energia, que es lo que hace legible el estado.
-    '  float coreMask = smoothstep(R + 0.10, R - 0.14, r);',
+    '  float coreMask = 1.0 - smoothstep(R - 0.14, R + 0.10, r);',
     '  float shell = coreMask * smoothstep(R * 0.52, R * 0.97, r);',
     '  float plasma = shell * (0.22 + n * (1.05 + lvl * 0.95));',
-    '  float inner = smoothstep(R * 0.60, 0.0, r) * (0.05 + lvl * 0.22) * (0.30 + n * 0.70);',
+    '  float inner = 1.0 - smoothstep(0.0, R * 0.60, r) * (0.05 + lvl * 0.22) * (0.30 + n * 0.70);',
 
     // Ultron: el plasma se rompe en facetas angulares en vez de fluir
     '  float facet = mix(1.0, smoothstep(0.36, 0.66, fract(n * 3.0 + ang * 0.95 / 3.14159)), uAggr);',
@@ -88,7 +91,7 @@
 
     // --- barrido radar ------------------------------------------------------
     '  float sweepA = 0.5 + 0.5 * cos(ang - t * spin * 0.85);',
-    '  float sweep = pow(sweepA, 9.0) * smoothstep(R + 0.42, R + 0.06, r)',
+    '  float sweep = pow(sweepA, 9.0) * (1.0 - smoothstep(R + 0.06, R + 0.42, r))',
     '              * smoothstep(R - 0.02, R + 0.06, r) * 0.45;',
 
     // --- halo volumetrico ---------------------------------------------------
@@ -116,7 +119,7 @@
     '  col += (hash(vec3(gl_FragCoord.xy, floor(t * 24.0))) - 0.5) * 0.030 * lum;',
     // El lienzo se compone sobre el cristal: el alfa sigue a la luminancia
     // para que el fondo del orbe sea transparente, no un rectangulo negro.
-    '  float a = clamp(lum * 1.6, 0.0, 1.0) * smoothstep(R + 0.62, R + 0.10, r);',
+    '  float a = clamp(lum * 1.6, 0.0, 1.0) * (1.0 - smoothstep(R + 0.10, R + 0.62, r));',
     '  a = max(a, clamp(lum * 1.6, 0.0, 1.0) * step(r, R + 0.12));',
     '  gl_FragColor = vec4(col, a);',
     '}'

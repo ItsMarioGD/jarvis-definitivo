@@ -137,6 +137,7 @@
     this.voiceOverride = null;    // voiceURI elegido a mano en ajustes
     this.speaking = false;
     this._gen = 0;                // generacion de la locucion actual
+    this._settle = null;          // cierra la promesa de speak() en curso
     this._audio = null;
     this._ac = null;
     this._analyser = null;
@@ -162,7 +163,14 @@
       return true;
     }
     if (!pick()) {
-      global.speechSynthesis.onvoiceschanged = function () { pick(); };
+      // addEventListener y no onvoiceschanged=: la propiedad es unica y
+      // global, asi que asignarla pisa el handler de cualquier otra instancia.
+      var alCambiar = function () { pick(); };
+      if (global.speechSynthesis.addEventListener) {
+        global.speechSynthesis.addEventListener('voiceschanged', alCambiar);
+      } else {
+        global.speechSynthesis.onvoiceschanged = alCambiar;
+      }
       // Chrome a veces no dispara el evento: reintento acotado
       var n = 0;
       var iv = setInterval(function () {
@@ -304,20 +312,31 @@
     var gen = ++self._gen;
 
     return new Promise(function (resolve) {
+      var asentada = false;
+      function asentar(ok) {
+        if (asentada) return;
+        asentada = true;
+        if (self._settle === asentar) self._settle = null;
+        resolve(ok);
+      }
+      // stop() la usa para cerrar la promesa: pause() no dispara 'ended',
+      // asi que sin esto un speak() interrumpido no se resolvia jamas.
+      self._settle = asentar;
+
       function done(ok) {
-        if (gen !== self._gen) { resolve(ok); return; }   // locucion superada
+        if (gen !== self._gen) { asentar(ok); return; }   // locucion superada
         self.speaking = false;
         if (self._levelRaf) cancelAnimationFrame(self._levelRaf);
         self.onLevel(0);
         self.onState('idle');
-        resolve(ok);
+        asentar(ok);
       }
       self.speaking = true;
       self.onState('speak');
 
       if (self.preferServer) {
         self._speakServer(t, gen).then(function (ok) {
-          if (gen !== self._gen) { resolve(false); return; }
+          if (gen !== self._gen) { asentar(false); return; }
           if (ok) { done(true); return; }
           self._speakBrowser(t, gen).then(done);
         });
@@ -407,6 +426,8 @@
   };
 
   AetherVoice.prototype.stop = function () {
+    var pendiente = this._settle;
+    this._settle = null;
     this._gen++;                  // invalida cualquier locucion aun en vuelo
     this.speaking = false;
     if (this._levelRaf) cancelAnimationFrame(this._levelRaf);
@@ -417,6 +438,7 @@
       this._audio = null;
     }
     this._analyser = null;
+    if (pendiente) pendiente(false);   // no dejar colgada la promesa de speak()
   };
 
   /* ── Escucha ───────────────────────────────────────────────────────────
@@ -465,6 +487,7 @@
       r.interimResults = true;
       r.maxAlternatives = 1;
       r.onresult = function (e) {
+        if (gen !== self._gen) return;          // sesion de escucha superada
         var fin = '', part = '';
         for (var i = e.resultIndex; i < e.results.length; i++) {
           var tx = e.results[i][0].transcript;
@@ -474,10 +497,16 @@
         if (fin) { self.onPartial(fin); self.onFinal(fin.trim()); }
       };
       r.onerror = function (e) {
+        if (gen !== self._gen) return;
         self.onError(e.error || 'reconocimiento');
         self.stop();
       };
-      r.onend = function () { if (self.listening) self.stop(); };
+      // Sin la comprobacion de generacion, el onend del reconocedor anterior
+      // veia listening=true (ya de la sesion nueva) y la mataba.
+      r.onend = function () {
+        if (gen !== self._gen) return;
+        if (self.listening) self.stop();
+      };
       this._rec = r;
       try { r.start(); } catch (e) { this.onError('no pude abrir el micrófono'); this.stop(); }
       return Promise.resolve();
