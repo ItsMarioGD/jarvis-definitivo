@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ULTRON · Centro de Operaciones</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
+
+  :root {
+    /* ── Paleta Ultron: casco de guerra carmesí ── */
+    --bg: #070103;
+    --bg-2: #0c0204;
+    --hull: #120406;
+    --hull-2: #1a0608;
+    --border: #3a0a0e;
+    --border-2: #5e0f14;
+    --red: #ff1f2d;
+    --red-bright: #ff525a;
+    --dred: #b30000;
+    --molten: #ff7a1a;
+    --ember: #ffb347;
+    --steel: #6a4a52;
+    --text: #ffd9d9;
+    --muted: #9a555c;
+    --faint: #5a2e33;
+    /* ── Movimiento ── */
+    --ease: cubic-bezier(.2,.8,.2,1);
+    --t-fast: .15s; --t: .3s; --t-slow: .6s;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', 'Consolas', 'Courier New', monospace;
+    overflow: hidden;
+  }
+
+  /* ── Atmósfera: respiración de singularidad ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(ellipse at 32% 18%, rgba(255,31,45,0.14), transparent 58%),
+      radial-gradient(ellipse at 82% 92%, rgba(255,122,26,0.10), transparent 60%),
+      radial-gradient(ellipse at 50% 50%, rgba(120,0,10,0.25), transparent 70%);
+    animation: breath 8s ease-in-out infinite;
+  }
+  @keyframes breath { 0%,100% { opacity: .75; } 50% { opacity: 1; } }
+
+  /* ── Anillos concéntricos + viñeta ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      repeating-radial-gradient(circle at 50% -12%, rgba(255,31,45,0.045) 0 1px, transparent 1px 64px),
+      radial-gradient(ellipse at 50% 120%, rgba(255,31,45,0.10), transparent 55%),
+      radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,0.85) 100%);
+    opacity: .9;
+  }
+
+  .scanlines::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    background: repeating-linear-gradient(
+      to bottom, rgba(255,31,45,0.035) 0, rgba(255,0,0,0.035) 1px,
+      transparent 1px, transparent 3px);
+    mix-blend-mode: screen;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    grid-template-rows: 58px 1fr 112px;
+    height: 100vh;
+    gap: 7px; padding: 7px;
+    position: relative; z-index: 1;
+  }
+
+  /* ═══════ TOPBAR ═══════ */
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(90deg, #1a0204 0%, #0a0001 55%, #1a0204 100%);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    position: relative; overflow: hidden;
+    animation: rise .6s var(--ease) both;
+  }
+  .topbar::after {
+    content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+    background: linear-gradient(90deg, transparent, var(--red), var(--molten), var(--red), transparent);
+    background-size: 50% 100%;
+    box-shadow: 0 0 12px var(--red);
+    animation: scan 4.5s linear infinite; opacity: .85;
+  }
+  @keyframes scan { 0% { background-position: -50% 0; } 100% { background-position: 150% 0; } }
+
+  .topbar .lead { display: flex; align-items: center; gap: 14px; }
+
+  /* ── Ojo de sentencia ── */
+  .eye { position: relative; width: 32px; height: 32px; flex: none; display: flex;
+    align-items: center; justify-content: center; filter: drop-shadow(0 0 6px var(--red)); }
+  .eye .ring { position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid var(--red); border-top-color: transparent; border-left-color: transparent;
+    animation: spin 4s linear infinite; }
+  .eye .ring2 { position: absolute; inset: -4px; border-radius: 50%;
+    border: 1px solid rgba(255,31,45,0.35); border-bottom-color: transparent; border-right-color: transparent;
+    animation: spin 7s linear infinite reverse; }
+  .eye .core { width: 11px; height: 11px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, var(--ember), var(--red) 60%, #5a0008);
+    box-shadow: 0 0 12px var(--red), 0 0 22px rgba(255,31,45,0.6);
+    animation: eyePulse 2.6s ease-in-out infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes eyePulse { 0%,100% { transform: scale(.85); opacity: .85; } 50% { transform: scale(1.12); opacity: 1; } }
+
+  .brand {
+    font-family: 'Orbitron', 'Share Tech Mono', monospace; font-weight: 900;
+    font-size: 23px; letter-spacing: 7px;
+    color: var(--red-bright);
+    text-shadow: 0 0 8px var(--red), 0 0 18px rgba(255,31,45,0.6);
+    animation: flick 7s infinite;
+  }
+  @keyframes flick { 0%,96%,100% { opacity: 1; } 97% { opacity: .35; } 98% { opacity: .85; } }
+
+  .topbar .meta { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); }
+
+  .pill {
+    padding: 4px 12px; border-radius: 3px; border: 1px solid var(--border-2);
+    background: linear-gradient(180deg, #1a0305, #0e0203);
+    color: var(--bright); font-weight: 700; letter-spacing: 1px; font-size: 11px;
+    box-shadow: inset 0 0 8px rgba(255,31,45,0.08);
+    transition: all var(--t);
+  }
+  .pill.live { color: #fff; animation: pulse 1.4s infinite; text-shadow: 0 0 8px var(--red); }
+  .pill.off  { color: var(--muted); border-color: var(--border); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 4px var(--red), inset 0 0 8px rgba(255,31,45,0.1); }
+    50%      { box-shadow: 0 0 16px var(--red), inset 0 0 12px rgba(255,31,45,0.3); }
+  }
+
+  /* ═══════ PANELES (blindaje) ═══════ */
+  .panel {
+    position: relative;
+    background: linear-gradient(160deg, var(--hull), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 14px;
+    overflow: auto;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,80,90,0.04);
+    animation: rise .6s var(--ease) both;
+  }
+  .panel::before, .panel::after {
+    content: ''; position: absolute; width: 16px; height: 16px; pointer-events: none; z-index: 2;
+  }
+  .panel::before { top: 0; left: 0; border-top: 2px solid var(--red); border-left: 2px solid var(--red); }
+  .panel::after  { bottom: 0; right: 0; border-bottom: 2px solid var(--border-2); border-right: 2px solid var(--border-2); }
+  .left   { grid-row: 2 / 3; animation-delay: .10s; }
+  .chat   { grid-row: 2 / 3; display: flex; flex-direction: column; animation-delay: .16s; }
+  .right  { grid-row: 2 / 3; animation-delay: .22s; }
+  .bottom { grid-column: 1 / -1; grid-row: 3 / 4; animation-delay: .28s; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  .panel h3 {
+    position: relative; margin: 0 0 10px 0; padding: 0 0 8px;
+    font-family: 'Orbitron', 'Share Tech Mono', monospace;
+    font-size: 12px; letter-spacing: 3px;
+    color: var(--red-bright); text-transform: uppercase;
+    border-bottom: 1px solid var(--border-2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel h3::before {
+    content: ''; width: 8px; height: 8px; flex: none;
+    background: var(--red); box-shadow: 0 0 8px var(--red);
+    transform: rotate(45deg);
+  }
+
+  /* ═══════ CHAT ═══════ */
+  .chat .messages {
+    flex: 1; overflow: auto; padding: 8px 6px;
+    scrollbar-width: thin; scrollbar-color: var(--border-2) transparent;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .msg {
+    margin: 4px 0; padding: 10px 13px;
+    border-left: 3px solid var(--border-2);
+    border-radius: 3px;
+    background: rgba(20,0,0,0.5);
+    line-height: 1.45; white-space: pre-wrap;
+    animation: msgIn .3s var(--ease) both;
+    position: relative;
+  }
+  @keyframes msgIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+  .msg.user {
+    border-left-color: var(--dred);
+    background: rgba(40,0,0,0.55);
+    color: #ffe6e6;
+  }
+  .msg.ultron {
+    border-left-color: var(--red);
+    background: linear-gradient(90deg, rgba(70,0,4,0.55), rgba(40,0,2,0.4));
+    color: var(--red-bright);
+    text-shadow: 0 0 5px rgba(255,31,45,0.45);
+    box-shadow: inset 0 0 18px rgba(255,31,45,0.06);
+  }
+  .msg.ultron::before {
+    content: ''; position: absolute; left: -7px; top: 12px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red-bright); box-shadow: 0 0 10px var(--red);
+    animation: eyePulse 2.2s ease-in-out infinite;
+  }
+  .msg .role {
+    font-size: 10px; letter-spacing: 3px; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  #typing { animation: typingPulse 1s ease-in-out infinite; opacity: .85; }
+  @keyframes typingPulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+
+  /* ═══════ BARRAS DE ESTADO ═══════ */
+  .stat { margin: 12px 0; font-size: 12px; }
+  .stat .label { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); letter-spacing: 1px; }
+  .stat .label .v { color: var(--red-bright); font-weight: bold; text-shadow: 0 0 6px rgba(255,31,45,0.4); }
+  .bar {
+    position: relative; height: 9px; background: #150203;
+    border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
+    box-shadow: inset 0 0 6px rgba(0,0,0,0.7);
+  }
+  .bar > div {
+    position: relative; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--dred), var(--red), var(--molten));
+    box-shadow: 0 0 10px var(--red);
+    transition: width .6s var(--ease);
+  }
+  .bar > div::after {
+    content: ''; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0 2px, transparent 2px 7px);
+    opacity: .4;
+  }
+
+  /* ═══════ ACCIONES RÁPIDAS ═══════ */
+  .actions {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    margin-top: 6px;
+  }
+  .actions button {
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, #1a0305, #0e0203);
+    border: 1px solid var(--border-2);
+    color: var(--red-bright); padding: 9px 4px; border-radius: 3px;
+    font-family: inherit; font-size: 11px; cursor: pointer;
+    transition: all .18s var(--ease); letter-spacing: 1px;
+  }
+  .actions button::before {
+    content: ''; position: absolute; top: 0; left: -60%; width: 50%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,82,90,0.35), transparent);
+    transform: skewX(-20deg); transition: left .4s;
+  }
+  .actions button:hover {
+    background: linear-gradient(180deg, var(--dred), #7a0008); color: #fff;
+    box-shadow: 0 0 14px var(--red), inset 0 0 12px rgba(255,31,45,0.4);
+    border-color: var(--red);
+  }
+  .actions button:hover::before { left: 120%; }
+  .actions button:active { transform: scale(0.97); }
+
+  /* ═══════ ENTRADA INFERIOR ═══════ */
+  .bottom {
+    display: flex; gap: 8px; align-items: center;
+    padding: 13px 20px;
+    background: linear-gradient(180deg, var(--hull-2), var(--bg-2));
+    border: 1px solid var(--border-2);
+    position: relative; overflow: hidden;
+  }
+  .bottom::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(180deg, var(--red), var(--molten));
+    box-shadow: 0 0 12px var(--red);
+  }
+  .bottom input {
+    flex: 1; background: #0a0001; border: 1px solid var(--border-2);
+    color: var(--red-bright); padding: 13px 15px; border-radius: 3px;
+    font-family: inherit; font-size: 14px; outline: none;
+    transition: box-shadow var(--t), border-color var(--t);
+  }
+  .bottom input::placeholder { color: var(--faint); }
+  .bottom input:focus { box-shadow: 0 0 12px var(--red); border-color: var(--red); }
+  .bottom button {
+    background: linear-gradient(180deg, var(--dred), #7a0008); color: #fff; border: none;
+    padding: 13px 26px; border-radius: 3px; cursor: pointer;
+    font-family: 'Orbitron', monospace; font-weight: 700; letter-spacing: 2px; font-size: 12px;
+    transition: all var(--t);
+    box-shadow: 0 0 10px rgba(255,31,45,0.4);
+  }
+  .bottom button:hover { background: linear-gradient(180deg, var(--red), var(--dred)); box-shadow: 0 0 18px var(--red); }
+  .bottom .voice {
+    background: linear-gradient(180deg, #1a0305, #0e0203); color: var(--red-bright);
+    border: 1px solid var(--border-2); padding: 13px 18px; border-radius: 3px; cursor: pointer;
+    font-family: inherit; letter-spacing: 1px; transition: all var(--t);
+  }
+  .bottom .voice:hover { border-color: var(--red); box-shadow: 0 0 12px rgba(255,31,45,0.4); }
+  .bottom .voice.recording { background: var(--red-bright); color: #000; animation: pulse 0.6s infinite; }
+
+  /* ═══════ LISTAS RÁPIDAS ═══════ */
+  ul.quick { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+  ul.quick li {
+    padding: 7px 6px; border-bottom: 1px solid var(--border);
+    cursor: pointer; color: var(--text); transition: all var(--t-fast);
+    position: relative;
+  }
+  ul.quick li::before { content: '›'; color: var(--red); margin-right: 6px; }
+  ul.quick li:hover { background: var(--hull-2); color: var(--red-bright); padding-left: 12px; }
+
+  /* ═══════ TICKER TELEMÉTRICO ═══════ */
+  .ticker {
+    font-size: 11px; color: var(--muted);
+    margin-top: 8px; padding: 6px 9px;
+    border-top: 1px dashed var(--border);
+    border-left: 2px solid var(--border-2);
+    background: rgba(20,0,0,0.3);
+    font-family: 'Share Tech Mono', monospace;
+    line-height: 1.5;
+  }
+  .ticker a { color: var(--red-bright); text-decoration: none; }
+  .ticker a:hover { text-shadow: 0 0 8px var(--red); }
+
+  /* ═══════ SCROLLBARS ═══════ */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a0001; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--dred); }
+
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
+  /* ═══════ BOTONES MODO / PURGA ═══════ */
+  .mode-btn {
+    background: transparent; border: 1px solid var(--border-2);
+    color: var(--red-bright); padding: 6px 14px; border-radius: 3px;
+    font-family: 'Orbitron', monospace; font-size: 11px; cursor: pointer;
+    letter-spacing: 2px; transition: all var(--t);
+  }
+  .mode-btn:hover { background: var(--dred); color: #fff; box-shadow: 0 0 12px var(--red); }
+  .mode-btn.off { color: var(--muted); border-color: var(--border); opacity: .55; box-shadow: none; }
+
+  /* ═══════ ESTADO EN LÍNEA (reactivo) ═══════ */
+  body.online .eye .core { box-shadow: 0 0 16px var(--red), 0 0 30px rgba(255,31,45,0.85);
+    background: radial-gradient(circle at 40% 35%, #fff, var(--red) 55%, #5a0008); }
+  body.online .brand { text-shadow: 0 0 10px var(--red), 0 0 26px rgba(255,31,45,0.75); }
+  body.online::before { background:
+      radial-gradient(ellipse at 32% 18%, rgba(255,31,45,0.20), transparent 58%),
+      radial-gradient(ellipse at 82% 92%, rgba(255,122,26,0.14), transparent 60%),
+      radial-gradient(ellipse at 50% 50%, rgba(150,0,14,0.30), transparent 70%); }
+
+  /* ═══════ ESFERA DE PODER ÁMBAR (núcleo central reactivo a la voz) ═══════ */
+  :root { --vl: 0; }
+  #coreOrb {
+    position: fixed; left: 50%; top: 50%;
+    width: 96px; height: 96px;
+    transform: translate(-50%, -50%) scale(calc(1 + var(--vl) * 0.28));
+    transition: transform .06s linear;
+    pointer-events: none; z-index: 1000;
+  }
+  #coreOrb .shell {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid rgba(255, 159, 10, .55);
+    box-shadow: 0 0 calc(10px + var(--vl) * 38px) rgba(255, 159, 10, calc(.35 + var(--vl) * .65)),
+                inset 0 0 16px rgba(255, 159, 10, .45);
+    animation: orbSpin 14s linear infinite;
+  }
+  #coreOrb .shell::before {
+    content: ''; position: absolute; inset: 4px; border-radius: 50%;
+    border: 1px dashed rgba(255, 190, 80, .65);
+  }
+  #coreOrb .heart {
+    position: absolute; inset: 14px; border-radius: 50%;
+    background: radial-gradient(circle at 38% 32%, #fff8e1, #ffc247 30%, #ff9500 58%, #7a3c00 100%);
+    box-shadow: 0 0 calc(18px + var(--vl) * 72px) rgba(255, 149, 0, calc(.70 + var(--vl) * .30)),
+                inset 0 0 calc(10px + var(--vl) * 22px) rgba(255, 220, 130, .95);
+    animation: orbBreath 3.2s ease-in-out infinite;
+  }
+  @keyframes orbSpin { to { transform: rotate(360deg); } }
+  @keyframes orbBreath { 0%,100% { filter: brightness(.92); } 50% { filter: brightness(1.14); } }
+  /* Resplandor ambiental ámbar que sigue el nivel de voz */
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(255, 149, 0, calc(var(--vl) * .32)), transparent 48%);
+  }
+  @media (max-width: 600px) { #coreOrb { width: 72px; height: 72px; } }
+
+  /* ═══════ RESPONSIVE ═══════ */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto auto; height: 100vh; overflow: auto; }
+    html, body { overflow: auto; }
+    .left, .chat, .right { grid-row: auto; grid-column: 1 / -1; min-height: 220px; }
+    .bottom { grid-row: auto; }
+  }
+
+  /* ═══════ ACCESIBILIDAD ═══════ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+    .eye .ring, .eye .ring2, .eye .core, .topbar::after, body::before { animation: none !important; }
+  }
+</style>
+</head>
+<body class="scanlines">
+<div class="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="lead">
+      <div class="eye" aria-hidden="true">
+        <span class="ring2"></span>
+        <span class="ring"></span>
+        <span class="core"></span>
+      </div>
+      <div class="brand">U L T R O N</div>
+    </div>
+    <div class="meta">
+      <span class="pill off" id="state">OFFLINE</span>
+      <span class="pill" id="model">--</span>
+      <span class="pill" id="modo">--</span>
+      <span id="clock" class="pill">--:--:--</span>
+      <button class="mode-btn" id="audioBtn" onclick="toggleAudio()">🔊 VOZ</button>
+      <button class="mode-btn" onclick="toggleMode()">MODO</button>
+      <button class="mode-btn" onclick="purge()">PURGA</button>
+    </div>
+  </div>
+
+  <!-- LEFT: Telemetría -->
+  <div class="panel left">
+    <h3>▣ Telemetría del host</h3>
+    <div class="stat"><div class="label"><span>CPU</span><span class="v" id="cpuV">--%</span></div>
+      <div class="bar"><div id="cpuB"></div></div></div>
+    <div class="stat"><div class="label"><span>RAM</span><span class="v" id="ramV">--</span></div>
+      <div class="bar"><div id="ramB"></div></div></div>
+    <div class="stat"><div class="label"><span>DISCO</span><span class="v" id="diskV">--</span></div>
+      <div class="bar"><div id="diskB"></div></div></div>
+    <div class="stat"><div class="label"><span>TEMP</span><span class="v" id="tempV">n/d</span></div>
+      <div class="bar"><div id="tempB"></div></div></div>
+    <div class="ticker" id="ticker">Inicializando enlace cognitivo…</div>
+
+    <h3 style="margin-top:14px">▣ Núcleo</h3>
+    <ul class="quick">
+      <li onclick="ask('/status')">↻ Refrescar estado</li>
+      <li onclick="ask('autodiagnóstico completo')">⎔ Autodiagnóstico</li>
+      <li onclick="ask('lista procesos top')">⎙ Top procesos</li>
+      <li onclick="ask('informe matutino')">⎗ Informe matutino</li>
+    </ul>
+  </div>
+
+  <!-- CENTER: Chat -->
+  <div class="panel chat">
+    <h3>▣ Canal cognitivo</h3>
+    <div class="messages" id="msgs"></div>
+  </div>
+
+  <!-- RIGHT: Comandos rápidos (Saturación) -->
+  <div class="panel right">
+    <h3>▣ Saturación · acciones rápidas</h3>
+    <div class="actions">
+      <button onclick="ask('abre chrome')">⌬ Chrome</button>
+      <button onclick="ask('abre spotify')">♪ Spotify</button>
+      <button onclick="ask('abre vscode')">◊ VSCode</button>
+      <button onclick="ask('abre la terminal')">▸ Terminal</button>
+      <button onclick="ask('abre el bloc de notas')">▭ Notas</button>
+      <button onclick="ask('abre la calculadora')">∑ Calc</button>
+      <button onclick="ask('dame el clima')">☼ Clima</button>
+      <button onclick="ask('dame las noticias')">▤ Noticias</button>
+      <button onclick="ask('dame las stats del pc')">▥ Stats</button>
+      <button onclick="ask('apaga el pc en 30 minutos')">⏻ Apagar 30'</button>
+      <button onclick="ask('cancela el apagado')">↩ Cancelar</button>
+      <button onclick="ask('lista agentes')">🧠 Agencia</button>
+      <button onclick="ask('agentes de security')">🛡 Sec</button>
+      <button onclick="ask('agentes de engineering')">⚙ Eng</button>
+      <button onclick="ask('desactiva agente')">↩ Base</button>
+      <button onclick="ask('salud del pc')">⌬ Salud</button>
+    </div>
+
+    <h3 style="margin-top:14px">▣ Telemetría del núcleo</h3>
+    <ul class="quick" style="font-size:11px">
+      <li>Último: <span id="lastCmd" style="color:var(--bright)">—</span></li>
+      <li>Tokens: <span id="lastTokens" style="color:var(--bright)">0</span></li>
+      <li>Latencia: <span id="lastLat" style="color:var(--bright)">0 ms</span></li>
+      <li>Uptime: <span id="uptime" style="color:var(--bright)">0 s</span></li>
+    </ul>
+
+    <h3 style="margin-top:14px">▣ Vínculo</h3>
+    <div class="ticker">
+      IP: <span id="ipV">…</span><br>
+      <a href="/mobile" style="color:var(--bright)">/mobile</a> ·
+      <a href="/centro" style="color:var(--bright)">/centro</a> ·
+      <a href="/dashboard" style="color:var(--bright)">/dashboard</a>
+    </div>
+  </div>
+
+  <!-- BOTTOM: Input -->
+  <div class="bottom">
+    <input id="q" placeholder="Órden directa al núcleo…" autocomplete="off"
+           onkeydown="if(event.key==='Enter'){send()}">
+    <button class="voice" id="mic" onclick="toggleMic()">● VOZ</button>
+    <button onclick="send()">EJECUTAR ▶</button>
+  </div>
+
+</div>
+
+<audio id="ttsPlayer" style="display:none"></audio>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const msgs = $('msgs');
+  const player = $('ttsPlayer');
+
+  // ── Estado global (declarado ANTES de cualquier uso para evitar TDZ) ──
+  var audioOn = true;
+  var readyToSpeak = false;
+  var voiceChatOn = false, recognizing = false, recog = null, speakToken = 0, pausedForSpeak = false;
+
+  function add(role, text) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + role;
+    d.innerHTML = '<div class="role">' + role + '</div>' + escapeHtml(text);
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    if (role === 'ultron' && readyToSpeak && audioOn) speak(text);
+  }
+  function escapeHtml(s){return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);}
+
+  // SocketIO (protegido: si el cliente no cargó, la página sigue funcionando por REST)
+  const sock = (typeof io === 'function') ? io() : null;
+  function onSock(evt, fn) { if (sock) sock.on(evt, fn); }
+  onSock('connect', () => add('ultron', 'Enlace cognitivo establecido.'));
+  onSock('history', (d) => {
+    (d.messages || []).forEach(m => add(m.role === 'user' ? 'user' : 'ultron', m.text));
+    readyToSpeak = true;
+  });
+  onSock('user_message', (d) => add('user', d.text));
+  onSock('receive_message', (d) => add('ultron', d.text));
+  onSock('typing', () => {
+    const d = document.createElement('div');
+    d.className = 'msg ultron blink';
+    d.id = 'typing';
+    d.innerHTML = '<div class="role">ultron</div>procesando…';
+    msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
+  });
+  onSock('receive_message', () => {
+    const t = $('typing'); if (t) t.remove();
+  });
+
+  async function ask(text) {
+    $('q').value = text; await send();
+  }
+  async function send() {
+    const q = $('q'); const text = q.value.trim();
+    if (!text) return;
+    q.value = '';
+    add('user', text);
+    $('lastCmd').textContent = text.slice(0, 40);
+    try {
+      const r = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text})});
+      const j = await r.json();
+      if (j.error) { add('ultron', '⚠ ' + j.error); return; }
+      add('ultron', j.reply || '(sin respuesta)');
+      $('lastLat').textContent = (j.latencia_ms || 0) + ' ms';
+    } catch(e) { add('ultron', '⚠ ' + e.message); }
+  }
+
+  async function toggleMode() {
+    const cur = $('modo').textContent.trim();
+    const next = cur === 'OFENSIVA' ? 'NORMAL' : 'OFENSIVA';
+    try {
+      const r = await fetch('/mode/' + next, {method:'POST'});
+      const j = await r.json();
+      $('modo').textContent = next;
+      add('ultron', j.mensaje || ('modo ' + next));
+    } catch(e) { add('ultron', '⚠ ' + e.message); }
+  }
+
+  async function purge() {
+    if (!confirm('¿Purgar memoria Ultron?')) return;
+    try {
+      const r = await fetch('/purge', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({token: getToken()})});
+      const j = await r.json();
+      add('ultron', j.mensaje || 'memoria purgada');
+    } catch(e) { add('ultron', '⚠ ' + e.message); }
+  }
+  function getToken(){return localStorage.getItem('ultron_pin')||'';}
+
+  // Telemetría cada 2s
+  async function poll() {
+    try {
+      const r = await fetch('/health'); const h = await r.json();
+      const s = await fetch('/status').then(r=>r.json());
+      const t = await fetch('/stats').then(r=>r.json());
+      $('state').textContent = h.core_loaded ? 'EN LÍNEA' : 'OFFLINE';
+      $('state').className = 'pill ' + (h.core_loaded ? 'live' : 'off');
+      document.body.classList.toggle('online', !!h.core_loaded);
+      $('model').textContent = h.llm || '--';
+      $('modo').textContent = h.modo || '--';
+      if (s) {
+        $('lastTokens').textContent = s.ultimo_tokens || 0;
+        $('lastLat').textContent = (s.ultima_latency_ms||s.ultima_latencia_ms||0) + ' ms';
+        $('uptime').textContent = (s.uptime_s||0) + ' s';
+      }
+      if (!t.error) {
+        $('cpuV').textContent = (t.cpu||0).toFixed(1) + '%';
+        $('cpuB').style.width = Math.min(100, t.cpu||0) + '%';
+        $('ramV').textContent = (t.ram_used_gb||0).toFixed(1) + ' / ' + (t.ram_total_gb||0).toFixed(1) + ' GB';
+        $('ramB').style.width = (t.ram_pct||0) + '%';
+        const dp = Math.round((1 - (t.disco_libre_gb||1)/(t.disco_total_gb||1))*100);
+        $('diskV').textContent = (t.disco_libre_gb||0).toFixed(1) + ' GB libres';
+        $('diskB').style.width = dp + '%';
+        $('tempV').textContent = t.temp !== null && t.temp !== undefined ? t.temp + '°C' : 'n/d';
+        $('tempB').style.width = t.temp ? Math.min(100, t.temp) + '%' : '0%';
+        const top = (t.top||[]).map(p=>p.nombre+' '+(p.cpu||0)+'%').join(' · ');
+        $('ticker').textContent = 'Top: ' + (top || '—') + ' · ' + (t.hora||'');
+      }
+    } catch(e) { /* silencioso */ }
+  }
+  setInterval(poll, 2000); poll();
+
+  // Reloj
+  setInterval(() => {
+    const d = new Date();
+    $('clock').textContent = d.toTimeString().slice(0,8);
+  }, 500);
+
+  // IP
+  fetch('/pair_info').then(r=>r.json()).then(j => { $('ipV').textContent = j.url; }).catch(()=>{});
+
+  // ── Síntesis de voz (ElevenLabs → navegador) ──
+  // (audioOn / readyToSpeak / recog... ya declarados arriba)
+
+  async function speak(text) {
+    text = (text || '').toString();
+    if (!text.trim()) { if (voiceChatOn) startListen(); return; }
+    const chunk = text.length > 1800 ? text.slice(0, 1800) : text;
+    const token = ++speakToken;
+    // Pausar escucha para no captar nuestro propio TTS (eco)
+    if (voiceChatOn && recognizing) {
+      pausedForSpeak = true; recognizing = false;
+      try { recog.stop(); } catch (e) {}
+    }
+    const mic = $('mic');
+    if (voiceChatOn) mic.textContent = '◉ HABLANDO';
+    try {
+      const r = await fetch('/api/speak', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text: chunk})});
+      if (r.ok) {
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        player.src = url;
+        if (window.__orbEnsure) window.__orbEnsure();
+        await player.play();
+        player.onended = () => { URL.revokeObjectURL(url); resumeListen(token); };
+        player.onerror = () => { URL.revokeObjectURL(url); resumeListen(token); };
+        return;
+      }
+    } catch (e) {}
+// Fallback: voz del navegador (Mark - voz masculina)
+      try {
+        if ('speechSynthesis' in window) {
+          speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(chunk);
+          u.lang = 'es-ES'; u.rate = 0.9; u.pitch = 0.7; u.volume = 1;
+          const vs = speechSynthesis.getVoices();
+          // Preferir Mark (voz masculina Windows), luego cualquier voz masculina
+          const v = vs.find(x => /es[-_]ES/i.test(x.lang) && /mark/i.test(x.name))
+                  || vs.find(x => /es[-_]ES/i.test(x.lang) && /male|hombre|david/i.test(x.name))
+                  || vs.find(x => /es[-_]ES/i.test(x.lang))
+                  || vs.find(x => /es/i.test(x.lang));
+          if (v) u.voice = v;
+          u.onend = () => resumeListen(token);
+          u.onerror = () => resumeListen(token);
+          speechSynthesis.speak(u);
+          return;
+        }
+      } catch (e) {}
+    resumeListen(token);
+  }
+  function resumeListen(token) {
+    pausedForSpeak = false;
+    if (token !== speakToken) return;
+    if (voiceChatOn) startListen();
+  }
+
+  function toggleAudio() {
+    audioOn = !audioOn;
+    const b = $('audioBtn');
+    b.textContent = audioOn ? '🔊 VOZ' : '🔇 MUDO';
+    b.classList.toggle('off', !audioOn);
+    if (!audioOn && 'speechSynthesis' in window) speechSynthesis.cancel();
+  }
+
+  // ── Entrada de voz (Web Speech API) ──
+  function setupRecog() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = 'es-ES'; r.continuous = false; r.interimResults = false;
+    r.onresult = (e) => {
+      const t = (e.results[0][0].transcript || '').trim();
+      if (t) { $('q').value = t; send(); }
+    };
+    r.onend = () => {
+      if (pausedForSpeak) return;            // speak() reanudará la escucha
+      if (voiceChatOn) { try { r.start(); } catch (e) {} }
+    };
+    r.onerror = (e) => {
+      if (e.error === 'not-allowed') {
+        voiceChatOn = false; recognizing = false; pausedForSpeak = false;
+        const mic = $('mic'); mic.classList.remove('recording'); mic.textContent = '● VOZ';
+        add('ultron', '⚠ Permiso de micrófono denegado.');
+      }
+    };
+    return r;
+  }
+  function startListen() {
+    if (!recog) recog = setupRecog();
+    if (!recog) return;
+    if (recognizing) return;
+    recognizing = true;
+    const mic = $('mic');
+    mic.classList.add('recording'); mic.textContent = '■ ESCUCHANDO';
+    try { recog.start(); } catch (e) {}
+  }
+  function stopListen() {
+    recognizing = false; pausedForSpeak = false;
+    if (recog) { try { recog.stop(); } catch (e) {} }
+    const mic = $('mic');
+    mic.classList.remove('recording'); mic.textContent = '● VOZ';
+  }
+  function toggleMic() {
+    if (!recog) recog = setupRecog();
+    if (!recog) {
+      add('ultron', '⚠ Reconocimiento de voz no disponible (usa localhost o HTTPS).');
+      return;
+    }
+    voiceChatOn = !voiceChatOn;
+    if (voiceChatOn) startListen(); else stopListen();
+  }
+
+  // ── Esfera ámbar: brilla y se mueve al ritmo de la voz ──
+  (function(){
+    const rootStyle = document.documentElement.style;
+    let actx = null, analyser = null, wired = false;
+    function ensureAudio() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!actx) actx = new AC();
+        if (actx.state === 'suspended') actx.resume().catch(function(){});
+        if (!wired) {
+          try {
+            const src = actx.createMediaElementSource(player);
+            analyser = actx.createAnalyser();
+            analyser.fftSize = 256; analyser.smoothingTimeConstant = .75;
+            src.connect(analyser); analyser.connect(actx.destination);
+            wired = true;
+          } catch (e) { wired = true; }
+        }
+      } catch (e) {}
+    }
+    window.__orbEnsure = ensureAudio;
+    document.addEventListener('pointerdown', function(){ ensureAudio(); }, { once:true });
+    let level = 0, fbuf = null;
+    function loop() {
+      requestAnimationFrame(loop);
+      let target = 0;
+      const playingMp3 = !!player.src && !player.paused && !player.ended;
+      if (analyser && playingMp3) {
+        if (!fbuf) fbuf = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(fbuf);
+        let s = 0; for (let i = 0; i < fbuf.length; i++) s += fbuf[i];
+        target = Math.min(1, (s / fbuf.length) / 120);
+      } else if (playingMp3 || ('speechSynthesis' in window && speechSynthesis.speaking)) {
+        // Pulso sintético sincronizado al habla cuando no hay analizador
+        target = .42 + .30 * Math.abs(Math.sin(Date.now() / 170));
+      }
+      level += (target - level) * (target > level ? .55 : .10);
+      rootStyle.setProperty('--vl', level.toFixed(3));
+    }
+    loop();
+  })();
+</script>
+
+<!-- ESFERA CENTRAL ÁMBAR (núcleo del imperio, centro literal) -->
+<div id="coreOrb" class="core-orb" aria-hidden="true">
+  <span class="shell"></span>
+  <span class="heart"></span>
+</div>
+
+</body>
+</html>
