@@ -272,6 +272,14 @@ def main():
                           "Pasa cuando queda abierto un intento previo: el "
                           "navegador devuelve el codigo viejo y no cuadra con "
                           "la peticion nueva.")
+                if "Expecting value" in detalle or "BOM" in detalle:
+                    fatal("El fichero de credenciales tiene un BOM al principio "
+                          "y la libreria de Google no lo admite.",
+                          "Deberia haberse limpiado solo: vuelve a ejecutar el "
+                          "script. Si insiste, descarga el JSON otra vez con el "
+                          "boton «DESCARGAR JSON» de la consola en vez de "
+                          "crearlo a mano (PowerShell y el Bloc de notas anaden "
+                          "ese BOM al guardar).")
                 if "access_denied" in detalle or "403" in detalle:
                     fatal(f"Google denego el acceso: {detalle[:150]}",
                           "En «Pantalla de consentimiento de OAuth» anade tu "

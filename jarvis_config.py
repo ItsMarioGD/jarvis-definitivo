@@ -215,6 +215,26 @@ def ruta_token_google() -> str:
     return os.path.join(destino, "token.json")
 
 
+def _quitar_bom(ruta: str, datos: dict) -> bool:
+    """Reescribe el JSON sin BOM si lo tiene. Devuelve True si lo toco."""
+    try:
+        with open(ruta, "rb") as f:
+            if f.read(3) != b"\xef\xbb\xbf":
+                return False
+    except OSError:
+        return False
+    try:
+        import json as _json
+        with open(ruta, "w", encoding="utf-8") as f:
+            _json.dump(datos, f)
+        print(f"[jarvis_config] Quitado el BOM de {os.path.basename(ruta)} "
+              f"(la libreria de Google no lo admite).")
+        return True
+    except OSError as e:
+        print(f"[jarvis_config] No pude limpiar el BOM de {ruta}: {e}")
+        return False
+
+
 def revisar_credenciales_google() -> dict:
     """Comprueba que el JSON sirve para lo que queremos.
 
@@ -235,6 +255,11 @@ def revisar_credenciales_google() -> dict:
     except Exception as e:
         return {"ok": False, "ruta": ruta, "tipo": "", "error":
                 f"{os.path.basename(ruta)} no es un JSON valido: {e}"}
+    # La libreria de Google abre el fichero SIN utf-8-sig, asi que un BOM al
+    # principio (lo que deja Set-Content -Encoding utf8 en PowerShell, o el
+    # Bloc de notas) la hace fallar con "Expecting value: line 1 column 1".
+    # Nosotros si lo leemos, asi que reescribimos el fichero limpio.
+    _quitar_bom(ruta, datos)
     if datos.get("type") == "service_account":
         return {"ok": False, "ruta": ruta, "tipo": "service_account", "error":
                 "Es una CUENTA DE SERVICIO. No puede entrar en tu calendario "
