@@ -3,7 +3,7 @@
 jarvis_core.py - Nucleo cognitivo de Jarvis
 STT + LLM (Qwen3 via Ollama local) + TTS (ElevenLabs) + Telemetria
 """
-import base64, json, os, re, time, platform, subprocess, tempfile, threading, queue
+import base64, json, os, re, sys, time, platform, subprocess, tempfile, threading, queue
 import requests, psutil, sqlite3, socket
 from dotenv import load_dotenv
 from jarvis_skills import SkillsManager
@@ -193,16 +193,11 @@ class JarvisCore:
             self.agentes_ia = None
             self.log(f"[JARVIS] Agencia de agentes no disponible: {_e_ag}")
 
-        # Bot de Telegram: arranca en proceso separado si hay token configurado
+        # Bot de Telegram: arranca en proceso separado si hay token configurado.
+        # JARVIS_TELEGRAM_CHILD lo pone telegram_bot.py: sin esa marca el bot
+        # creaba un JarvisCore que volvia a lanzar otro bot en cascada.
         try:
-            tg_cfg = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Prefs", "telegram.json")
-            if os.path.exists(tg_cfg) and json.load(open(tg_cfg, encoding="utf-8")).get("token"):
-                import subprocess as _sp
-                bot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_bot.py")
-                if os.path.exists(bot_path):
-                    _sp.Popen(["pythonw", bot_path], cwd=os.path.dirname(os.path.abspath(__file__)),
-                              creationflags=0x08000000)
-                    self.log("Bot de Telegram lanzado en segundo plano.")
+            self._lanzar_bot_telegram()
         except Exception as e:
             self.log(f"No se pudo lanzar el bot de Telegram: {e}")
 
@@ -309,6 +304,47 @@ class JarvisCore:
         # Saludo de arranque: si el señor activó el arranque automático,
         # Jarvis se presenta por voz cuando el sistema termina de cargar.
         threading.Thread(target=self._saludo_arranque, daemon=True).start()
+
+    def _lanzar_bot_telegram(self):
+        """Arranca telegram_bot.py como proceso aparte si hay token guardado.
+
+        Usa jarvis_config.TELEGRAM_JSON (resuelve Descargas/Downloads) y
+        sys.executable: 'pythonw' solo existe en Windows y fuera de ahi el
+        arranque fallaba en silencio dejando el bot sin levantar.
+        """
+        if os.getenv("JARVIS_TELEGRAM_CHILD") == "1":
+            return  # ya estamos dentro del propio bot
+        try:
+            import jarvis_config
+            tg_cfg = jarvis_config.TELEGRAM_JSON
+        except Exception:
+            tg_cfg = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS",
+                                  "Prefs", "telegram.json")
+        token = ""
+        try:
+            if os.path.exists(tg_cfg):
+                token = (json.load(open(tg_cfg, encoding="utf-8-sig")).get("token") or "").strip()
+        except Exception:
+            token = ""
+        token = token or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        if not token:
+            return
+        raiz = os.path.dirname(os.path.abspath(__file__))
+        bot_path = os.path.join(raiz, "telegram_bot.py")
+        if not os.path.exists(bot_path):
+            self.log("telegram_bot.py no esta en el proyecto; no lanzo el bot.")
+            return
+        import subprocess as _sp
+        exe = sys.executable or "python"
+        kwargs = {"cwd": raiz, "env": {**os.environ, "JARVIS_TELEGRAM_CHILD": "1"}}
+        if os.name == "nt":
+            pythonw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+            if os.path.exists(pythonw):
+                exe = pythonw
+            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        _sp.Popen([exe, bot_path], **kwargs)
+        self.log("Bot de Telegram lanzado en segundo plano "
+                 f"(log en {os.path.join(raiz, 'jarvis_log', 'telegram_bot.log')}).")
 
     def _saludo_arranque(self):
         """Saludo por voz al encender el PC (si el señor lo activó)."""

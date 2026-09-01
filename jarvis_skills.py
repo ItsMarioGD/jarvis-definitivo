@@ -9,7 +9,7 @@ Habilidades:
   Alarma | Captura de pantalla | Portapapeles | Bloquear/Apagar/Reiniciar
   Batería | Web search
 """
-import os, re, subprocess, threading, time, urllib.request, json, tempfile, unicodedata
+import os, re, subprocess, sys, threading, time, urllib.request, json, tempfile, unicodedata
 from datetime import datetime, timedelta
 import jarvis_config
 
@@ -6173,16 +6173,55 @@ Write-Output ("{0:N1}" -f $total)
 
     # ── BOT DE TELEGRAM ─────────────────────────────────────────────────────
     def _telegram_path(self) -> str:
-        d = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Prefs")
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, "telegram.json")
+        # Misma ruta que usa telegram_bot.py: jarvis_config resuelve
+        # Descargas/Downloads. Fijarla a "Descargas" hacia que el token se
+        # guardara donde el bot no lo buscaba.
+        try:
+            import jarvis_config
+            ruta = jarvis_config.TELEGRAM_JSON
+        except Exception:
+            ruta = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS",
+                                "Prefs", "telegram.json")
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        return ruta
+
+    def _telegram_lanzar(self) -> bool:
+        """Levanta telegram_bot.py ya mismo, sin esperar a reiniciar JARVIS."""
+        try:
+            raiz = os.path.dirname(os.path.abspath(__file__))
+            bot = os.path.join(raiz, "telegram_bot.py")
+            if not os.path.exists(bot):
+                return False
+            exe = sys.executable or "python"
+            kwargs = {"cwd": raiz, "env": {**os.environ, "JARVIS_TELEGRAM_CHILD": "1"}}
+            if os.name == "nt":
+                pythonw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+                if os.path.exists(pythonw):
+                    exe = pythonw
+                kwargs["creationflags"] = 0x08000000
+            subprocess.Popen([exe, bot], **kwargs)
+            return True
+        except Exception as e:
+            self.log(f"No pude lanzar el bot de Telegram: {e}")
+            return False
 
     def _telegram(self, t: str):
         m = re.search(r"configura mi bot de telegram en (\d+:[A-Za-z0-9_-]{20,})", t)
         if m:
             if self.safe:
                 return "(modo seguro: no guardaría el token)"
-            json.dump({"token": m.group(1)}, open(self._telegram_path(), "w", encoding="utf-8"))
+            ruta = self._telegram_path()
+            try:  # conservar offset/chat_id de una configuracion anterior
+                datos = json.load(open(ruta, encoding="utf-8-sig"))
+                if not isinstance(datos, dict):
+                    datos = {}
+            except Exception:
+                datos = {}
+            datos["token"] = m.group(1)
+            json.dump(datos, open(ruta, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            if self._telegram_lanzar():
+                return ("Token de Telegram guardado, señor. El bot ya está en marcha: "
+                        "mándele un mensaje y le responderé desde el PC.")
             return ("Token de Telegram guardado, señor. El bot se activará en el próximo arranque de JARVIS. "
                     "Mándele un mensaje al bot y le responderé desde el PC.")
         if re.search(r"estado de mi bot de telegram|mi bot de telegram", t):

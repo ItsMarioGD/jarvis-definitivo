@@ -316,7 +316,18 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     const text = msgInput.value.trim();
     if (!text) return;
     if (agente === 'jarvis') {
-      if (!connected || !socket) return;
+      // Antes, sin socket, el botón no hacía absolutamente nada y parecía que
+      // JARVIS ignoraba al usuario. Ahora se avisa y se reintenta la conexión.
+      if (!socket) {
+        pushMsg('jarvis', 'sys', 'Sin conexión con el PC. Reconectando…');
+        connectSock();
+        return;
+      }
+      if (!connected) {
+        pushMsg('jarvis', 'sys', 'JARVIS no está conectado (¿el PC está encendido y en la misma red?). Reintentando…');
+        try { socket.connect(); } catch (e) { connectSock(); }
+        return;
+      }
       // El servidor reenvía 'user_message' a todos: evitamos duplicar localmente
       msgInput.value = ''; sendBtn.disabled = true;
       socket.emit('send_message', { text: text });

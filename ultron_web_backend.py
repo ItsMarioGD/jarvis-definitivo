@@ -45,6 +45,45 @@ def _get_core():
     return _core or None
 
 
+def _preguntar(core, text: str) -> str:
+    """Pregunta al nucleo sin hablar por los altavoces del PC."""
+    import inspect
+    for nombre in ("chat", "process_text_stream", "ask"):
+        fn = getattr(core, nombre, None)
+        if fn is None:
+            continue
+        try:
+            acepta = "speak_server" in inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            acepta = False
+        return (fn(text, speak_server=False) if acepta else fn(text)) or "Sin respuesta."
+    return "El núcleo no expone ningún método de conversación."
+
+
+def _tts_bytes(text: str):
+    """MP3 de ElevenLabs, o None si no hay clave/voz configurada."""
+    key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    voice = (os.getenv("ULTRON_VOICE_ID", "").strip()
+             or os.getenv("ELEVENLABS_VOICE_ID", "").strip())
+    if not key or "tu_api" in key or not voice:
+        return None
+    try:
+        import requests
+        r = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
+            json={"text": text, "model_id": "eleven_multilingual_v2",
+                  "voice_settings": {"stability": 0.5, "similarity_boost": 0.8}},
+            headers={"Accept": "audio/mpeg", "Content-Type": "application/json",
+                     "xi-api-key": key},
+            timeout=(5, 30))
+        if r.status_code == 200:
+            return r.content
+        print(f"[ultron-backend] elevenlabs {r.status_code}")
+    except Exception as e:
+        print(f"[ultron-backend] tts fallo: {e}")
+    return None
+
+
 class UltronHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[ultron-backend] {self.address_string()} — {fmt % args}")
@@ -126,19 +165,24 @@ class UltronHandler(BaseHTTPRequestHandler):
                     "media": None,
                 })
             try:
-                reply = core.ask(text) if hasattr(core, "ask") else "Sin método ask()."
+                # speak_server=False: una peticion del movil no debe hacer
+                # hablar a los altavoces del PC ni bloquearse esperando al TTS.
+                reply = _preguntar(core, text)
                 return self._json(200, {"reply": reply, "media": None})
             except Exception as e:
+                print(f"[ultron-backend] /chat fallo: {e}")
                 return self._json(500, {"error": "core_failed", "detail": str(e)})
 
         if path == "/tts":
-            text = (body.get("text") or "").strip()
-            if not text or not core or not hasattr(core, "synthesize_to_bytes"):
+            text = (body.get("text") or "").strip()[:2000]
+            # El nucleo no tiene synthesize_to_bytes (solo reproduce en el PC):
+            # el MP3 para el navegador se pide a ElevenLabs.
+            audio = _tts_bytes(text) if text else None
+            if not audio:
                 self.send_response(204)
                 self.end_headers()
                 return
             try:
-                audio = core.synthesize_to_bytes(text)
                 self.send_response(200)
                 self.send_header("Content-Type", "audio/mpeg")
                 self.send_header("Content-Length", str(len(audio)))
@@ -146,7 +190,7 @@ class UltronHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(audio)
             except Exception as e:
-                self._json(500, {"error": "tts_failed", "detail": str(e)})
+                print(f"[ultron-backend] /tts fallo: {e}")
             return
 
         self._json(404, {"error": "endpoint_not_found"})

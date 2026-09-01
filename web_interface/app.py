@@ -225,7 +225,19 @@ def filtro_ips():
         return None
     if request.path in ("/pair", "/qr", "/allow_my_ip", "/mobile", "/"):
         return None
-    return jsonify({'error': 'IP no autorizada'}), 403
+    # El PIN de emparejamiento es una credencial mas fuerte que la IP: sin esto,
+    # al cambiar la IP del movil (DHCP) el telefono cargaba /mobile pero el
+    # handshake de Socket.IO se rechazaba con un 403 mudo y el chat no respondia.
+    # Solo cabecera/query: no tocamos el cuerpo de la peticion aqui para no
+    # forzar el parseo de subidas grandes en cada before_request.
+    if _auth_ok(request.headers.get('X-Token') or request.args.get('token') or ''):
+        return None
+    # Socket.IO ya valida el token en on_connect; dejarlo pasar no abre nada.
+    if request.path.startswith('/socket.io'):
+        return None
+    print(f"[auth] IP no autorizada: {request.remote_addr} -> {request.path}")
+    return jsonify({'error': 'IP no autorizada', 'ip': request.remote_addr,
+                    'ayuda': 'Abre /pair en el PC y vuelve a emparejar el teléfono.'}), 403
 
 
 def _history_messages(limite=40):
@@ -1481,10 +1493,19 @@ def probar_ia():
 
 
 # ── SOCKETIO: CHAT EN TIEMPO REAL ─────────────────────────────────────────────
+# Clientes de Socket.IO vivos: evita bloquear el PC por una desconexion
+# transitoria del movil.
+_clientes = set()
+_clientes_lock = threading.Lock()
+
+
 @socketio.on('connect')
 def on_connect(auth):
     if not auth or not _auth_ok(auth.get('token', '')):
+        print(f"[auth] Socket.IO rechazado desde {request.remote_addr}: PIN incorrecto o ausente.")
         return False
+    with _clientes_lock:
+        _clientes.add(request.sid)
     emit('connected', {'ok': True})
     try:
         emit('history', {'messages': _history_messages()})
@@ -1493,17 +1514,25 @@ def on_connect(auth):
 
 
 @socketio.on('disconnect')
-def on_disconnect():
+def on_disconnect(*_):
+    # *_ : las versiones nuevas de Flask-SocketIO pasan un motivo al handler.
+    with _clientes_lock:
+        _clientes.discard(request.sid)
     try:
         cfg = json.load(open(os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS",
                                           "Prefs", "presencia.json"), encoding="utf-8"))
         if cfg.get("activo"):
-            threading.Timer(2.0, _bloquear_por_presencia).start()
+            # 20 s en vez de 2: el movil pierde el socket constantemente
+            # (pantalla apagada, cambio de Wi-Fi) y bloqueaba el PC sin motivo.
+            threading.Timer(20.0, _bloquear_por_presencia).start()
     except Exception:
         pass
 
 
 def _bloquear_por_presencia():
+    with _clientes_lock:
+        if _clientes:
+            return  # alguien volvio a conectarse: no era una ausencia real
     try:
         import ctypes
         ctypes.windll.user32.LockWorkStation()
