@@ -894,10 +894,16 @@ def process_text():
                 import traceback
                 return jsonify({'status': 'error', 'response': f'Error procesando: {str(e)[:200]}', 'trace': traceback.format_exc()[:500]})
         else:
-            err = core.error
+            err = core.error or ''
+            ayuda = ' Ejecute «python diagnostico_bots.py» en la carpeta del proyecto para ver la causa.'
+            if 'database' in err.lower():
+                ayuda = (' Es la base de datos: defina JARVIS_DB_DIR con una carpeta escribible '
+                         'o ejecute «python diagnostico_bots.py».')
+            elif 'no module named' in err.lower():
+                ayuda = ' Falta una dependencia: ejecute «pip install -r requirements.txt».'
             return jsonify({'status': 'listening',
-                            'response': 'Señor, el núcleo de JARVIS no pudo cargarse.'
-                                        + (f' ({err})' if err else ' Revisa la consola del servidor.')})
+                            'response': ('Señor, el núcleo de JARVIS no pudo cargarse.'
+                                         + (f' ({err})' if err else '') + ayuda)})
     except Exception as e:
         import traceback
         return jsonify({'error': 'Error interno', 'details': str(e)[:100] if str(e) else 'unknown', 'trace': traceback.format_exc()[:500]}), 500

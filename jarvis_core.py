@@ -4,13 +4,81 @@ jarvis_core.py - Nucleo cognitivo de Jarvis
 STT + LLM (Qwen3 via Ollama local) + TTS (ElevenLabs) + Telemetria
 """
 import base64, json, os, re, sys, time, platform, subprocess, tempfile, threading, queue
-import requests, psutil, sqlite3, socket
-from dotenv import load_dotenv
-from jarvis_skills import SkillsManager
-import jarvis_grafo
-import jarvis_redact
+import sqlite3, socket
+
+# Nada de lo de abajo es imprescindible para CONVERSAR. Antes iban en un
+# import plano y la falta de cualquiera (psutil, por ejemplo, que solo sirve
+# para telemetria) hacia que "import jarvis_core" fallara entero y JARVIS no
+# respondiera absolutamente nada. Ahora degrada en vez de morir.
+FALTANTES = []
+
+try:
+    import requests
+except Exception as _e:
+    requests = None
+    FALTANTES.append(f"requests ({_e})")
+
+try:
+    import psutil
+except Exception as _e:
+    psutil = None
+    FALTANTES.append(f"psutil ({_e})")
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*a, **k):
+        """Sin python-dotenv: parseo minimo del .env para no perder las claves."""
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        try:
+            for linea in open(ruta, encoding="utf-8"):
+                linea = linea.strip()
+                if linea and not linea.startswith("#") and "=" in linea:
+                    k_, v_ = linea.split("=", 1)
+                    os.environ.setdefault(k_.strip(), v_.strip().strip('"').strip("'"))
+        except Exception:
+            pass
+
+try:
+    from jarvis_skills import SkillsManager
+except Exception as _e:
+    FALTANTES.append(f"jarvis_skills ({_e})")
+
+    class SkillsManager:  # sin habilidades, pero JARVIS sigue conversando
+        def __init__(self, *a, **k):
+            pass
+
+        def handle(self, *a, **k):
+            return None
+
+try:
+    import jarvis_grafo
+except Exception as _e:
+    FALTANTES.append(f"jarvis_grafo ({_e})")
+
+    class _GrafoNulo:
+        def __getattr__(self, _):
+            return lambda *a, **k: None
+    jarvis_grafo = _GrafoNulo()
+
+try:
+    import jarvis_redact
+except Exception as _e:
+    FALTANTES.append(f"jarvis_redact ({_e})")
+
+    class _RedactNulo:
+        @staticmethod
+        def redact(texto, *a, **k):
+            return texto
+
+        def __getattr__(self, _):
+            return lambda *a, **k: None
+    jarvis_redact = _RedactNulo()
 
 load_dotenv()
+
+if FALTANTES:
+    print("[JARVIS] Arranco en modo degradado, falta: " + "; ".join(FALTANTES))
 
 try:
     from openai import OpenAI
@@ -134,13 +202,17 @@ class JarvisCore:
 
         self.log(f"LLM -> {self.model} @ {self.base_url}")
 
+        self.llm = None
         if HAS_OPENAI:
-            kwargs = {"base_url": self.base_url, "api_key": self.api_key}
-            if HAS_HTTPX:
-                kwargs["timeout"] = Timeout(60.0, connect=10.0)
-            self.llm = OpenAI(**kwargs)
+            try:
+                kwargs = {"base_url": self.base_url, "api_key": self.api_key}
+                if HAS_HTTPX:
+                    kwargs["timeout"] = Timeout(60.0, connect=10.0)
+                self.llm = OpenAI(**kwargs)
+            except Exception as e:
+                # Una base_url mal formada no puede dejar mudo al asistente.
+                self.log(f"No pude crear el cliente LLM ({e}); sigo sin el.")
         else:
-            self.llm = None
             self.log("openai no disponible - instala con pip install openai")
 
         if HAS_SR:
@@ -178,12 +250,24 @@ class JarvisCore:
         # hilos UDP, TTS y LLM pueden colisionar al cerrar el cursor.
         self._db_lock = threading.RLock()
 
+        # Worker de TTS asincrono. Este bloque colgaba tras el return de la
+        # property signal_processor, o sea que era codigo muerto: tts_queue no
+        # existia y cualquier cosa que hablara reventaba con AttributeError.
+        # Va aqui porque SkillsManager recibe notify=... y la usa.
+        self.tts_queue = queue.Queue()
+        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
+        self.tts_thread.start()
+
         # Habilidades del sistema (Sprint 2): respuestas instantáneas sin LLM
-        self.skills = SkillsManager(
-            log=self.log,
-            notify=lambda msg: self.tts_queue.put(msg),
-            remember=self.add_reminder,
-        )
+        try:
+            self.skills = SkillsManager(
+                log=self.log,
+                notify=lambda msg: self.tts_queue.put(msg),
+                remember=self.add_reminder,
+            )
+        except Exception as e:
+            self.log(f"Habilidades desactivadas: {e}")
+            self.skills = None
 
         # Agencia de especialistas (agency-agents): modos activables por voz/texto
         try:
@@ -254,8 +338,16 @@ class JarvisCore:
             self.msg = None
 
         self.history = [{"role": "system", "content": self.system_prompt}]
-        self.load_memory_context()
-        self.start_udp_listener()
+        # Ninguna de estas dos es necesaria para contestar: que un historial
+        # corrupto o un puerto UDP ocupado no impidan usar JARVIS.
+        try:
+            self.load_memory_context()
+        except Exception as e:
+            self.log(f"No pude cargar el contexto de memoria: {e}")
+        try:
+            self.start_udp_listener()
+        except Exception as e:
+            self.log(f"Listener UDP desactivado: {e}")
 
         # Contexto rodante (isair transcript buffer): últimas 3 interacciones
         self._contexto = []
@@ -271,6 +363,11 @@ class JarvisCore:
                 self.log("Microservicio C++ Hotkey (Ctrl+Alt+J) iniciado en segundo plano.")
             except Exception as e:
                 self.log(f"Error lanzando Hotkey C++: {e}")
+
+        # Saludo de arranque: si el señor activó el arranque automático,
+        # Jarvis se presenta por voz cuando el sistema termina de cargar.
+        # (Tambien estaba en el bloque muerto: nunca llegaba a ejecutarse.)
+        threading.Thread(target=self._saludo_arranque, daemon=True).start()
 
     @property
     def mem0(self):
@@ -295,15 +392,6 @@ class JarvisCore:
                 self._signal_error = e
                 self.log(f"SignalProcessor no disponible: {e}")
         return self._signal_processor
-
-    # Worker de TTS asíncrono para latencia ultrabaja
-        self.tts_queue = queue.Queue()
-        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
-        self.tts_thread.start()
-
-        # Saludo de arranque: si el señor activó el arranque automático,
-        # Jarvis se presenta por voz cuando el sistema termina de cargar.
-        threading.Thread(target=self._saludo_arranque, daemon=True).start()
 
     def _lanzar_bot_telegram(self):
         """Arranca telegram_bot.py como proceso aparte si hay token guardado.
@@ -892,8 +980,28 @@ class JarvisCore:
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     def process_text_stream(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
-        if not text.strip():
+        """Punto de entrada unico. GARANTIZA una respuesta: nunca propaga una
+        excepcion ni devuelve None, para que ninguna interfaz (web, movil,
+        Telegram, escritorio) se quede sin contestacion."""
+        try:
+            r = self._process_text_stream(text, state_callback=state_callback,
+                                          speak_server=speak_server, skip_skills=skip_skills)
+            return r if (r and str(r).strip()) else "Señor, no he sabido qué responder a eso."
+        except Exception as e:
+            self.log(f"[JARVIS] Fallo no controlado con «{str(text)[:60]}»: "
+                     f"{type(e).__name__}: {e}")
+            try:
+                import traceback
+                self.log(traceback.format_exc())
+            except Exception:
+                pass
+            return (f"Señor, algo ha fallado al procesar eso ({type(e).__name__}: "
+                    f"{str(e)[:120]}). Lo he anotado en jarvis_log/session.log.")
+
+    def _process_text_stream(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
+        if not text or not str(text).strip():
             return "Señor, no recibí ningún texto."
+        text = str(text)
 
         # Wake natural (isair intent_judge): «¿qué opinas, Jarvis?» -> «¿qué opinas?»
         t_limpio = re.sub(r"\bjarvis\b", " ", text, flags=re.IGNORECASE)
@@ -955,13 +1063,20 @@ class JarvisCore:
         if skip_skills:
             skill_reply = None
         else:
-            skill_reply = self.skills.handle(text)
-            if not skill_reply and self.pc is not None:
-                # Control total del PC (Sprint "Más poder"): segundo despachador
-                skill_reply = self.pc.handle(text)
-            if not skill_reply and self.msg is not None:
-                # Mensajería (WhatsApp/Gmail): tercer despachador
-                skill_reply = self.msg.handle(text)
+            # Cada despachador va aislado: si una habilidad revienta, antes se
+            # llevaba por delante toda la respuesta y JARVIS se quedaba mudo.
+            # Ahora se registra el fallo y se pasa al siguiente (y al LLM).
+            skill_reply = None
+            for nombre, despachador in (("habilidades", self.skills),
+                                        ("control del PC", self.pc),
+                                        ("mensajería", self.msg)):
+                if skill_reply or despachador is None:
+                    continue
+                try:
+                    skill_reply = despachador.handle(text)
+                except Exception as e:
+                    self.log(f"[JARVIS] El despachador de {nombre} fallo con "
+                             f"«{text[:60]}»: {type(e).__name__}: {e}")
         if skill_reply:
             self.history.append({"role": "user", "content": text})
             self.save_to_memory("user", text)
@@ -1480,6 +1595,8 @@ $speaker.Speak({json.dumps(text, ensure_ascii=False)})
     # ── TELEMETRÍA ────────────────────────────────────────────────────────────
     @staticmethod
     def get_system_stats() -> dict:
+        if psutil is None:
+            return {"error": "psutil no instalado"}
         try:
             cpu  = psutil.cpu_percent(interval=None)
             cores = psutil.cpu_percent(interval=None, percpu=True)
