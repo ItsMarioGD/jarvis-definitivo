@@ -26,6 +26,53 @@ sys.path.insert(0, RAIZ)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
+LIBRERIAS = ["google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2"]
+
+
+def _importa_google() -> bool:
+    try:
+        import google.auth.transport.requests  # noqa: F401
+        import google.oauth2.credentials       # noqa: F401
+        import google_auth_oauthlib.flow       # noqa: F401
+        import googleapiclient.discovery       # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _cargar_librerias_google() -> bool:
+    """Importa las librerias de Google; si faltan, las instala y reintenta.
+
+    Usa sys.executable en vez de "pip" a secas: con varios Python instalados
+    (el del sistema, el de C:\\Python314...) un "pip install" suelto puede
+    acabar instalando en un interprete distinto del que ejecuta JARVIS, y el
+    import seguiria fallando igual.
+    """
+    if _importa_google():
+        return True
+    print("\n  Faltan las librerias de Google. Las instalo ahora en:")
+    print(f"    {sys.executable}")
+    import subprocess
+    try:
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet",
+                            *LIBRERIAS], timeout=600)
+    except Exception as e:
+        print(f"  No pude lanzar pip: {e}")
+        return False
+    if r.returncode != 0:
+        print(f"  pip termino con error (codigo {r.returncode}).")
+        return False
+    # Los modulos recien instalados pueden no verse sin refrescar la cache.
+    import importlib
+    importlib.invalidate_caches()
+    if _importa_google():
+        print("  [OK] Librerias instaladas.")
+        return True
+    print("  Instaladas, pero siguen sin importarse. Cierra esta ventana y "
+          "vuelve a ejecutar el script.")
+    return False
+
+
 def fatal(msg, ayuda=""):
     print(f"\n  [MAL] {msg}")
     if ayuda:
@@ -97,15 +144,14 @@ def main():
         print("  Sin eso Google respondera «redirect_uri_mismatch».")
         print("  " + "-" * 58)
 
-    try:
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
-        from googleapiclient.discovery import build
-    except ImportError as e:
-        fatal(f"Faltan las librerias de Google ({e}).",
-              "pip install google-api-python-client google-auth-oauthlib "
-              "google-auth-httplib2")
+    if not _cargar_librerias_google():
+        fatal("No pude preparar las librerias de Google.",
+              f'Instalalas a mano con:  "{sys.executable}" -m pip install '
+              "google-api-python-client google-auth-oauthlib google-auth-httplib2")
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
 
     # ── 2. Autorizacion ──────────────────────────────────────────────────────
     token_path = jarvis_config.ruta_token_google()
