@@ -337,6 +337,21 @@ class JarvisCore:
             self.log(f"Mensajería desactivada: {e}")
             self.msg = None
 
+        # Conectores a servicios externos (Google Calendar y los demas
+        # servidores MCP). Cuarto despachador, tras skills / pc / mensajeria.
+        try:
+            from conectores import Conectores
+            self.conectores = Conectores(
+                log=self.log,
+                notify=lambda msg: self.tts_queue.put(msg),
+                safe=False,
+            )
+            listos = [n for n, ok in self.conectores.estado().items() if ok]
+            self.log(f"Conectores activos: {', '.join(listos) or 'ninguno respondiendo aún'}")
+        except Exception as e:
+            self.log(f"Conectores desactivados: {e}")
+            self.conectores = None
+
         self.history = [{"role": "system", "content": self.system_prompt}]
         # Ninguna de estas dos es necesaria para contestar: que un historial
         # corrupto o un puerto UDP ocupado no impidan usar JARVIS.
@@ -1067,7 +1082,12 @@ class JarvisCore:
             # llevaba por delante toda la respuesta y JARVIS se quedaba mudo.
             # Ahora se registra el fallo y se pasa al siguiente (y al LLM).
             skill_reply = None
-            for nombre, despachador in (("habilidades", self.skills),
+            # Los conectores van PRIMERO: solo reaccionan a menciones
+            # explicitas (calendario, cita, reunion, evento), y si no fueran
+            # antes, la agenda local de jarvis_skills se comeria la orden y el
+            # evento nunca llegaria a Google Calendar.
+            for nombre, despachador in (("conectores", getattr(self, "conectores", None)),
+                                        ("habilidades", self.skills),
                                         ("control del PC", self.pc),
                                         ("mensajería", self.msg)):
                 if skill_reply or despachador is None:

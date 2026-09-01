@@ -189,6 +189,49 @@ def revisar_voz():
           "navegador (speechSynthesis). No es un error.")
 
 
+def revisar_conectores():
+    titulo("CONECTORES (Google Calendar y demas)")
+    try:
+        import conectores
+    except Exception as e:
+        mal(f"No puedo importar conectores.py: {e}")
+        return
+    try:
+        c = conectores.Conectores(log=lambda m: None)
+    except Exception as e:
+        mal(f"No pude crear el despachador de conectores: {e}")
+        return
+    if not c.conectores:
+        mal("No hay ningun conector cargado.")
+        return
+    estado = c.estado()
+    for servicio, vivo in estado.items():
+        if vivo:
+            print(OK + f"{servicio} responde.")
+        else:
+            print(AVISO + f"{servicio} no responde.")
+    if not any(estado.values()):
+        puerto = conectores.SERVIDORES["calendar"]
+        mal("Ningun servidor de conectores esta escuchando.",
+            f"Arranca el de calendario: python mcp_servers/calendar_server.py "
+            f"(puerto {puerto}), o usa start_jarvis.bat que los levanta todos.")
+        return
+    cred = os.getenv("GOOGLE_CREDENTIALS_JSON", "credentials.json")
+    tok = os.getenv("GOOGLE_TOKEN_JSON", "token.json")
+    for ruta, que in ((cred, "credenciales de Google"), (tok, "token de autorizacion")):
+        entero = ruta if os.path.isabs(ruta) else os.path.join(RAIZ, ruta)
+        if os.path.exists(entero):
+            print(OK + f"{que}: {entero}")
+        elif que.startswith("token"):
+            print(AVISO + f"Sin {que} ({entero}). La primera vez que agendes algo "
+                          "se abrira el navegador para autorizar.")
+        else:
+            mal(f"Faltan las {que} ({entero}).",
+                "Descargalas de Google Cloud Console (OAuth de escritorio) y "
+                "guardalas ahi, o define GOOGLE_CREDENTIALS_JSON.")
+    print('       Prueba: «Jarvis, agenda una reunión con Marta mañana a las 5».')
+
+
 def revisar_nucleo():
     titulo("NUCLEO DE JARVIS")
     try:
@@ -247,6 +290,7 @@ if __name__ == "__main__":
     revisar_telegram()
     revisar_db()
     revisar_voz()
+    revisar_conectores()
     revisar_nucleo()
     revisar_web()
     titulo("RESUMEN")
