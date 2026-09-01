@@ -29,6 +29,30 @@ sys.path.insert(0, RAIZ)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
+def _explicar_access_denied(info):
+    """La app esta en modo Prueba y el correo no esta en la lista blanca."""
+    proy = info.get("proyecto", "")
+    print("\n" + "=" * 62)
+    print(" Google denego el acceso  (Error 403: access_denied)")
+    print("=" * 62)
+    print("\n  Tu app esta en modo «Prueba», y en ese modo Google solo deja")
+    print("  entrar a las cuentas que figuren como USUARIOS DE PRUEBA.")
+    print("  Aunque la app sea tuya, tu correo tiene que estar en esa lista.")
+    print("\n  Anadelo aqui:")
+    if proy:
+        print(f"\n    https://console.cloud.google.com/auth/audience?project={proy}")
+    print("\n    → seccion «Usuarios de prueba» → + ADD USERS")
+    print("    → escribe tu correo de Gmail → GUARDAR")
+    print("\n  Luego vuelve a ejecutar este script.")
+    print("\n  NOTA: en modo Prueba la autorizacion caduca a los 7 dias y hay")
+    print("  que repetirla. Para que no caduque, en esa misma pantalla pulsa")
+    print("  «PUBLICAR APLICACION». Seguira saliendo el aviso de «app no")
+    print("  verificada» (es tuya, se acepta en «Configuracion avanzada»),")
+    print("  pero el acceso ya no expira.")
+    print("=" * 62)
+    sys.exit(1)
+
+
 def _explicar_mismatch(jarvis_config, info):
     """El fallo mas comun. Se explica entero, con el valor a copiar."""
     uri = jarvis_config.REDIRECT_OAUTH
@@ -281,10 +305,7 @@ def main():
                           "crearlo a mano (PowerShell y el Bloc de notas anaden "
                           "ese BOM al guardar).")
                 if "access_denied" in detalle or "403" in detalle:
-                    fatal(f"Google denego el acceso: {detalle[:150]}",
-                          "En «Pantalla de consentimiento de OAuth» anade tu "
-                          "correo como usuario de prueba, y comprueba que el "
-                          "permiso de Calendar esta en la lista de scopes.")
+                    _explicar_access_denied(info)
                 if "address already in use" in detalle.lower() or "10048" in detalle:
                     fatal(f"El puerto {puerto} esta ocupado.",
                           "Cierra lo que lo use, o define GOOGLE_OAUTH_PORT con "
