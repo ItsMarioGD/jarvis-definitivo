@@ -14,6 +14,7 @@ Que hace:
 Opciones:
   --puerto N   Usa el puerto N para el redirect (por si ya tienes otro
                registrado en Google, p. ej. --puerto 8080).
+  --json RUTA  Fuerza que credenciales usar, si tienes varias.
   --buscar     Solo dice donde busca y que encuentra (no autoriza nada).
   --revocar    Olvida la autorizacion (borra el token).
   --sin-probar No crea el evento de prueba.
@@ -124,6 +125,17 @@ def main():
 
     # --puerto N: usar un redirect que ya este registrado en Google, en vez
     # de tener que anadir uno nuevo.
+    if "--json" in sys.argv:
+        try:
+            ruta = sys.argv[sys.argv.index("--json") + 1]
+        except IndexError:
+            fatal("--json necesita la ruta de un fichero .json")
+        if not os.path.isfile(ruta):
+            fatal(f"No existe: {ruta}")
+        os.environ["GOOGLE_CREDENTIALS_JSON"] = os.path.abspath(ruta)
+        import importlib
+        importlib.reload(jarvis_config)
+
     if "--puerto" in sys.argv:
         try:
             n = int(sys.argv[sys.argv.index("--puerto") + 1])
@@ -184,6 +196,15 @@ def main():
     if info.get("proyecto"):
         print(f"       proyecto: {info['proyecto']}")
     print(f"       tipo:     {info['tipo']}")
+    otros = [c for c in jarvis_config.listar_credenciales_google()
+             if os.path.abspath(c) != os.path.abspath(info["ruta"])]
+    if otros:
+        print(f"\n  [!] Hay {len(otros) + 1} ficheros de credenciales. Uso el mas")
+        print("      reciente. Los otros:")
+        for o in otros[:4]:
+            print(f"        - {os.path.basename(o)}")
+        print("      Si no es el que quieres, borra los que sobren o usa:")
+        print("        python autorizar_google.py --json RUTA")
     if info.get("aviso"):
         print("\n  " + "-" * 58)
         print("  ATENCION, un paso previo en Google Cloud Console:")
@@ -242,6 +263,14 @@ def main():
                 detalle = str(e)
                 if "redirect_uri_mismatch" in detalle or "redirect" in detalle.lower():
                     _explicar_mismatch(jarvis_config, info)
+                if "mismatching_state" in detalle or "CSRF" in detalle:
+                    fatal("El navegador respondio a una autorizacion ANTERIOR "
+                          "(mismatching_state).",
+                          "Cierra TODAS las pestanas de «Acceder con Google» y "
+                          "las de localhost:8088, y vuelve a lanzar el script. "
+                          "Pasa cuando queda abierto un intento previo: el "
+                          "navegador devuelve el codigo viejo y no cuadra con "
+                          "la peticion nueva.")
                 if "access_denied" in detalle or "403" in detalle:
                     fatal(f"Google denego el acceso: {detalle[:150]}",
                           "En «Pantalla de consentimiento de OAuth» anade tu "

@@ -147,15 +147,19 @@ def buscar_credenciales_google() -> str:
         ruta = explicito if os.path.isabs(explicito) else os.path.join(PROJECT_ROOT, explicito)
         if os.path.isfile(ruta):
             return ruta
+    # Con varios ficheros gana el MAS RECIENTE, no el primero alfabetico: si
+    # alguien descarga unas credenciales nuevas y deja las viejas al lado, lo
+    # que quiere usar es siempre el que acaba de bajar. (Coger el primero por
+    # nombre hacia que se intentara autorizar contra el proyecto equivocado.)
+    candidatos = []
     for carpeta in (GOOGLE_DIR, os.path.join(PROJECT_ROOT, "google"),
                     PROJECT_ROOT, _PREFS_DIR, JARVIS_DATA, DOWNLOADS):
-        for c in _en_carpeta(carpeta):
-            return c
-    # Ultimo recurso: barrer el proyecto hasta 3 niveles. Asi da igual en que
-    # subcarpeta se haya dejado el fichero.
-    for c in _barrer_proyecto():
-        return c
-    return ""
+        candidatos.extend(_en_carpeta(carpeta))
+    if not candidatos:
+        candidatos = list(_barrer_proyecto())
+    if not candidatos:
+        return ""
+    return max(candidatos, key=lambda c: os.path.getmtime(c))
 
 
 def _en_carpeta(carpeta: str):
@@ -186,20 +190,15 @@ def _barrer_proyecto(max_prof: int = 3):
 
 
 def listar_credenciales_google() -> list:
-    """Todos los candidatos encontrados, para poder decir donde se ha mirado."""
+    """Todos los candidatos, del mas reciente al mas antiguo."""
     vistos, salida = set(), []
-    for c in _barrer_proyecto():
+    for c in list(_barrer_proyecto()) + [x for carpeta in (_PREFS_DIR, JARVIS_DATA, DOWNLOADS)
+                                         for x in _en_carpeta(carpeta)]:
         real = os.path.abspath(c)
         if real not in vistos:
             vistos.add(real)
             salida.append(real)
-    for carpeta in (_PREFS_DIR, JARVIS_DATA, DOWNLOADS):
-        for c in _en_carpeta(carpeta):
-            real = os.path.abspath(c)
-            if real not in vistos:
-                vistos.add(real)
-                salida.append(real)
-    return salida
+    return sorted(salida, key=lambda c: os.path.getmtime(c), reverse=True)
 
 
 def ruta_token_google() -> str:
