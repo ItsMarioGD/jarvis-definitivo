@@ -96,7 +96,13 @@ class GoogleCalendarMCP:
                     raise RuntimeError(f"Credentials no encontrado: {self.config.credentials_file}")
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.config.credentials_file, SCOPES)
-                creds = flow.run_local_server(port=0)
+                # Puerto fijo, igual que autorizar_google.py: las credenciales
+                # de tipo «web» validan el redirect contra los registrados.
+                try:
+                    puerto = jarvis_config.OAUTH_PORT
+                except Exception:
+                    puerto = int(os.getenv("GOOGLE_OAUTH_PORT", "8088"))
+                creds = flow.run_local_server(port=puerto)
 
             _guardar_token(self.config.token_file, creds)
 

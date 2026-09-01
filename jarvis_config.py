@@ -127,6 +127,12 @@ JARVIS_DB = ruta_db("jarvis_memory.db")
 # configurar variables de entorno.
 GOOGLE_DIR = os.path.join(PROJECT_ROOT, "Google")
 
+# Puerto FIJO para el servidor local del flujo OAuth. Con las credenciales de
+# tipo «Aplicacion web» Google exige que el redirect este registrado, y con un
+# puerto aleatorio seria imposible registrarlo.
+OAUTH_PORT = int(os.getenv("GOOGLE_OAUTH_PORT", "8088"))
+REDIRECT_OAUTH = f"http://localhost:{OAUTH_PORT}/"
+
 _PATRONES_CRED = ("client_secret*.json", "credentials*.json", "*oauth*.json")
 
 
@@ -234,22 +240,29 @@ def revisar_credenciales_google() -> dict:
                 "personal. Crea unas credenciales de tipo «ID de cliente de "
                 "OAuth» → «Aplicacion de escritorio»."}
     if "web" in datos and "installed" not in datos:
-        proyecto = datos["web"].get("project_id", "")
-        return {"ok": False, "ruta": ruta, "tipo": "web", "error":
-                "Es de tipo «Aplicacion web»"
-                + (f" del proyecto «{proyecto}»" if proyecto else "")
-                + ". JARVIS autoriza desde el PC con un servidor local, y ese "
-                "tipo exige tener registrado el redirect http://localhost, que "
-                "no trae. Crea unas credenciales nuevas de tipo «Aplicacion de "
-                "escritorio» (Google Cloud Console → Credenciales → Crear "
-                "credenciales → ID de cliente de OAuth) y borra este fichero."}
+        # Las credenciales de tipo «Aplicacion web» TAMBIEN valen: la libreria
+        # de Google las acepta. La unica diferencia es que exigen tener el
+        # redirect registrado en la consola, asi que usamos un puerto FIJO
+        # (OAUTH_PORT) para poder decir exactamente cual hay que registrar.
+        cid = datos["web"].get("client_id", "")
+        return {"ok": True, "ruta": ruta, "tipo": "web",
+                "cliente": cid[:24] + "…" if cid else "",
+                "proyecto": datos["web"].get("project_id", ""),
+                "redirect": REDIRECT_OAUTH,
+                "aviso": ("Son de tipo «Aplicacion web». Funcionan, pero antes "
+                          f"hay que anadir {REDIRECT_OAUTH} a los «URI de "
+                          "redireccionamiento autorizados» de ese ID de cliente "
+                          "en Google Cloud Console."),
+                "error": ""}
     if "installed" not in datos:
         return {"ok": False, "ruta": ruta, "tipo": "?", "error":
                 "No reconozco el formato: falta la clave «installed». "
                 "Descarga el JSON del ID de cliente OAuth de escritorio."}
     cid = datos["installed"].get("client_id", "")
     return {"ok": True, "ruta": ruta, "tipo": "installed",
-            "cliente": cid[:24] + "…" if cid else "", "error": ""}
+            "cliente": cid[:24] + "…" if cid else "",
+            "proyecto": datos["installed"].get("project_id", ""),
+            "redirect": "", "aviso": "", "error": ""}
 
 
 # ── Tailscale ────────────────────────────────────────────────────────────────

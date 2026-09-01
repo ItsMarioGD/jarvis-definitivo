@@ -83,7 +83,19 @@ def main():
               "escritorio → Descargar JSON. Y activa la API de Google Calendar.")
     print(f"  [OK] {os.path.basename(info['ruta'])}")
     if info.get("cliente"):
-        print(f"       cliente: {info['cliente']}")
+        print(f"       cliente:  {info['cliente']}")
+    if info.get("proyecto"):
+        print(f"       proyecto: {info['proyecto']}")
+    print(f"       tipo:     {info['tipo']}")
+    if info.get("aviso"):
+        print("\n  " + "-" * 58)
+        print("  ATENCION, un paso previo en Google Cloud Console:")
+        print(f"    1. Credenciales → tu ID de cliente OAuth")
+        print(f"    2. «URI de redireccionamiento autorizados» → AÑADIR URI")
+        print(f"    3. Pega exactamente:  {info['redirect']}")
+        print(f"    4. Guardar (tarda unos segundos en aplicarse)")
+        print("  Sin eso Google respondera «redirect_uri_mismatch».")
+        print("  " + "-" * 58)
 
     try:
         from google.auth.transport.requests import Request
@@ -115,17 +127,37 @@ def main():
                 print(f"  No se pudo renovar ({e}); pedire autorizacion de nuevo.")
                 creds = None
         if not creds or not creds.valid:
-            print("\n[2/4] Abriendo el navegador para que autorices tu cuenta ...")
+            print(f"\n[2/4] Abriendo el navegador (servidor local en el puerto "
+                  f"{jarvis_config.OAUTH_PORT}) ...")
             print("      Si te avisa de que la app «no esta verificada», es la tuya:")
             print("      pulsa «Configuracion avanzada» y continua.")
+            # Puerto FIJO: con credenciales de tipo «web» Google valida el
+            # redirect contra los registrados, y uno aleatorio nunca casaria.
+            puerto = jarvis_config.OAUTH_PORT
             try:
                 flow = InstalledAppFlow.from_client_secrets_file(info["ruta"], SCOPES)
-                creds = flow.run_local_server(port=0)
+                creds = flow.run_local_server(port=puerto, open_browser=True)
             except Exception as e:
-                fatal(f"La autorizacion fallo: {e}",
-                      "Comprueba que la API de Google Calendar esta activada y "
-                      "que tu correo esta como usuario de prueba en la pantalla "
-                      "de consentimiento.")
+                detalle = str(e)
+                if "redirect_uri_mismatch" in detalle or "redirect" in detalle.lower():
+                    fatal("Google rechazo el redirect (redirect_uri_mismatch).",
+                          f"Anade EXACTAMENTE {jarvis_config.REDIRECT_OAUTH} a los "
+                          f"«URI de redireccionamiento autorizados» de tu ID de "
+                          f"cliente en Google Cloud Console, guarda, espera un "
+                          f"minuto y vuelve a ejecutar esto.")
+                if "access_denied" in detalle or "403" in detalle:
+                    fatal(f"Google denego el acceso: {detalle[:150]}",
+                          "En «Pantalla de consentimiento de OAuth» anade tu "
+                          "correo como usuario de prueba, y comprueba que el "
+                          "permiso de Calendar esta en la lista de scopes.")
+                if "address already in use" in detalle.lower() or "10048" in detalle:
+                    fatal(f"El puerto {puerto} esta ocupado.",
+                          "Cierra lo que lo use, o define GOOGLE_OAUTH_PORT con "
+                          "otro puerto (y registra el nuevo redirect en Google).")
+                fatal(f"La autorizacion fallo: {detalle[:200]}",
+                      "Comprueba que la API de Google Calendar esta activada en "
+                      f"el proyecto «{info.get('proyecto', '?')}» y que tu correo "
+                      "esta como usuario de prueba.")
 
     # ── 3. Guardar ───────────────────────────────────────────────────────────
     try:
