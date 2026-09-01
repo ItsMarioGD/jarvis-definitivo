@@ -142,17 +142,58 @@ def buscar_credenciales_google() -> str:
         if os.path.isfile(ruta):
             return ruta
     for carpeta in (GOOGLE_DIR, os.path.join(PROJECT_ROOT, "google"),
-                    PROJECT_ROOT, _PREFS_DIR):
-        if not os.path.isdir(carpeta):
-            continue
-        for patron in _PATRONES_CRED:
-            encontrados = sorted(glob.glob(os.path.join(carpeta, patron)))
-            for c in encontrados:
-                # token.json tambien casa con *oauth*/credentials*: no confundir.
-                if os.path.basename(c).lower().startswith("token"):
-                    continue
-                return c
+                    PROJECT_ROOT, _PREFS_DIR, JARVIS_DATA, DOWNLOADS):
+        for c in _en_carpeta(carpeta):
+            return c
+    # Ultimo recurso: barrer el proyecto hasta 3 niveles. Asi da igual en que
+    # subcarpeta se haya dejado el fichero.
+    for c in _barrer_proyecto():
+        return c
     return ""
+
+
+def _en_carpeta(carpeta: str):
+    """Credenciales dentro de una carpeta concreta (sin recursion)."""
+    import glob
+    if not carpeta or not os.path.isdir(carpeta):
+        return
+    for patron in _PATRONES_CRED:
+        for c in sorted(glob.glob(os.path.join(carpeta, patron))):
+            # token.json tambien casa con *oauth*/credentials*: no confundir.
+            if os.path.basename(c).lower().startswith("token"):
+                continue
+            yield c
+
+
+_IGNORAR = {".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build"}
+
+
+def _barrer_proyecto(max_prof: int = 3):
+    """Busca credenciales en cualquier subcarpeta del proyecto."""
+    base = PROJECT_ROOT.rstrip(os.sep)
+    for raiz, dirs, _ in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in _IGNORAR and not d.startswith(".")]
+        if raiz[len(base):].count(os.sep) >= max_prof:
+            dirs[:] = []
+        for c in _en_carpeta(raiz):
+            yield c
+
+
+def listar_credenciales_google() -> list:
+    """Todos los candidatos encontrados, para poder decir donde se ha mirado."""
+    vistos, salida = set(), []
+    for c in _barrer_proyecto():
+        real = os.path.abspath(c)
+        if real not in vistos:
+            vistos.add(real)
+            salida.append(real)
+    for carpeta in (_PREFS_DIR, JARVIS_DATA, DOWNLOADS):
+        for c in _en_carpeta(carpeta):
+            real = os.path.abspath(c)
+            if real not in vistos:
+                vistos.add(real)
+                salida.append(real)
+    return salida
 
 
 def ruta_token_google() -> str:
@@ -193,9 +234,15 @@ def revisar_credenciales_google() -> dict:
                 "personal. Crea unas credenciales de tipo «ID de cliente de "
                 "OAuth» → «Aplicacion de escritorio»."}
     if "web" in datos and "installed" not in datos:
+        proyecto = datos["web"].get("project_id", "")
         return {"ok": False, "ruta": ruta, "tipo": "web", "error":
-                "Es de tipo «Aplicacion web». Para que JARVIS autorice desde el "
-                "PC hace falta el tipo «Aplicacion de escritorio»."}
+                "Es de tipo «Aplicacion web»"
+                + (f" del proyecto «{proyecto}»" if proyecto else "")
+                + ". JARVIS autoriza desde el PC con un servidor local, y ese "
+                "tipo exige tener registrado el redirect http://localhost, que "
+                "no trae. Crea unas credenciales nuevas de tipo «Aplicacion de "
+                "escritorio» (Google Cloud Console → Credenciales → Crear "
+                "credenciales → ID de cliente de OAuth) y borra este fichero."}
     if "installed" not in datos:
         return {"ok": False, "ruta": ruta, "tipo": "?", "error":
                 "No reconozco el formato: falta la clave «installed». "

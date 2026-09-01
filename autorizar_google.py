@@ -12,6 +12,7 @@ Que hace:
   4. Verifica de verdad: crea un evento de prueba y lo borra.
 
 Opciones:
+  --buscar     Solo dice donde busca y que encuentra (no autoriza nada).
   --revocar    Olvida la autorizacion (borra el token).
   --sin-probar No crea el evento de prueba.
 """
@@ -38,6 +39,29 @@ def main():
     print("=" * 62)
     print(" Autorizar JARVIS en Google Calendar")
     print("=" * 62)
+
+    if "--buscar" in sys.argv:
+        print(f"\n  Carpeta preferida: {jarvis_config.GOOGLE_DIR}")
+        print("  Tambien miro en la raiz del proyecto, en cualquier subcarpeta")
+        print("  suya (hasta 3 niveles), en Prefs y en la carpeta de descargas.")
+        print("  Nombres que reconozco: client_secret*.json, credentials*.json,")
+        print("  *oauth*.json\n")
+        hallados = jarvis_config.listar_credenciales_google()
+        if not hallados:
+            print("  No he encontrado ningun JSON de credenciales.")
+            print("\n  Si crees que lo dejaste en el proyecto, comprueba que:")
+            print("   - esta dentro de esta carpeta:")
+            print(f"       {jarvis_config.PROJECT_ROOT}")
+            print("   - termina en .json (Windows puede ocultar la extension)")
+            print("   - no esta dentro de un .zip sin descomprimir")
+            return 1
+        for h in hallados:
+            marca = "  ->" if h == jarvis_config.buscar_credenciales_google() else "    "
+            print(f"{marca} {h}")
+        info = jarvis_config.revisar_credenciales_google()
+        print(f"\n  Usare el marcado con «->». Tipo: "
+              f"{info['tipo'] or '?'} — {'valido' if info['ok'] else info['error']}")
+        return 0 if info["ok"] else 1
 
     if "--revocar" in sys.argv:
         tok = jarvis_config.ruta_token_google()
