@@ -26,6 +26,31 @@ sys.path.insert(0, RAIZ)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
+def _explicar_mismatch(jarvis_config, info):
+    """El fallo mas comun. Se explica entero, con el valor a copiar."""
+    uri = jarvis_config.REDIRECT_OAUTH
+    print("\n" + "=" * 62)
+    print(" Google rechazo el redirect  (Error 400: redirect_uri_mismatch)")
+    print("=" * 62)
+    print("\n  El redirect que enviamos es EXACTAMENTE:")
+    print(f"\n      {uri}\n")
+    print("  Copialo tal cual (mejor copiar que teclear) en:")
+    print("    Google Cloud Console → APIs y servicios → Credenciales")
+    print(f"    → ID de cliente «{(info.get('cliente') or '')[:26]}»")
+    print("    → URI de redireccionamiento autorizados → AÑADIR URI")
+    print("\n  Fallos tipicos al pegarlo:")
+    print(f"    - sin la barra final       (tiene que ser  ...:{jarvis_config.OAUTH_PORT}/  )")
+    print("    - 127.0.0.1 en vez de localhost  (usamos localhost)")
+    print("    - https:// en vez de http://     (es http, sin la s)")
+    print("    - pegarlo en «Origenes autorizados de JavaScript»")
+    print("      (ese campo va VACIO; es el de REDIRECCIONAMIENTO)")
+    print("    - guardarlo en otro ID de cliente distinto del que usa el JSON")
+    print("\n  Tras darle a GUARDAR, Google tarda un rato en aplicarlo:")
+    print("  si acabas de hacerlo, espera un par de minutos y reintenta.")
+    print("=" * 62)
+    sys.exit(1)
+
+
 LIBRERIAS = ["google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2"]
 
 
@@ -175,6 +200,11 @@ def main():
         if not creds or not creds.valid:
             print(f"\n[2/4] Abriendo el navegador (servidor local en el puerto "
                   f"{jarvis_config.OAUTH_PORT}) ...")
+            print("      El redirect que se le envia a Google es EXACTAMENTE este:")
+            print(f"          {jarvis_config.REDIRECT_OAUTH}")
+            print("      Tiene que estar, tal cual (con http://, con el puerto y")
+            print("      con la barra final), en «URI de redireccionamiento")
+            print("      autorizados» de tu ID de cliente.")
             print("      Si te avisa de que la app «no esta verificada», es la tuya:")
             print("      pulsa «Configuracion avanzada» y continua.")
             # Puerto FIJO: con credenciales de tipo «web» Google valida el
@@ -186,11 +216,7 @@ def main():
             except Exception as e:
                 detalle = str(e)
                 if "redirect_uri_mismatch" in detalle or "redirect" in detalle.lower():
-                    fatal("Google rechazo el redirect (redirect_uri_mismatch).",
-                          f"Anade EXACTAMENTE {jarvis_config.REDIRECT_OAUTH} a los "
-                          f"«URI de redireccionamiento autorizados» de tu ID de "
-                          f"cliente en Google Cloud Console, guarda, espera un "
-                          f"minuto y vuelve a ejecutar esto.")
+                    _explicar_mismatch(jarvis_config, info)
                 if "access_denied" in detalle or "403" in detalle:
                     fatal(f"Google denego el acceso: {detalle[:150]}",
                           "En «Pantalla de consentimiento de OAuth» anade tu "
