@@ -237,11 +237,21 @@ async def handle_mcp(request: web.Request) -> web.Response:
         if tool not in method_map:
             return web.json_response({"error": f"Herramienta desconocida: {tool}"}, status=404)
 
-        result = await method_map[tool]()
+        # Los metodos del mapa son SINCRONOS: hacer await sobre lo que
+        # devuelven (una lista, un dict) lanza TypeError y el except de abajo
+        # lo convertia en un 500 sin explicacion, asi que /call nunca ha
+        # funcionado. run_in_executor los ejecuta en un hilo, ademas de no
+        # bloquear el event loop mientras se habla con la red.
+        import asyncio
+        result = await asyncio.get_running_loop().run_in_executor(
+            None, method_map[tool])
         return web.json_response({"result": result})
 
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        import traceback
+        traceback.print_exc()
+        return web.json_response(
+            {"error": f"{type(e).__name__}: {e}"}, status=500)
 
 
 async def handle_health(request: web.Request) -> web.Response:

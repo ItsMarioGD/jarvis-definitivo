@@ -113,10 +113,17 @@ class MCPClient:
 
         def _do_call():
             resp = self._session.post(url, json=payload, timeout=self.default_timeout)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # El cuerpo trae el motivo real; raise_for_status lo tiraba y
+                # dejaba solo "500 Server Error", que no dice nada.
+                try:
+                    motivo = resp.json().get("error") or resp.text[:300]
+                except Exception:
+                    motivo = resp.text[:300] or f"HTTP {resp.status_code}"
+                raise MCPError(f"{tool}: {motivo}")
             data = resp.json()
             if "error" in data:
-                raise MCPError(data["error"])
+                raise MCPError(f"{tool}: {data['error']}")
             return data.get("result")
 
         return self.circuits[server].call(_do_call)
