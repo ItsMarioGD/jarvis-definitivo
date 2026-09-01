@@ -225,8 +225,10 @@ def revisar_credenciales_google() -> dict:
     ruta = buscar_credenciales_google()
     if not ruta:
         return {"ok": False, "ruta": "", "tipo": "", "error":
-                f"No encuentro ningun JSON de credenciales. Deja el que descargaste "
-                f"de Google Cloud en {GOOGLE_DIR}."}
+                f"No encuentro ningun JSON de credenciales. Descargalo con el "
+                f"boton «DESCARGAR JSON» de tu ID de cliente en Google Cloud "
+                f"Console y dejalo en {GOOGLE_DIR} (vale tanto el tipo "
+                f"«Aplicacion de escritorio» como «Aplicacion web»)."}
     try:
         import json as _json
         datos = _json.load(open(ruta, encoding="utf-8-sig"))

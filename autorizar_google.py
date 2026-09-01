@@ -187,9 +187,10 @@ def main():
     info = jarvis_config.revisar_credenciales_google()
     if not info["ok"]:
         fatal(info["error"],
-              "Google Cloud Console → APIs y servicios → Credenciales → "
-              "Crear credenciales → ID de cliente de OAuth → Aplicacion de "
-              "escritorio → Descargar JSON. Y activa la API de Google Calendar.")
+              "Si ya tienes el ID de cliente creado, entra en el (Credenciales "
+              "→ clic en su nombre) y pulsa «DESCARGAR JSON» arriba. Guarda ese "
+              "fichero en la carpeta Google/ del proyecto y vuelve a ejecutar "
+              "esto. Acuerdate tambien de activar la API de Google Calendar.")
     print(f"  [OK] {os.path.basename(info['ruta'])}")
     if info.get("cliente"):
         print(f"       cliente:  {info['cliente']}")
