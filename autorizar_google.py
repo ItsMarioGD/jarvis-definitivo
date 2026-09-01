@@ -12,6 +12,8 @@ Que hace:
   4. Verifica de verdad: crea un evento de prueba y lo borra.
 
 Opciones:
+  --puerto N   Usa el puerto N para el redirect (por si ya tienes otro
+               registrado en Google, p. ej. --puerto 8080).
   --buscar     Solo dice donde busca y que encuentra (no autoriza nada).
   --revocar    Olvida la autorizacion (borra el token).
   --sin-probar No crea el evento de prueba.
@@ -34,10 +36,22 @@ def _explicar_mismatch(jarvis_config, info):
     print("=" * 62)
     print("\n  El redirect que enviamos es EXACTAMENTE:")
     print(f"\n      {uri}\n")
-    print("  Copialo tal cual (mejor copiar que teclear) en:")
-    print("    Google Cloud Console → APIs y servicios → Credenciales")
-    print(f"    → ID de cliente «{(info.get('cliente') or '')[:26]}»")
-    print("    → URI de redireccionamiento autorizados → AÑADIR URI")
+    print("  Copialo tal cual (mejor copiar que teclear) en la pantalla de tu")
+    print("  ID de cliente. Enlace directo:")
+    proy = info.get("proyecto", "")
+    cid_completo = ""
+    try:
+        import json as _j
+        datos = _j.load(open(info["ruta"], encoding="utf-8-sig"))
+        cid_completo = (datos.get("web") or datos.get("installed") or {}).get("client_id", "")
+    except Exception:
+        pass
+    if cid_completo and proy:
+        print(f"\n    https://console.cloud.google.com/apis/credentials/oauthclient/"
+              f"{cid_completo}?project={proy}")
+    print("\n  Si ya tienes OTRO redirect de localhost registrado ahi, no hace")
+    print("  falta anadir nada: relanza esto con ese puerto. Ejemplo:")
+    print("      python autorizar_google.py --puerto 8080")
     print("\n  Fallos tipicos al pegarlo:")
     print(f"    - sin la barra final       (tiene que ser  ...:{jarvis_config.OAUTH_PORT}/  )")
     print("    - 127.0.0.1 en vez de localhost  (usamos localhost)")
@@ -107,6 +121,17 @@ def fatal(msg, ayuda=""):
 
 def main():
     import jarvis_config
+
+    # --puerto N: usar un redirect que ya este registrado en Google, en vez
+    # de tener que anadir uno nuevo.
+    if "--puerto" in sys.argv:
+        try:
+            n = int(sys.argv[sys.argv.index("--puerto") + 1])
+            jarvis_config.OAUTH_PORT = n
+            jarvis_config.REDIRECT_OAUTH = f"http://localhost:{n}/"
+            print(f"  (usando el puerto {n}: redirect {jarvis_config.REDIRECT_OAUTH})")
+        except (ValueError, IndexError):
+            fatal("--puerto necesita un numero, por ejemplo: --puerto 8080")
 
     print("=" * 62)
     print(" Autorizar JARVIS en Google Calendar")
