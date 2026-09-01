@@ -360,7 +360,7 @@ async function speak(text){
   const player=$('#ttsPlayer');
   try{
     const r=await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
-    if(r.ok){
+    if(r.ok && r.status!==204){
       const blob=await r.blob(); const u=URL.createObjectURL(blob);
       player.src=u; player.play().catch(()=>{});
       return;

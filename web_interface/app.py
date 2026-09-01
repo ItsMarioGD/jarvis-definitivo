@@ -754,29 +754,48 @@ def api_speak():
     if not text or len(text) > 2000:
         return jsonify({'error': 'texto invalido'}), 400
     key = os.getenv('ELEVENLABS_API_KEY', '')
-    if not key or 'tu_api' in key:
-        return jsonify({'error': 'no_key'}), 502
     voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
-    if not voice:
-        return jsonify({'error': 'no_voice'}), 502
-    # Tono servicial: voz calmada y profesional
-    payload = {
-        'text': text,
-        'model_id': 'eleven_multilingual_v2',
-        'voice_settings': {'stability': 0.5, 'similarity_boost': 0.8},
-    }
-    headers = {'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': key}
-    url = f'https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream'
+    sin_cabecera = {'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'}
+
+    if key and 'tu_api' not in key and voice:
+        # Tono servicial: voz calmada y profesional
+        payload = {
+            'text': text,
+            'model_id': 'eleven_multilingual_v2',
+            'voice_settings': {'stability': 0.5, 'similarity_boost': 0.8},
+        }
+        headers = {'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': key}
+        url = f'https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream'
+        try:
+            r = requests.post(url, json=payload, headers=headers, stream=True, timeout=(5, 30))
+            if r.status_code == 200:
+                return Response(r.raw, mimetype='audio/mpeg', headers=sin_cabecera)
+            # 401 = clave invalida, 429 = limite, 402 = sin creditos.
+            print(f"[tts] ElevenLabs devolvio {r.status_code}; pruebo con Piper.")
+        except Exception as e:
+            print(f"[tts] ElevenLabs no responde ({e}); pruebo con Piper.")
+    else:
+        print("[tts] Sin ELEVENLABS_API_KEY/VOICE_ID; uso la voz local.")
+
+    # Voz local (Piper): el proyecto ya trae el modelo, no hace falta nube.
     try:
-        r = requests.post(url, json=payload, headers=headers, stream=True, timeout=(5, 30))
-        if r.status_code == 200:
-            return Response(
-                r.raw, mimetype='audio/mpeg',
-                headers={'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'},
-            )
-        return jsonify({'error': f'elevenlabs {r.status_code}'}), 502
+        import jarvis_piper
+        # disponible() PRIMERO: sintetizar sin el modelo descargado dispara una
+        # descarga de decenas de MB dentro de la peticion HTTP y la deja colgada.
+        if jarvis_piper.disponible():
+            audio = jarvis_piper.sintetizar_bytes(text[:1000])
+            if audio:
+                return Response(audio, mimetype='audio/wav', headers=sin_cabecera)
+        else:
+            print("[tts] Modelo de Piper no descargado; que hable el navegador. "
+                  "Para tener voz local: python -c \"import jarvis_piper;"
+                  "jarvis_piper.descargar_modelo()\"")
     except Exception as e:
-        return jsonify({'error': str(e)}), 502
+        print(f"[tts] Piper no disponible: {e}")
+
+    # 204, no 502: que no haya voz de servidor no es un fallo de pasarela.
+    # El navegador cae solo a speechSynthesis y la consola deja de ensuciarse.
+    return Response(status=204, headers={**sin_cabecera, 'X-TTS': 'browser'})
 
 
 # ── Proxy a ULTRON (consola móvil unificada) ─────────────────────────────────

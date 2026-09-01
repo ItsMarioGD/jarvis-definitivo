@@ -1678,7 +1678,7 @@ function playVoice(t){
     if(typeof recCont !== 'undefined' && recCont && wakeOn){ try{ recCont.stop(); }catch(e){} }
     const resume = ()=>{ if(wakeOn && recCont){ try{ recCont.start(); }catch(e){} } };
     fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:chunk})})
-        .then(r=>{ if(!r.ok) throw new Error('no'); return r.blob(); })
+        .then(r=>{ if(!r.ok||r.status===204) throw new Error('sin voz de servidor'); return r.blob(); })
         .then(blob=>{
             const url = URL.createObjectURL(blob);
             p.src = url;
@@ -2629,7 +2629,7 @@ boot();
     if(!text) return;
     try{
       fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})})
-        .then(function(r){ if(r.ok){ return r.blob(); } throw 0; })
+        .then(function(r){ if(r.ok&&r.status!==204){ return r.blob(); } throw 0; })
         .then(function(b){ var u=URL.createObjectURL(b); var p=$('#ttsPlayer')||new Audio(); p.src=u; if(p.play)p.play().catch(function(){}); })
         .catch(function(){ try{ var u=new SpeechSynthesisUtterance(text); u.lang='es-ES'; u.rate=1; u.pitch=.9; var v=window.speechSynthesis.getVoices().find(function(x){return /david|es-ES/i.test(x.name);}); if(v)u.voice=v; speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(_){} });
     }catch(e){}

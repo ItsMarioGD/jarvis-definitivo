@@ -44,7 +44,9 @@ VOICES = {
 DEFAULT_VOICE = "es_ES-davefx-medium"
 
 DIR = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Voz", "piper")
-_lock = threading.Lock()
+_lock = threading.RLock()  # reentrante: _cargar() lo toma y llama a
+                          # _descargar(), que vuelve a tomarlo. Con un
+                          # Lock normal eso es un deadlock permanente.
 _voz_cache: Dict[str, Any] = {}
 _descargando: set = set()
 
@@ -126,6 +128,41 @@ def _reproducir(wav_path: str):
             os.startfile(wav_path)
         except Exception:
             raise
+
+
+def sintetizar_bytes(texto: str, voice_id: str = DEFAULT_VOICE, speed: float = 1.0):
+    """Sintetiza a WAV y devuelve los bytes, SIN reproducir en el PC.
+
+    Es lo que necesita el navegador (y el movil): hablar() reproduce por los
+    altavoces del equipo, que no sirve de nada para una peticion remota.
+    Devuelve None si Piper no esta disponible.
+    """
+    if not texto or not texto.strip():
+        return None
+    try:
+        v = _cargar(voice_id)
+        if v is None:
+            return None
+        wav_path = os.path.join(tempfile.gettempdir(),
+                                f"jarvis_piper_web_{os.getpid()}_{voice_id}.wav")
+        with wave.open(wav_path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(v.config.sample_rate)
+            v.synthesize_wav(texto.strip(), w)
+        if speed != 1.0:
+            wav_path = _change_speed(wav_path, speed)
+        try:
+            with open(wav_path, "rb") as f:
+                return f.read()
+        finally:
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"[PIPER] Error sintetizando bytes: {e}")
+        return None
 
 
 def hablar(texto: str, voice_id: str = DEFAULT_VOICE, speed: float = 1.0) -> bool:

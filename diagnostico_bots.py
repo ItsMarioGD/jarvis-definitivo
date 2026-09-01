@@ -162,6 +162,33 @@ def revisar_db():
                           "como administrador puede bloquear la base.")
 
 
+def revisar_voz():
+    titulo("VOZ (TTS)")
+    key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    voice = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+    if key and "tu_api" not in key and voice:
+        print(OK + f"ElevenLabs configurado (voz {voice}).")
+    else:
+        falta = []
+        if not key or "tu_api" in key:
+            falta.append("ELEVENLABS_API_KEY")
+        if not voice:
+            falta.append("ELEVENLABS_VOICE_ID")
+        print(AVISO + f"Sin ElevenLabs (falta {', '.join(falta)} en .env).")
+
+    try:
+        import jarvis_piper
+        if jarvis_piper.disponible():
+            print(OK + "Voz local Piper lista: el navegador recibira audio del PC.")
+        else:
+            print(AVISO + "Modelo de Piper sin descargar. Para tener voz local sin nube:")
+            print('       python -c "import jarvis_piper; jarvis_piper.descargar_modelo()"')
+    except Exception as e:
+        print(AVISO + f"Piper no instalado ({e}); pip install piper-tts")
+    print("       Sin ninguno de los dos, /api/speak responde 204 y habla el "
+          "navegador (speechSynthesis). No es un error.")
+
+
 def revisar_nucleo():
     titulo("NUCLEO DE JARVIS")
     try:
@@ -219,6 +246,7 @@ if __name__ == "__main__":
     print("Diagnostico de los bots de JARVIS")
     revisar_telegram()
     revisar_db()
+    revisar_voz()
     revisar_nucleo()
     revisar_web()
     titulo("RESUMEN")
