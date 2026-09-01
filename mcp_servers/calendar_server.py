@@ -26,8 +26,43 @@ except ImportError:
 
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_JSON", "credentials.json")
-TOKEN_FILE = os.getenv("GOOGLE_TOKEN_JSON", "token.json")
+
+# Las rutas se resuelven con jarvis_config: busca el JSON en Google/ aunque
+# conserve el nombre largo que le pone Google al descargarlo, y deja el token
+# a su lado. Antes eran rutas relativas al directorio de trabajo, que cambia
+# segun desde donde se arranque el servidor.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    import jarvis_config
+    CREDENTIALS_FILE = jarvis_config.buscar_credenciales_google() or "credentials.json"
+    TOKEN_FILE = jarvis_config.ruta_token_google()
+except Exception:
+    CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_JSON", "credentials.json")
+    TOKEN_FILE = os.getenv("GOOGLE_TOKEN_JSON", "token.json")
+
+
+def _leer_token(ruta: str):
+    """Lee el token en JSON (formato de Google) o en pickle (versiones viejas)."""
+    try:
+        return Credentials.from_authorized_user_file(ruta, SCOPES)
+    except Exception:
+        pass
+    try:
+        with open(ruta, "rb") as f:
+            return pickle.load(f)
+    except Exception as e:
+        print(f"[calendar] No pude leer el token ({e}); habra que reautorizar.")
+        return None
+
+
+def _guardar_token(ruta: str, creds):
+    """Guarda en JSON: legible, portable y lo que espera Google."""
+    try:
+        os.makedirs(os.path.dirname(ruta) or ".", exist_ok=True)
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+    except Exception as e:
+        print(f"[calendar] No pude guardar el token en {ruta}: {e}")
 
 
 @dataclass
@@ -51,8 +86,7 @@ class GoogleCalendarMCP:
 
         creds = None
         if os.path.exists(self.config.token_file):
-            with open(self.config.token_file, "rb") as f:
-                creds = pickle.load(f)
+            creds = _leer_token(self.config.token_file)
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
@@ -64,8 +98,7 @@ class GoogleCalendarMCP:
                     self.config.credentials_file, SCOPES)
                 creds = flow.run_local_server(port=0)
 
-            with open(self.config.token_file, "wb") as f:
-                pickle.dump(creds, f)
+            _guardar_token(self.config.token_file, creds)
 
         self._service = build("calendar", "v3", credentials=creds)
         return self._service

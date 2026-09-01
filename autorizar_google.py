@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""
+autorizar_google.py - Conecta JARVIS con tu Google Calendar. Un solo paso.
+
+Ejecuta:   python autorizar_google.py
+
+Que hace:
+  1. Busca el JSON de credenciales (en Google/, con el nombre que le pusiera
+     Google al descargarlo) y comprueba que es del tipo correcto.
+  2. Abre el navegador para que autorices la cuenta.
+  3. Guarda el token junto a las credenciales.
+  4. Verifica de verdad: crea un evento de prueba y lo borra.
+
+Opciones:
+  --revocar    Olvida la autorizacion (borra el token).
+  --sin-probar No crea el evento de prueba.
+"""
+import os
+import sys
+from datetime import datetime, timedelta
+
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, RAIZ)
+
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+
+def fatal(msg, ayuda=""):
+    print(f"\n  [MAL] {msg}")
+    if ayuda:
+        print(f"        {ayuda}")
+    sys.exit(1)
+
+
+def main():
+    import jarvis_config
+
+    print("=" * 62)
+    print(" Autorizar JARVIS en Google Calendar")
+    print("=" * 62)
+
+    if "--revocar" in sys.argv:
+        tok = jarvis_config.ruta_token_google()
+        if os.path.exists(tok):
+            os.remove(tok)
+            print(f"\n  Token borrado: {tok}")
+            print("  JARVIS ya no tiene acceso. Vuelve a ejecutar esto para reconectar.")
+        else:
+            print("\n  No habia ninguna autorizacion guardada.")
+        return 0
+
+    # ── 1. Credenciales ──────────────────────────────────────────────────────
+    print(f"\n[1/4] Buscando credenciales en {jarvis_config.GOOGLE_DIR} ...")
+    info = jarvis_config.revisar_credenciales_google()
+    if not info["ok"]:
+        fatal(info["error"],
+              "Google Cloud Console → APIs y servicios → Credenciales → "
+              "Crear credenciales → ID de cliente de OAuth → Aplicacion de "
+              "escritorio → Descargar JSON. Y activa la API de Google Calendar.")
+    print(f"  [OK] {os.path.basename(info['ruta'])}")
+    if info.get("cliente"):
+        print(f"       cliente: {info['cliente']}")
+
+    try:
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        from googleapiclient.discovery import build
+    except ImportError as e:
+        fatal(f"Faltan las librerias de Google ({e}).",
+              "pip install google-api-python-client google-auth-oauthlib "
+              "google-auth-httplib2")
+
+    # ── 2. Autorizacion ──────────────────────────────────────────────────────
+    token_path = jarvis_config.ruta_token_google()
+    creds = None
+    if os.path.exists(token_path):
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        except Exception:
+            creds = None
+
+    if creds and creds.valid:
+        print(f"\n[2/4] Ya estabas autorizado ({os.path.basename(token_path)}).")
+    else:
+        if creds and creds.expired and creds.refresh_token:
+            print("\n[2/4] Renovando la autorizacion caducada ...")
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"  No se pudo renovar ({e}); pedire autorizacion de nuevo.")
+                creds = None
+        if not creds or not creds.valid:
+            print("\n[2/4] Abriendo el navegador para que autorices tu cuenta ...")
+            print("      Si te avisa de que la app «no esta verificada», es la tuya:")
+            print("      pulsa «Configuracion avanzada» y continua.")
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(info["ruta"], SCOPES)
+                creds = flow.run_local_server(port=0)
+            except Exception as e:
+                fatal(f"La autorizacion fallo: {e}",
+                      "Comprueba que la API de Google Calendar esta activada y "
+                      "que tu correo esta como usuario de prueba en la pantalla "
+                      "de consentimiento.")
+
+    # ── 3. Guardar ───────────────────────────────────────────────────────────
+    try:
+        os.makedirs(os.path.dirname(token_path) or ".", exist_ok=True)
+        with open(token_path, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+    except Exception as e:
+        fatal(f"No pude guardar el token en {token_path}: {e}")
+    print(f"\n[3/4] Autorizacion guardada en {token_path}")
+    print("      (esta en .gitignore: no se subira al repositorio)")
+
+    # ── 4. Probar de verdad ──────────────────────────────────────────────────
+    if "--sin-probar" in sys.argv:
+        print("\n[4/4] Prueba omitida (--sin-probar).")
+        return 0
+    print("\n[4/4] Probando: creo un evento y lo borro ...")
+    try:
+        service = build("calendar", "v3", credentials=creds)
+        cals = service.calendarList().list().execute().get("items", [])
+        principal = next((c for c in cals if c.get("primary")), {})
+        print(f"  [OK] Cuenta: {principal.get('id', '(desconocida)')}")
+
+        inicio = datetime.now() + timedelta(days=370)
+        ev = service.events().insert(calendarId="primary", body={
+            "summary": "Prueba de JARVIS (se borra sola)",
+            "description": "Creado por autorizar_google.py para verificar el acceso.",
+            "start": {"dateTime": inicio.strftime("%Y-%m-%dT%H:%M:%S"),
+                      "timeZone": os.getenv("JARVIS_TIMEZONE", "Europe/Madrid")},
+            "end": {"dateTime": (inicio + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    "timeZone": os.getenv("JARVIS_TIMEZONE", "Europe/Madrid")},
+        }).execute()
+        print(f"  [OK] Evento creado (id {ev['id'][:12]}…)")
+        service.events().delete(calendarId="primary", eventId=ev["id"]).execute()
+        print("  [OK] Evento borrado. Permisos de escritura confirmados.")
+    except Exception as e:
+        fatal(f"No pude escribir en el calendario: {e}",
+              "Revisa que la API de Google Calendar este activada en el proyecto "
+              "de Google Cloud y que autorizaste el permiso de calendario.")
+
+    print("\n" + "=" * 62)
+    print(" LISTO. Arranca JARVIS con start_jarvis.bat y prueba a decirle:")
+    print('   «Jarvis, agenda una reunión con Marta mañana a las 5»')
+    print('   «¿qué citas tengo esta semana?»')
+    print("=" * 62)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

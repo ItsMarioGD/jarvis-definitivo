@@ -13,6 +13,16 @@ __pycache__/
 .jarvis_auth
 .ultron_auth
 
+# Credenciales de Google (OAuth): NUNCA deben subirse al repositorio.
+# Quien tenga este fichero puede pedir acceso a tu cuenta en tu nombre.
+Google/
+google/
+credentials.json
+client_secret*.json
+token.json
+token.pickle
+*.token.json
+
 # Logs
 *.log
 

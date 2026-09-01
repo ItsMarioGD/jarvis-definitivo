@@ -191,44 +191,44 @@ def revisar_voz():
 
 def revisar_conectores():
     titulo("CONECTORES (Google Calendar y demas)")
+
+    # Las credenciales se revisan SIEMPRE, este o no el servidor en marcha:
+    # es lo primero que hay que arreglar y no depende de que este arrancado.
+    try:
+        import jarvis_config
+        info = jarvis_config.revisar_credenciales_google()
+        if info["ok"]:
+            print(OK + f"Credenciales de Google: {os.path.basename(info['ruta'])}")
+            print(f"       carpeta: {os.path.dirname(info['ruta'])}")
+            tok = jarvis_config.ruta_token_google()
+            if os.path.exists(tok):
+                print(OK + f"Autorizado (token en {os.path.basename(tok)}).")
+            else:
+                print(AVISO + "Aun sin autorizar. Ejecuta: python autorizar_google.py")
+        else:
+            mal(f"Credenciales de Google: {info['error']}",
+                "Ejecuta «python autorizar_google.py» para las instrucciones completas.")
+    except Exception as e:
+        mal(f"No pude revisar las credenciales de Google: {e}")
+
     try:
         import conectores
-    except Exception as e:
-        mal(f"No puedo importar conectores.py: {e}")
-        return
-    try:
         c = conectores.Conectores(log=lambda m: None)
     except Exception as e:
-        mal(f"No pude crear el despachador de conectores: {e}")
+        mal(f"No pude cargar los conectores: {e}")
         return
     if not c.conectores:
         mal("No hay ningun conector cargado.")
         return
     estado = c.estado()
     for servicio, vivo in estado.items():
-        if vivo:
-            print(OK + f"{servicio} responde.")
-        else:
-            print(AVISO + f"{servicio} no responde.")
+        print((OK + f"{servicio}: servidor respondiendo.") if vivo
+              else (AVISO + f"{servicio}: servidor parado."))
     if not any(estado.values()):
-        puerto = conectores.SERVIDORES["calendar"]
         mal("Ningun servidor de conectores esta escuchando.",
-            f"Arranca el de calendario: python mcp_servers/calendar_server.py "
-            f"(puerto {puerto}), o usa start_jarvis.bat que los levanta todos.")
-        return
-    cred = os.getenv("GOOGLE_CREDENTIALS_JSON", "credentials.json")
-    tok = os.getenv("GOOGLE_TOKEN_JSON", "token.json")
-    for ruta, que in ((cred, "credenciales de Google"), (tok, "token de autorizacion")):
-        entero = ruta if os.path.isabs(ruta) else os.path.join(RAIZ, ruta)
-        if os.path.exists(entero):
-            print(OK + f"{que}: {entero}")
-        elif que.startswith("token"):
-            print(AVISO + f"Sin {que} ({entero}). La primera vez que agendes algo "
-                          "se abrira el navegador para autorizar.")
-        else:
-            mal(f"Faltan las {que} ({entero}).",
-                "Descargalas de Google Cloud Console (OAuth de escritorio) y "
-                "guardalas ahi, o define GOOGLE_CREDENTIALS_JSON.")
+            f"Arranca start_jarvis.bat (los levanta todos) o solo el de "
+            f"calendario: python mcp_servers/calendar_server.py "
+            f"(puerto {conectores.SERVIDORES['calendar']}).")
     print('       Prueba: «Jarvis, agenda una reunión con Marta mañana a las 5».')
 
 

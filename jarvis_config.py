@@ -120,6 +120,91 @@ def _rescatar_db(nombre: str, destino: str):
 
 JARVIS_DB = ruta_db("jarvis_memory.db")
 
+# ── Credenciales de Google (OAuth) ───────────────────────────────────────────
+# Google descarga el fichero con un nombre largo del tipo
+# "client_secret_1234-abcd.apps.googleusercontent.com.json". Buscamos por
+# patron en los sitios razonables para no obligar a renombrarlo ni a
+# configurar variables de entorno.
+GOOGLE_DIR = os.path.join(PROJECT_ROOT, "Google")
+
+_PATRONES_CRED = ("client_secret*.json", "credentials*.json", "*oauth*.json")
+
+
+def buscar_credenciales_google() -> str:
+    """Ruta del JSON de credenciales OAuth, o "" si no hay ninguno.
+
+    Orden: GOOGLE_CREDENTIALS_JSON > Google/ > raiz del proyecto > Prefs.
+    """
+    import glob
+    explicito = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if explicito:
+        ruta = explicito if os.path.isabs(explicito) else os.path.join(PROJECT_ROOT, explicito)
+        if os.path.isfile(ruta):
+            return ruta
+    for carpeta in (GOOGLE_DIR, os.path.join(PROJECT_ROOT, "google"),
+                    PROJECT_ROOT, _PREFS_DIR):
+        if not os.path.isdir(carpeta):
+            continue
+        for patron in _PATRONES_CRED:
+            encontrados = sorted(glob.glob(os.path.join(carpeta, patron)))
+            for c in encontrados:
+                # token.json tambien casa con *oauth*/credentials*: no confundir.
+                if os.path.basename(c).lower().startswith("token"):
+                    continue
+                return c
+    return ""
+
+
+def ruta_token_google() -> str:
+    """Donde guardar el token de autorizacion (junto a las credenciales)."""
+    explicito = os.getenv("GOOGLE_TOKEN_JSON", "").strip()
+    if explicito:
+        return explicito if os.path.isabs(explicito) else os.path.join(PROJECT_ROOT, explicito)
+    cred = buscar_credenciales_google()
+    destino = os.path.dirname(cred) if cred else GOOGLE_DIR
+    try:
+        os.makedirs(destino, exist_ok=True)
+    except OSError:
+        destino = _PREFS_DIR
+    return os.path.join(destino, "token.json")
+
+
+def revisar_credenciales_google() -> dict:
+    """Comprueba que el JSON sirve para lo que queremos.
+
+    Devuelve {"ok": bool, "ruta": str, "tipo": str, "error": str}. Los tres
+    fallos tipicos (fichero de aplicacion WEB, cuenta de servicio, o JSON
+    invalido) dan errores cripticos mucho mas tarde si no se detectan aqui.
+    """
+    ruta = buscar_credenciales_google()
+    if not ruta:
+        return {"ok": False, "ruta": "", "tipo": "", "error":
+                f"No encuentro ningun JSON de credenciales. Deja el que descargaste "
+                f"de Google Cloud en {GOOGLE_DIR}."}
+    try:
+        import json as _json
+        datos = _json.load(open(ruta, encoding="utf-8-sig"))
+    except Exception as e:
+        return {"ok": False, "ruta": ruta, "tipo": "", "error":
+                f"{os.path.basename(ruta)} no es un JSON valido: {e}"}
+    if datos.get("type") == "service_account":
+        return {"ok": False, "ruta": ruta, "tipo": "service_account", "error":
+                "Es una CUENTA DE SERVICIO. No puede entrar en tu calendario "
+                "personal. Crea unas credenciales de tipo «ID de cliente de "
+                "OAuth» → «Aplicacion de escritorio»."}
+    if "web" in datos and "installed" not in datos:
+        return {"ok": False, "ruta": ruta, "tipo": "web", "error":
+                "Es de tipo «Aplicacion web». Para que JARVIS autorice desde el "
+                "PC hace falta el tipo «Aplicacion de escritorio»."}
+    if "installed" not in datos:
+        return {"ok": False, "ruta": ruta, "tipo": "?", "error":
+                "No reconozco el formato: falta la clave «installed». "
+                "Descarga el JSON del ID de cliente OAuth de escritorio."}
+    cid = datos["installed"].get("client_id", "")
+    return {"ok": True, "ruta": ruta, "tipo": "installed",
+            "cliente": cid[:24] + "…" if cid else "", "error": ""}
+
+
 # ── Tailscale ────────────────────────────────────────────────────────────────
 def find_tailscale():
     """Busca tailscale.exe en ubicaciones comunes."""
