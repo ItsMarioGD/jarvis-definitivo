@@ -3308,7 +3308,7 @@ $voces.GetInstalledVoices() | ForEach-Object { Write-Output $_.VoiceInfo.Name }
         def _do():
             try:
                 import sqlite3
-                for base in ("jarvis_memory.db",
+                for base in (jarvis_config.JARVIS_DB,
                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_interface", "jarvis_memory.db")):
                     if not os.path.exists(base):
                         continue
@@ -4675,7 +4675,7 @@ $s.Dispose()
         def _do():
             try:
                 import sqlite3
-                for base in ("jarvis_memory.db",
+                for base in (jarvis_config.JARVIS_DB,
                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_interface", "jarvis_memory.db")):
                     if not os.path.exists(base):
                         continue
@@ -4820,7 +4820,7 @@ $s.Dispose()
         try:
             import sqlite3
             base = None
-            for b in ("jarvis_memory.db",
+            for b in (jarvis_config.JARVIS_DB,
                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_interface", "jarvis_memory.db")):
                 if os.path.exists(b):
                     base = b
@@ -5186,7 +5186,7 @@ $s.Dispose()
         def _do():
             try:
                 import sqlite3
-                for base in ("jarvis_memory.db",
+                for base in (jarvis_config.JARVIS_DB,
                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_interface", "jarvis_memory.db")):
                     if not os.path.exists(base):
                         continue
@@ -6287,7 +6287,7 @@ Write-Output ("{0:N1}" -f $total)
             import sqlite3
             fecha = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d") if dia == "ayer" \
                 else datetime.now().strftime("%Y-%m-%d")
-            for base in ("jarvis_memory.db",
+            for base in (jarvis_config.JARVIS_DB,
                          os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_interface", "jarvis_memory.db")):
                 if os.path.exists(base):
                     conn = sqlite3.connect(base, timeout=5)

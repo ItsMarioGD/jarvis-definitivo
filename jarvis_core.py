@@ -424,7 +424,37 @@ class JarvisCore:
         # timeout=10 hace que SQLite espere si otro hilo tiene el lock en lugar
         # de fallar inmediatamente. El RLock externo evita la mayoría de las
         # colisiones, pero el timeout es una red de seguridad.
-        self.conn = sqlite3.connect("jarvis_memory.db", check_same_thread=False, timeout=10)
+        # Ruta ABSOLUTA: con "jarvis_memory.db" a secas, arrancar desde un
+        # acceso directo de Windows (cwd = Escritorio o System32) hacia que
+        # SQLite fallara con «unable to open database file» y el nucleo entero
+        # no cargaba. Ademas cada proceso abria una base distinta.
+        try:
+            import jarvis_config
+            candidatas = jarvis_config.rutas_db("jarvis_memory.db")
+        except Exception:
+            candidatas = [os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "jarvis_memory.db")]
+        self.conn = None
+        fallos = []
+        for ruta in candidatas:
+            try:
+                conn = sqlite3.connect(ruta, check_same_thread=False, timeout=10)
+                conn.execute("SELECT 1")  # el connect es perezoso: forzamos la apertura
+                self.conn = conn
+                self.db_path = ruta
+                break
+            except Exception as e:
+                fallos.append(f"{ruta}: {e}")
+                # Un -wal/-shm huerfano (de un arranque como administrador)
+                # impide abrir una base por lo demas sana; probamos la siguiente.
+        if self.conn is None:
+            raise sqlite3.OperationalError(
+                "No pude abrir ninguna base de memoria. Intentos -> " + " | ".join(fallos)
+                + ". Define JARVIS_DB_DIR con una carpeta escribible.")
+        if candidatas and self.db_path != candidatas[0]:
+            self.log(f"AVISO: no pude usar {candidatas[0]} ({fallos[0].split(': ', 1)[-1]}); "
+                     f"uso {self.db_path}")
+        self.log(f"Memoria en {self.db_path}")
         self.cursor = self.conn.cursor()
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS interactions
                                (id INTEGER PRIMARY KEY, timestamp TEXT, role TEXT, content TEXT)''')

@@ -116,6 +116,52 @@ def revisar_telegram():
         print(AVISO + "El bot no esta corriendo ahora mismo (no hay lock).")
 
 
+def revisar_db():
+    titulo("MEMORIA (SQLite)")
+    try:
+        import jarvis_config
+        rutas = jarvis_config.rutas_db("jarvis_memory.db")
+    except Exception as e:
+        mal(f"jarvis_config no resuelve la ruta de la base: {e}")
+        return
+    import sqlite3
+    elegida = None
+    for r in rutas:
+        try:
+            c = sqlite3.connect(r, timeout=5)
+            c.execute("SELECT 1")
+            filas = 0
+            try:
+                filas = c.execute("SELECT COUNT(*) FROM interactions").fetchone()[0]
+            except Exception:
+                pass
+            c.close()
+            if elegida is None:
+                elegida = r
+                print(OK + f"Usara {r} ({filas} interacciones).")
+            else:
+                print(f"       alternativa: {r}")
+        except Exception as e:
+            print(AVISO + f"No se puede abrir {r}: {e}")
+    if elegida is None:
+        mal("Ninguna ruta de base de datos se puede abrir: el nucleo no arrancara.",
+            "Define JARVIS_DB_DIR con una carpeta escribible.")
+        return
+
+    # Bases dispersas por arrancar desde distintos directorios de trabajo.
+    otras = [p for p in (os.path.join(RAIZ, "web_interface", "jarvis_memory.db"),
+                         os.path.join(RAIZ, "ultron_interface", "jarvis_memory.db"))
+             if os.path.isfile(p) and os.path.abspath(p) != os.path.abspath(elegida)]
+    for p_otra in otras:
+        print(AVISO + f"Hay otra memoria suelta en {p_otra} "
+                      "(de un arranque con otro directorio de trabajo).")
+    for sufijo in ("-wal", "-shm"):
+        huerf = elegida + sufijo
+        if os.path.exists(huerf):
+            print(AVISO + f"Existe {os.path.basename(huerf)}; si JARVIS arranco alguna vez "
+                          "como administrador puede bloquear la base.")
+
+
 def revisar_nucleo():
     titulo("NUCLEO DE JARVIS")
     try:
@@ -172,6 +218,7 @@ def revisar_web():
 if __name__ == "__main__":
     print("Diagnostico de los bots de JARVIS")
     revisar_telegram()
+    revisar_db()
     revisar_nucleo()
     revisar_web()
     titulo("RESUMEN")

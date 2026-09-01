@@ -45,6 +45,81 @@ CEREBRO_JSON = os.path.join(_PREFS_DIR, "cerebro.json")
 TELEGRAM_JSON = os.path.join(_PREFS_DIR, "telegram.json")
 GRAFODB = os.path.join(_PREFS_DIR, "jarvis_grafo.db")
 
+# ── Bases de datos ───────────────────────────────────────────────────────────
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _escribible(d: str) -> bool:
+    try:
+        os.makedirs(d, exist_ok=True)
+        prueba = os.path.join(d, ".jarvis_write_test")
+        with open(prueba, "w") as f:
+            f.write("1")
+        os.remove(prueba)
+        return True
+    except Exception:
+        return False
+
+
+def ruta_db(nombre: str = "jarvis_memory.db") -> str:
+    """Ruta ABSOLUTA de una base de datos de JARVIS.
+
+    Nunca devolver una ruta relativa: al arrancar desde un acceso directo de
+    Windows el proceso hereda el cwd del .lnk (Escritorio o System32) y SQLite
+    fallaba con «unable to open database file» al no poder escribir alli.
+    Ademas, con rutas relativas cada proceso (web, bot, ULTRON) abria una base
+    distinta segun desde donde se lanzara.
+
+    Orden: JARVIS_DB_DIR > raiz del proyecto > <Descargas>/JARVIS.
+    """
+    candidatas = rutas_db(nombre)
+    return candidatas[0] if candidatas else nombre
+
+
+def rutas_db(nombre: str = "jarvis_memory.db") -> list:
+    """Candidatas en orden de preferencia, para que el nucleo pueda reintentar.
+
+    Un solo destino no basta: un fichero -wal huerfano de un arranque como
+    administrador, o una carpeta sincronizada por OneDrive, hacen fallar el
+    connect aunque el directorio sea escribible.
+    """
+    import tempfile
+    salida = []
+    for d in (os.getenv("JARVIS_DB_DIR", "").strip(), PROJECT_ROOT, JARVIS_DATA,
+              tempfile.gettempdir()):
+        if not d or not _escribible(d):
+            continue
+        destino = os.path.join(d, nombre)
+        if destino in salida:
+            continue
+        if not os.path.exists(destino):
+            _rescatar_db(nombre, destino)
+        salida.append(destino)
+    return salida
+
+
+def _rescatar_db(nombre: str, destino: str):
+    """Recupera una base creada por una version con rutas relativas.
+
+    Copia (nunca mueve) para no perder el historial ya guardado en
+    web_interface/ o en el cwd desde el que se arrancara antes.
+    """
+    import shutil
+    for viejo in (os.path.join(PROJECT_ROOT, "web_interface", nombre),
+                  os.path.join(PROJECT_ROOT, "ultron_interface", nombre),
+                  os.path.abspath(nombre)):
+        try:
+            if os.path.abspath(viejo) != os.path.abspath(destino) \
+                    and os.path.isfile(viejo) and os.path.getsize(viejo) > 0:
+                shutil.copy2(viejo, destino)
+                print(f"[jarvis_config] Memoria recuperada de {viejo} -> {destino}")
+                return
+        except Exception:
+            continue
+
+
+JARVIS_DB = ruta_db("jarvis_memory.db")
+
 # ── Tailscale ────────────────────────────────────────────────────────────────
 def find_tailscale():
     """Busca tailscale.exe en ubicaciones comunes."""
