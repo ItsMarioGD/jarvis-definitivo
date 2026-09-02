@@ -229,42 +229,130 @@ class ConectorCalendar(Conector):
         r"\ben\s+(?:el|mi|la)?\s*(?:google\s+)?calendario?\b",
         r"\bgoogle\s+calendar\b",
         r"\bpasado\s+ma[nñ]ana\b", r"\bma[nñ]ana\b", r"\bhoy\b",
-        r"\besta\s+noche\b", r"\besta\s+tarde\b",
-        r"\b(?:el\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b",
+        r"\besta\s+(?:noche|tarde|ma[nñ]ana)\b",
+        r"\b(?:el\s+)?(?:pr[oó]ximo|siguiente)\s+\w+\b",
+        r"\b(?:el\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)"
+        r"(?:\s+que\s+viene)?\b",
         r"\bel\s+\d{1,2}\s+de\s+[a-zá-úñ]+\b",
-        r"\ba\s+las?\s+\d{1,2}(?:[:.]\d{2})?(?:\s*(?:horas?|h))?\b",
-        r"\ba\s+las?\s+\d{1,2}\s+y\s+media\b",
+        r"\ba\s+las?\s+[\wá-ú]{1,9}(?:[:.]\d{2})?"
+        r"(?:\s+y\s+(?:media|cuarto))?(?:\s+menos\s+cuarto)?"
+        r"(?:\s*(?:horas?|hs?|am|pm))?"
+        r"(?:\s+de\s+la\s+(?:ma[nñ]ana|tarde|noche|madrugada))?"
+        r"(?:\s+del\s+mediod[ií]a)?\b",
+        r"\b(?:al\s+)?mediod[ií]a\b",
         r"\b(?:dentro\s+de|en)\s+\d{1,3}\s*(?:minutos?|horas?|d[ií]as?|semanas?)\b",
+        r"\bpara\b",
     ]
 
-    def _cuando_y_asunto(self, t: str, orig: str):
-        """Separa la fecha del asunto.
+    # ── fecha y hora en espanol ──────────────────────────────────────────────
+    # Parser propio. El de jarvis_skills (_fecha_agenda) no entiende "de la
+    # tarde", ni las horas escritas con letras, ni "y media": "a las 6 de la
+    # tarde" le salia 06:00, "a las seis" caia al valor por defecto de las
+    # 09:00 y "8 y media de la noche" se quedaba en 08:00.
+    _PALABRA_HORA = {
+        "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6,
+        "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12,
+    }
+    _DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes",
+                    "sabado", "domingo"]
+    _MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+              "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
-        La fecha sale del parser en espanol que ya usa el resto del proyecto
-        (SkillsManager._fecha_agenda, sobre el texto normalizado); el titulo se
-        recorta del texto ORIGINAL para conservar mayusculas y tildes.
-        """
-        cuando = None
-        try:
-            from jarvis_skills import SkillsManager
-            cuando, _ = SkillsManager._fecha_agenda(t)
-        except Exception as e:
-            self.log(f"[CONECTORES] No pude usar el parser de fechas: {e}")
-        if cuando is None:
-            cuando = self._fecha_simple(t)
+    @classmethod
+    def _hora_de(cls, t: str):
+        """(hora, minuto) en formato 24h, o None si no se menciona ninguna."""
+        # "a las 17:30", "a las 17.30"
+        m = re.search(r"a\s+las?\s+(\d{1,2})[:.](\d{2})", t)
+        if m:
+            h, mi = int(m.group(1)), int(m.group(2))
+            if h > 23 or mi > 59:
+                return None
+            return cls._ajustar_franja(h, mi, t, explicito=True)
+        # "a las 6", "a las seis", "a las 6 y media", "a las 8 menos cuarto"
+        m = re.search(r"a\s+las?\s+(\d{1,2}|" + "|".join(cls._PALABRA_HORA) + r")\b", t)
+        if not m:
+            if re.search(r"\b(?:al\s+)?mediodia\b", t):
+                return (14, 0) if re.search(r"tarde", t) else (12, 0)
+            return None
+        crudo = m.group(1)
+        h = int(crudo) if crudo.isdigit() else cls._PALABRA_HORA[crudo]
+        if h > 23:
+            return None
+        mi = 0
+        cola = t[m.end():m.end() + 30]
+        if re.search(r"^\s+y\s+media", cola):
+            mi = 30
+        elif re.search(r"^\s+y\s+cuarto", cola):
+            mi = 15
+        elif re.search(r"^\s+menos\s+cuarto", cola):
+            h, mi = (h - 1) % 24, 45
+        return cls._ajustar_franja(h, mi, t, explicito=False)
 
-        asunto = orig
-        for patron in self._RUIDO:
-            asunto = re.sub(patron, " ", asunto, flags=re.IGNORECASE)
-        asunto = re.sub(r"\s{2,}", " ", asunto).strip(" ,.;:-¿?¡!")
-        # Articulo o preposicion sueltos al principio ("una reunion con Marta").
-        asunto = re.sub(r"^(?:un|una|unos|unas|el|la|los|las|de|del|para|que|a)\s+",
-                        "", asunto, flags=re.IGNORECASE).strip(" ,.;:-")
-        return cuando, asunto[:120]
+    @staticmethod
+    def _ajustar_franja(h: int, mi: int, t: str, explicito: bool):
+        """Convierte a 24h segun «de la tarde/noche/manana/madrugada» o am/pm."""
+        # "esta noche"/"esta tarde" tambien fijan la franja, no solo
+        # "de la tarde": "esta noche a las 9" son las 21:00.
+        tarde = bool(re.search(r"de\s+la\s+(?:tarde|noche)|\bpm\b|"
+                               r"esta\s+(?:tarde|noche)|\bal\s+atardecer\b", t))
+        manana = bool(re.search(r"de\s+la\s+(?:manana|madrugada)|\bam\b|"
+                                r"esta\s+manana", t))
+        if tarde and h < 12:
+            h += 12
+        elif manana and h == 12:
+            h = 0
+        return h % 24, mi
+
+    @classmethod
+    def _dia_de(cls, t: str, ahora):
+        """Fecha (sin hora) mencionada en el texto, o None."""
+        # Quitar la franja horaria primero: "hoy a las 11 DE LA MANANA" contiene
+        # la palabra "manana" y se agendaba para el dia siguiente.
+        t = re.sub(r"de\s+la\s+(?:manana|tarde|noche|madrugada)", " ", t)
+        if re.search(r"pasado\s+manana", t):
+            return (ahora + timedelta(days=2)).date()
+        if re.search(r"\bmanana\b", t):
+            return (ahora + timedelta(days=1)).date()
+        if re.search(r"\bhoy\b|\besta\s+(?:noche|tarde)\b", t):
+            return ahora.date()
+        m = re.search(r"(?:el\s+|este\s+|proximo\s+|el\s+proximo\s+)?("
+                      + "|".join(cls._DIAS_SEMANA) + r")(\s+que\s+viene)?", t)
+        if m:
+            idx = cls._DIAS_SEMANA.index(m.group(1))
+            delta = (idx - ahora.weekday()) % 7
+            # "el jueves" dicho un jueves = el que viene, no hoy.
+            if delta == 0 or m.group(2) or "proximo" in t:
+                delta = delta or 7
+                if m.group(2) or re.search(r"proximo", t):
+                    delta = delta if delta else 7
+            return (ahora + timedelta(days=delta)).date()
+        m = re.search(r"(?:el\s+)?(\d{1,2})\s+de\s+([a-z]+)", t)
+        if m and m.group(2) in cls._MESES:
+            dia, mes = int(m.group(1)), cls._MESES.index(m.group(2)) + 1
+            try:
+                f = ahora.replace(month=mes, day=dia).date()
+            except ValueError:
+                return None
+            return f.replace(year=f.year + 1) if f < ahora.date() else f
+        m = re.search(r"\bel\s+(\d{1,2})\b", t)
+        if m and 1 <= int(m.group(1)) <= 31:
+            dia = int(m.group(1))
+            try:
+                f = ahora.replace(day=dia).date()
+            except ValueError:
+                return None
+            if f < ahora.date():
+                siguiente = (ahora.replace(day=1) + timedelta(days=32)).replace(day=1)
+                try:
+                    f = siguiente.replace(day=dia).date()
+                except ValueError:
+                    return None
+            return f
+        return None
 
     @staticmethod
     def _fecha_simple(t: str):
-        """Respaldo para «dentro de N horas/dias» y «en N minutos»."""
+        """«dentro de N horas/dias/semanas» y «en N minutos»."""
         m = re.search(r"dentro\s+de\s+(\d{1,3})\s*(minuto|hora|dia|semana)", t)
         if not m:
             m = re.search(r"\ben\s+(\d{1,3})\s*(minuto|hora|dia|semana)", t)
@@ -274,6 +362,40 @@ class ConectorCalendar(Conector):
         delta = {"minuto": timedelta(minutes=n), "hora": timedelta(hours=n),
                  "dia": timedelta(days=n), "semana": timedelta(weeks=n)}[unidad]
         return datetime.now() + delta
+
+    @classmethod
+    def _cuando(cls, t: str):
+        """Fecha y hora completas, o None si no hay nada temporal."""
+        ahora = datetime.now()
+        relativo = cls._fecha_simple(t)
+        if relativo is not None:
+            return relativo.replace(second=0, microsecond=0)
+        dia = cls._dia_de(t, ahora)
+        hora = cls._hora_de(t)
+        if dia is None and hora is None:
+            return None
+        if hora is None:
+            hora = (9, 0)          # un dia sin hora: por la manana
+        if dia is None:
+            # Solo hora: hoy si aun no ha pasado, si no manana.
+            cand = ahora.replace(hour=hora[0], minute=hora[1], second=0, microsecond=0)
+            return cand if cand > ahora else cand + timedelta(days=1)
+        return datetime(dia.year, dia.month, dia.day, hora[0], hora[1])
+
+    def _cuando_y_asunto(self, t: str, orig: str):
+        """Separa la fecha del asunto.
+
+        El titulo se recorta del texto ORIGINAL para conservar mayusculas y
+        tildes; la fecha sale del parser de arriba.
+        """
+        cuando = self._cuando(t)
+        asunto = orig
+        for patron in self._RUIDO:
+            asunto = re.sub(patron, " ", asunto, flags=re.IGNORECASE)
+        asunto = re.sub(r"\s{2,}", " ", asunto).strip(" ,.;:-¿?¡!")
+        asunto = re.sub(r"^(?:un|una|unos|unas|el|la|los|las|de|del|que|a|con)\s+",
+                        "", asunto, flags=re.IGNORECASE).strip(" ,.;:-")
+        return cuando, asunto[:120]
 
     # ── consultar ────────────────────────────────────────────────────────────
     def _consultar(self, t: str, orig: str):
@@ -301,13 +423,14 @@ class ConectorCalendar(Conector):
             return f"Señor, no tiene nada agendado {cuando}."
         lineas = []
         for ev in eventos[:10]:
-            hora = self._hora_de(ev.get("start", ""))
+            hora = self._hora_iso(ev.get("start", ""))
             lineas.append(f"{hora} {ev.get('summary', '(sin título)')}".strip())
         return (f"Señor, {cuando} tiene {len(eventos)} "
                 f"{'cita' if len(eventos) == 1 else 'citas'}: " + "; ".join(lineas) + ".")
 
     @staticmethod
-    def _hora_de(iso: str) -> str:
+    def _hora_iso(iso: str) -> str:
+        """Hora legible de una fecha ISO devuelta por Google."""
         try:
             return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%H:%M")
         except Exception:

@@ -734,6 +734,29 @@ def tts():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/voz_windows', methods=['GET', 'POST'])
+def voz_windows():
+    """Consulta o alterna el silencio de la voz local de Windows.
+
+    Con ElevenLabs (o el navegador) hablando ademas del TTS del sistema se
+    oyen dos voces a la vez; esto silencia la del PC sin tocar el resto.
+    """
+    if not core:
+        return jsonify({'error': 'nucleo no disponible'}), 503
+    try:
+        if request.method == 'GET':
+            return jsonify({'silenciada': bool(core.voz_windows_silenciada)})
+        datos = request.get_json(silent=True) or {}
+        if 'silenciar' in datos:
+            silenciar = bool(datos['silenciar'])
+        else:
+            silenciar = not core.voz_windows_silenciada   # sin cuerpo: alterna
+        mensaje = core.silenciar_voz_windows(silenciar)
+        return jsonify({'silenciada': silenciar, 'mensaje': mensaje})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/tts_stop', methods=['POST'])
 def tts_stop():
     if core:

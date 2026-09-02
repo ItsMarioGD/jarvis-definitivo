@@ -189,6 +189,53 @@ def main():
         assert r and "no pude" in r.lower(), f"no explica el fallo: {r}"
     comprobar("con el servidor caido responde y explica por que", servicio_caido)
 
+    print("\n=== FECHA Y HORA EN ESPANOL ===")
+
+    def fechas():
+        from datetime import datetime
+        C = conectores.ConectorCalendar
+        ahora = datetime.now()
+        man = (ahora + timedelta(days=1)).date()
+        casos = [
+            # (frase, dia esperado, hora, minuto)
+            ("cita con mi novia manana a las 6 de la tarde", man, 18, 0),
+            ("cita manana a las seis de la tarde", man, 18, 0),
+            ("cita manana a las 8 y media de la noche", man, 20, 30),
+            ("cita manana a las 10 y cuarto", man, 10, 15),
+            ("cita manana a las 9 menos cuarto", man, 8, 45),
+            ("reunion hoy a las 11 de la manana", ahora.date(), 11, 0),
+            ("cita esta noche a las 9", ahora.date(), 21, 0),
+            ("cita manana a las 17:30", man, 17, 30),
+            ("cita pasado manana al mediodia",
+             (ahora + timedelta(days=2)).date(), 12, 0),
+        ]
+        for frase, dia, h, mi in casos:
+            d = C._cuando(conectores._norm(frase))
+            assert d is not None, f"«{frase}» no se entendio"
+            assert d.date() == dia, f"«{frase}» -> dia {d.date()}, esperaba {dia}"
+            assert (d.hour, d.minute) == (h, mi), \
+                f"«{frase}» -> {d.hour}:{d.minute:02d}, esperaba {h}:{mi:02d}"
+    comprobar("fechas y horas escritas de todas las formas", fechas)
+
+    def sin_confundir_manana():
+        # "de la manana" contiene "manana": no debe mover el evento un dia.
+        from datetime import datetime
+        C = conectores.ConectorCalendar
+        d = C._cuando(conectores._norm("reunion hoy a las 11 de la manana"))
+        assert d.date() == datetime.now().date(), f"se fue a {d.date()}"
+    comprobar("«hoy ... de la manana» no salta al dia siguiente", sin_confundir_manana)
+
+    def hora_llega_a_google():
+        llamadas.clear()
+        c.handle("agenda en el calendario cena con mi novia manana a las 6 de la tarde")
+        assert llamadas, "no llamo al calendario"
+        _, args = llamadas[0]
+        ini = datetime.fromisoformat(args["start"])
+        assert ini.hour == 18, f"mando las {ini.hour}:00 a Google, esperaba las 18:00"
+        assert ini.date() == (datetime.now() + timedelta(days=1)).date()
+        assert "novia" in args["summary"].lower(), f"titulo: {args['summary']}"
+    comprobar("la hora correcta llega hasta Google", hora_llega_a_google)
+
     print("\n=== RESPUESTAS RARAS DEL SERVIDOR ===")
 
     def respuesta_malformada():

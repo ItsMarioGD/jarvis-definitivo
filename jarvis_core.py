@@ -189,6 +189,10 @@ class JarvisCore:
         self.api_key        = os.getenv("QWEN_API_KEY", "ollama")
         self.model          = os.getenv("QWEN_MODEL", "qwen3:4b-instruct")
         self.tts_fallback   = os.getenv("JARVIS_TTS_FALLBACK", "windows").strip().lower()
+        # Silencio de la voz local de Windows. Se puede alternar en caliente
+        # ("silencia la voz de Windows") y sobrevive al reinicio, porque con
+        # ElevenLabs/Piper y el navegador hablando a la vez se oyen dos voces.
+        self._voz_windows_silenciada = None  # se resuelve tras init_memory()
         self._elevenlabs_disabled_until = 0.0
         self._elevenlabs_failure_reason = ""
 
@@ -908,6 +912,59 @@ class JarvisCore:
                 return True
         return False
 
+    @property
+    def voz_windows_silenciada(self) -> bool:
+        """True si la voz local de Windows esta muteada (preferencia guardada)."""
+        if self._voz_windows_silenciada is None:
+            try:
+                self._voz_windows_silenciada = (self.get_pref("voz_windows") or "").strip() == "off"
+            except Exception:
+                self._voz_windows_silenciada = False
+        return self._voz_windows_silenciada
+
+    def silenciar_voz_windows(self, silenciar: bool = True) -> str:
+        """Activa o desactiva la voz local de Windows y lo recuerda."""
+        self._voz_windows_silenciada = bool(silenciar)
+        try:
+            self.set_pref("voz_windows", "off" if silenciar else "on")
+        except Exception as e:
+            self.log(f"No pude guardar la preferencia de voz: {e}")
+        if silenciar:
+            try:
+                self.stop_speaking()
+            except Exception:
+                pass
+            return ("Voz de Windows silenciada, señor. Seguiré respondiendo por "
+                    "escrito y por la voz del navegador.")
+        return "Voz de Windows reactivada, señor."
+
+    # Ordenes de voz para el mute. Se consultan antes que nada para que
+    # funcionen aunque el resto del pipeline este ocupado o fallando.
+    _RE_MUTE = re.compile(
+        r"\b(?:silencia|silenciar|calla|callate|mutea|mutear|mute|apaga|desactiva|"
+        r"quita)\b[^.]{0,30}?\b(?:voz|audio|sonido|tts)\b[^.]{0,25}?"
+        r"\b(?:windows|local|del\s+pc|sistema)\b|"
+        r"\b(?:silencia|mutea|apaga|desactiva|quita)\s+(?:la\s+)?"
+        r"(?:voz|audio)\s+(?:de\s+)?windows\b|"
+        r"\bmodo\s+silencio\b|\bsin\s+voz\b", re.IGNORECASE)
+    _RE_UNMUTE = re.compile(
+        r"\b(?:activa|activar|enciende|reactiva|devuelve|pon|quita\s+el\s+silencio|"
+        r"desmutea|desmutear)\b[^.]{0,30}?\b(?:voz|audio|sonido|tts)\b|"
+        r"\bvuelve\s+a\s+hablar\b|\bya\s+puedes\s+hablar\b", re.IGNORECASE)
+
+    def _control_voz(self, texto: str):
+        """Devuelve una respuesta si el texto era una orden de mute, o None."""
+        t = re.sub(r"[áàä]", "a", (texto or "").lower())
+        t = re.sub(r"[éèë]", "e", t)
+        t = re.sub(r"[íìï]", "i", t)
+        t = re.sub(r"[óòö]", "o", t)
+        t = re.sub(r"[úùü]", "u", t)
+        if self._RE_MUTE.search(t):
+            return self.silenciar_voz_windows(True)
+        if self._RE_UNMUTE.search(t):
+            return self.silenciar_voz_windows(False)
+        return None
+
     def _voz_piper_activa(self) -> bool:
         try:
             with open(os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Prefs", "voz.json"), encoding="utf-8") as f:
@@ -1052,6 +1109,17 @@ class JarvisCore:
         return partes[:3]
 
     def _procesar(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
+        # ── Mute de la voz local: lo primero, para que funcione siempre ──
+        try:
+            _r_voz = self._control_voz(text)
+        except Exception as e:
+            self.log(f"[JARVIS] control de voz fallo: {e}")
+            _r_voz = None
+        if _r_voz:
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": _r_voz})
+            return _r_voz
+
         # ── Agencia de especialistas: prioridad máxima (frases inequívocas) ──
         if getattr(self, "agentes_ia", None) is not None:
             try:
@@ -1537,6 +1605,9 @@ class JarvisCore:
 
     def _speak_with_windows(self, text: str) -> bool:
         """Respaldo sin dependencias externas mediante Windows Speech API."""
+        if self.voz_windows_silenciada:
+            self.log("Voz de Windows silenciada; la respuesta permanece en texto.")
+            return False
         if self.tts_fallback not in {"windows", "sapi", "auto"}:
             self.log("Voz local desactivada; la respuesta permanece disponible en texto.")
             return False
