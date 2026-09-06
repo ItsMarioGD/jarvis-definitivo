@@ -60,6 +60,7 @@ _freebuff/
 Thumbs.db
 
 # Generated / runtime
+comandos_voz.json
 Descargas/
 storage/
 jarvis_log/

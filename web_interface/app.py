@@ -10,6 +10,7 @@ JARVIS Web Server - Acceso móvil + chat en tiempo real (Fase 1+2)
 """
 import sys
 import os
+import re
 import threading
 import time
 import json
@@ -251,8 +252,40 @@ def _history_messages(limite=40):
 
 
 # ── RUTAS REST (compatibilidad con el HUD de escritorio) ──────────────────────
+_RE_MOVIL = re.compile(
+    r"android|iphone|ipod|ipad|windows phone|iemobile|blackberry|"
+    r"opera mini|mobile safari|silk", re.I)
+
+
+def _es_movil() -> bool:
+    """¿La peticion viene de un telefono o tablet?"""
+    ua = request.headers.get("User-Agent", "")
+    if _RE_MOVIL.search(ua):
+        return True
+    # Chrome/Edge modernos mandan la pista de cliente; el UA a secas ya no basta.
+    return request.headers.get("Sec-CH-UA-Mobile", "") == "?1"
+
+
 @app.route('/')
 def index():
+    """El HUD nuevo en el PC, la consola tactil en el telefono.
+
+    Antes esta ruta servia SIEMPRE index.html, un HUD de casi un mega pensado
+    para 1920px: en el movil entraba con la pagina «ampliada», la barra de
+    escribir quedaba fuera de la pantalla y habia que bajar el zoom a mano
+    para poder escribirle a JARVIS. Ahora el telefono recibe directamente la
+    interfaz tactil, que si esta hecha para su pantalla.
+    """
+    if _es_movil() and not request.args.get('escritorio'):
+        return mobile()
+    resp = send_from_directory('.', 'jarvis.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
+@app.route('/clasico')
+def index_clasico():
+    """El HUD anterior, por si el señor lo echa de menos."""
     return send_from_directory('.', 'index.html')
 
 
@@ -523,7 +556,14 @@ def stats_json():
         import psutil
         cpu = psutil.cpu_percent(interval=0.3)
         ram = psutil.virtual_memory()
-        disco = psutil.disk_usage('C:\\')
+        # La unidad del sistema no siempre es C: (ni siquiera es Windows en el
+        # servidor de pruebas). Con la ruta fija, un fallo de disco tumbaba
+        # TODA la telemetria y el panel se quedaba en blanco.
+        try:
+            raiz = (os.getenv('SystemDrive', 'C:') + '\\') if os.name == 'nt' else '/'
+            disco = psutil.disk_usage(raiz)
+        except Exception:
+            disco = None
         net = psutil.net_io_counters()
         top = []
         for p in sorted(psutil.process_iter(['name', 'cpu_percent', 'memory_percent']),
@@ -544,7 +584,8 @@ def stats_json():
         return jsonify({
             'cpu': cpu, 'ram_pct': ram.percent,
             'ram_used_gb': round(ram.used / 1073741824, 1), 'ram_total_gb': round(ram.total / 1073741824, 1),
-            'disco_libre_gb': round(disco.free / 1073741824, 1), 'disco_total_gb': round(disco.total / 1073741824, 1),
+            'disco_libre_gb': round(disco.free / 1073741824, 1) if disco else None,
+            'disco_total_gb': round(disco.total / 1073741824, 1) if disco else None,
             'net_mb': round(net.bytes_recv / 1048576, 1),
             'temp': temp, 'top': top,
             'hora': time.strftime('%H:%M:%S')})
@@ -1271,6 +1312,132 @@ def api_agentes():
 def api_history():
     """Historial de conversación (para reanudar desde el móvil)."""
     return jsonify({'messages': _history_messages()})
+
+
+# ── COMANDOS DE VOZ (catalogo + taller del señor) ────────────────────────────
+def _almacen_comandos():
+    """Almacen compartido de comandos de voz, o None si el modulo falla."""
+    try:
+        from comandos_voz import almacen
+        return almacen()
+    except Exception as e:
+        print(f"[comandos] modulo no disponible: {e}")
+        return None
+
+
+def _permiso_comandos() -> bool:
+    """Crear comandos es ejecutar codigo en el PC: PIN valido o peticion local."""
+    return _auth_ok(_req_token()) or (request.remote_addr in ('127.0.0.1', '::1'))
+
+
+@app.route('/api/comandos', methods=['GET'])
+def api_comandos_listar():
+    alm = _almacen_comandos()
+    if alm is None:
+        return jsonify({'error': 'comandos no disponibles'}), 503
+    agente = (request.args.get('agente') or '').strip().lower()
+    try:
+        from comandos_voz import TIPOS
+    except Exception:
+        TIPOS = {}
+    return jsonify({'comandos': alm.listar(agente if agente in ('jarvis', 'ultron') else ''),
+                    'tipos': TIPOS})
+
+
+@app.route('/api/comandos', methods=['POST'])
+def api_comandos_guardar():
+    if not _permiso_comandos():
+        return jsonify({'error': 'token invalido'}), 403
+    alm = _almacen_comandos()
+    if alm is None:
+        return jsonify({'error': 'comandos no disponibles'}), 503
+    datos = request.get_json(silent=True) or {}
+    try:
+        guardado = alm.guardar(datos)
+    except ValueError as e:
+        # Un error de validacion es culpa del formulario, no del servidor: 400
+        # para que la interfaz pueda enseñar el motivo tal cual.
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'no pude guardarlo: {str(e)[:150]}'}), 500
+    return jsonify({'ok': True, 'comando': guardado})
+
+
+@app.route('/api/comandos/<cid>', methods=['DELETE'])
+def api_comandos_borrar(cid):
+    if not _permiso_comandos():
+        return jsonify({'error': 'token invalido'}), 403
+    alm = _almacen_comandos()
+    if alm is None:
+        return jsonify({'error': 'comandos no disponibles'}), 503
+    return jsonify({'ok': alm.borrar(cid)})
+
+
+@app.route('/api/comandos/restaurar', methods=['POST'])
+def api_comandos_restaurar():
+    if not _permiso_comandos():
+        return jsonify({'error': 'token invalido'}), 403
+    alm = _almacen_comandos()
+    if alm is None:
+        return jsonify({'error': 'comandos no disponibles'}), 503
+    return jsonify({'ok': True, 'comandos': alm.restaurar_fabrica()})
+
+
+@app.route('/api/comandos/<cid>/probar', methods=['POST'])
+def api_comandos_probar(cid):
+    """Ejecuta un comando ya guardado sin tener que decirlo en voz alta."""
+    if not _permiso_comandos():
+        return jsonify({'error': 'token invalido'}), 403
+    alm = _almacen_comandos()
+    if alm is None:
+        return jsonify({'error': 'comandos no disponibles'}), 503
+    cmd = alm.obtener(cid)
+    if not cmd:
+        return jsonify({'error': 'no existe ese comando'}), 404
+    agente = (request.args.get('agente') or 'jarvis').lower()
+    try:
+        from comandos_voz import ComandosVoz
+        # El proxy del nucleo vale como `core`: reenvia .pc y
+        # .process_text_stream al JarvisCore real en cuanto esta cargado.
+        motor = ComandosVoz(core=core, almacen=alm, agente=agente, log=print)
+        return jsonify({'ok': True, 'respuesta': motor.ejecutar(cmd)})
+    except Exception as e:
+        return jsonify({'error': f'fallo al ejecutar: {str(e)[:200]}'}), 500
+
+
+# ── RED: Tailscale + firewall (por que el movil no responde) ─────────────────
+@app.route('/api/red')
+def api_red():
+    """Diagnostico completo de conectividad para el telefono."""
+    try:
+        import tailscale_setup
+        datos = tailscale_setup.resumen(jarvis_config.PORT)
+    except Exception as e:
+        datos = {
+            'error': str(e)[:200],
+            'ip_local': jarvis_config.LOCAL_IP,
+            'puerto': jarvis_config.PORT,
+            'tailscale': {'instalado': False, 'conectado': False},
+            'firewall_ok': None,
+            'urls': [{'tipo': 'lan',
+                      'url': f'http://{jarvis_config.LOCAL_IP}:{jarvis_config.PORT}/mobile',
+                      'nota': 'Solo con el movil en el mismo Wi-Fi.'}],
+        }
+    datos['pin'] = AUTH_TOKEN
+    return jsonify(datos)
+
+
+@app.route('/api/red/firewall', methods=['POST'])
+def api_red_firewall():
+    """Abre los puertos de JARVIS en el Firewall. Solo desde el propio PC."""
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        return jsonify({'error': 'solo desde el PC', 'ayuda':
+                        'Ejecute instalar_tailscale.bat como administrador.'}), 403
+    try:
+        import tailscale_setup
+        return jsonify(tailscale_setup.abrir_firewall(log=print))
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
 
 
 @app.route('/qr')

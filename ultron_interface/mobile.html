@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
 <title>ULTRON · móvil</title>
 <style>
   :root {
@@ -34,8 +34,10 @@
     padding:8px 4px;border-radius:3px;font-family:inherit;font-size:10px;cursor:pointer}
   .quick button:active{background:var(--dred);color:#fff}
   .bar{display:flex;gap:4px;padding:6px;background:var(--panel);border:1px solid var(--border);border-radius:4px}
-  .bar input{flex:1;background:#0a0000;border:1px solid var(--border2);color:var(--bright);
-    padding:10px;border-radius:3px;font-family:inherit;font-size:14px;outline:none}
+  /* 16px: por debajo, el navegador del movil amplia la pagina al enfocar el
+     campo y la barra de escribir se sale de la pantalla. */
+  .bar input{flex:1;min-width:0;background:#0a0000;border:1px solid var(--border2);color:var(--bright);
+    padding:10px;border-radius:3px;font-family:inherit;font-size:16px;outline:none}
   .bar button{background:var(--dred);color:#fff;border:none;padding:10px 14px;border-radius:3px;
     font-family:inherit;font-weight:bold;cursor:pointer}
   .bar .v{background:#1a0000;color:var(--bright);border:1px solid var(--border2)}

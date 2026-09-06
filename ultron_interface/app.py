@@ -25,6 +25,7 @@ Rutas clave (compatibles con el HUD móvil):
   POST /purge             borra historial (limpieza cognitiva)
 """
 import os
+import re as _re
 import sys
 import json
 import time
@@ -231,8 +232,22 @@ def _stats() -> dict:
 
 
 # ── Rutas principales ────────────────────────────────────────────────────────
+_RE_MOVIL = _re.compile(
+    r"android|iphone|ipod|ipad|windows phone|iemobile|blackberry|"
+    r"opera mini|mobile safari|silk", _re.I)
+
+
 @app.route("/")
 def index():
+    """El HUD en el PC; en el telefono, la consola tactil.
+
+    Servir siempre index.html hacia que el movil entrara con la pagina
+    ampliada y hubiera que bajar el zoom a mano para poder escribir.
+    """
+    ua = request.headers.get("User-Agent", "")
+    es_movil = bool(_RE_MOVIL.search(ua)) or request.headers.get("Sec-CH-UA-Mobile") == "?1"
+    if es_movil and not request.args.get("escritorio"):
+        return mobile()
     return send_from_directory(".", "index.html")
 
 
