@@ -4,16 +4,21 @@ tailscale_setup.py — Deja el telefono hablando con JARVIS desde cualquier siti
 Antes del formateo el señor tenia Tailscale: el movil llegaba al PC por su IP
 aunque no estuvieran en el mismo Wi-Fi. Esto lo vuelve a dejar igual:
 
-    python tailscale_setup.py            → instala, conecta y diagnostica
-    python tailscale_setup.py --estado   → solo mira como esta la cosa
-    python tailscale_setup.py --firewall → solo abre los puertos de JARVIS
+    python tailscale_setup.py             → instala, conecta y diagnostica
+    python tailscale_setup.py --estado    → solo mira como esta la cosa
+    python tailscale_setup.py --firewall  → solo abre los puertos de JARVIS
+    python tailscale_setup.py --https     → solo publica la interfaz en HTTPS
+    python tailscale_setup.py --sin-https → retira esa publicacion
 
 Lo que hace, en orden:
   1. Busca tailscale.exe; si no esta, lo instala (winget y, si falla, el MSI).
   2. Levanta la VPN (`tailscale up`) y enseña el enlace de login si hace falta.
   3. Abre en el Firewall de Windows los puertos 5000 (web), 8765 (JARVIS) y
      8766 (ULTRON) para la red privada y para la 100.64.0.0/10 de Tailscale.
-  4. Imprime la direccion exacta que hay que abrir en el telefono.
+  4. Publica la interfaz en https://<equipo>.ts.net con `tailscale serve`.
+     Sin HTTPS el movil entra por http://, que no es «origen seguro», y el
+     navegador BLOQUEA el microfono: los comandos de voz no funcionarian.
+  5. Imprime la direccion exacta que hay que abrir en el telefono.
 
 El paso 3 es la causa mas habitual de «no responde en el telefono»: el servidor
 escucha en 0.0.0.0 pero el Firewall tira los paquetes que vienen de fuera.
@@ -232,6 +237,87 @@ def estado(exe: str = "") -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# HTTPS dentro del tailnet: sin esto el movil no puede usar el microfono
+# ─────────────────────────────────────────────────────────────────────────────
+def estado_serve(exe: str = "", puerto: int = None) -> dict:
+    """¿Esta el servidor publicado por HTTPS en el tailnet?"""
+    exe = exe or buscar_tailscale()
+    puerto = puerto or PUERTO_WEB
+    base = {"activo": False, "url": "", "error": ""}
+    if not exe:
+        base["error"] = "Tailscale no esta instalado."
+        return base
+    codigo, salida = _run([exe, "serve", "status"], timeout=20)
+    if codigo != 0:
+        base["error"] = salida[:200]
+        return base
+    # La salida lista lineas del tipo «https://equipo.ts.net (tailnet only)»
+    # seguidas del destino local. Nos vale con encontrar nuestro puerto.
+    if f"127.0.0.1:{puerto}" in salida or f"localhost:{puerto}" in salida:
+        base["activo"] = True
+        m = re.search(r"https://[\w.-]+\.ts\.net\S*", salida or "")
+        if m:
+            base["url"] = m.group(0).rstrip("/")
+    return base
+
+
+def servir_https(log=print, exe: str = "", puerto: int = None) -> dict:
+    """Publica el servidor local en https://<equipo>.ts.net (tailscale serve).
+
+    Por que hace falta: por HTTP plano el telefono entra en
+    http://100.x.x.x:5000, que NO es un «origen seguro». Chrome y Safari
+    bloquean ahi el microfono, asi que ni el dictado ni los comandos de voz
+    funcionan desde el movil por mucho que la pagina cargue. Con serve, la
+    MISMA interfaz queda en HTTPS con un certificado valido de Let's Encrypt
+    y el microfono vuelve a estar permitido.
+
+    Requiere tener activados MagicDNS y «HTTPS Certificates» en la consola de
+    Tailscale; si no lo estan, el propio comando lo dice y lo repetimos aqui.
+    """
+    exe = exe or buscar_tailscale()
+    puerto = puerto or PUERTO_WEB
+    if not exe:
+        return {"ok": False, "error": "Tailscale no esta instalado."}
+
+    ya = estado_serve(exe, puerto)
+    if ya.get("activo"):
+        log(f"[tailscale] HTTPS ya publicado: {ya.get('url') or '(sin MagicDNS)'}")
+        return {"ok": True, **ya}
+
+    log("[tailscale] Publicando la interfaz por HTTPS dentro del tailnet...")
+    codigo, salida = _run([exe, "serve", "--bg", "--https=443",
+                           f"http://127.0.0.1:{puerto}"], timeout=90)
+    if codigo != 0:
+        # El fallo tipico es no tener los certificados HTTPS activados.
+        pista = ""
+        if "https" in (salida or "").lower() or "cert" in (salida or "").lower():
+            pista = ("Active «HTTPS Certificates» y MagicDNS en "
+                     "https://login.tailscale.com/admin/dns y repita.")
+        log(f"[tailscale] No pude publicar HTTPS: {salida[:200]}")
+        if pista:
+            log(f"[tailscale] {pista}")
+        return {"ok": False, "error": salida[:200], "ayuda": pista}
+
+    st = estado_serve(exe, puerto)
+    if st.get("url"):
+        log(f"[tailscale] HTTPS listo: {st['url']}")
+    return {"ok": True, **st}
+
+
+def dejar_de_servir(log=print, exe: str = "") -> bool:
+    """Retira la publicacion HTTPS (vuelve a quedar solo el HTTP del puerto)."""
+    exe = exe or buscar_tailscale()
+    if not exe:
+        return False
+    codigo, salida = _run([exe, "serve", "--https=443", "off"], timeout=45)
+    if codigo != 0:
+        codigo, salida = _run([exe, "serve", "reset"], timeout=45)
+    log("[tailscale] Publicacion HTTPS retirada." if codigo == 0
+        else f"[tailscale] No pude retirarla: {salida[:150]}")
+    return codigo == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Firewall (la causa nº1 de «no responde en el telefono»)
 # ─────────────────────────────────────────────────────────────────────────────
 def abrir_firewall(log=print) -> dict:
@@ -289,8 +375,16 @@ def resumen(puerto: int = None) -> dict:
     """Todo lo que hace falta para conectar el telefono."""
     puerto = puerto or PUERTO_WEB
     st = estado()
+    serve = estado_serve(puerto=puerto)
     lan = ip_local()
     urls = []
+    # La direccion HTTPS va la PRIMERA a proposito: es la unica desde la que
+    # el navegador del movil deja usar el microfono (las http:// no son
+    # «origen seguro» y Chrome y Safari bloquean ahi los comandos de voz).
+    if serve.get("activo") and serve.get("url"):
+        urls.append({"tipo": "https", "url": serve["url"] + "/mobile",
+                     "nota": "La mejor: cifrada y la unica que permite usar el "
+                             "microfono desde el movil."})
     if st.get("dns"):
         urls.append({"tipo": "tailscale-dns", "url": f"http://{st['dns']}:{puerto}/mobile",
                      "nota": "Desde cualquier red, con la app Tailscale abierta en el movil."})
@@ -303,6 +397,7 @@ def resumen(puerto: int = None) -> dict:
         "puerto": puerto,
         "ip_local": lan,
         "tailscale": st,
+        "serve": serve,
         "firewall_ok": firewall_configurado(),
         "urls": urls,
         "recomendada": urls[0]["url"],
@@ -325,6 +420,9 @@ def resumen_texto(puerto: int = None) -> str:
     if not r["firewall_ok"]:
         partes.append("Ademas el Firewall no tiene abiertos mis puertos, que es "
                       "el motivo mas habitual de que el movil no reciba respuesta.")
+    if not r.get("serve", {}).get("activo"):
+        partes.append("La interfaz no esta publicada por HTTPS, asi que desde el "
+                      "movil no se puede usar el microfono.")
     partes.append(f"Direccion para el telefono: {r['recomendada']}")
     return " ".join(partes)
 
@@ -339,6 +437,10 @@ def main(argv=None) -> int:
         return 0
     if "--firewall" in argv:
         return 0 if abrir_firewall(log)["ok"] else 1
+    if "--https" in argv:
+        return 0 if servir_https(log)["ok"] else 1
+    if "--sin-https" in argv:
+        return 0 if dejar_de_servir(log) else 1
 
     print("=" * 62)
     print("  TAILSCALE PARA JARVIS — conexion del telefono")
@@ -357,6 +459,9 @@ def main(argv=None) -> int:
 
     print("\n— Abriendo puertos en el Firewall de Windows —")
     abrir_firewall(log)
+
+    print("\n— Publicando la interfaz por HTTPS (para el microfono del movil) —")
+    servir_https(log, exe)
 
     r = resumen()
     print("\n" + "=" * 62)
