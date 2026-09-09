@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ULTRON · Centro de Operaciones</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
@@ -281,9 +281,11 @@
     box-shadow: 0 0 12px var(--red);
   }
   .bottom input {
-    flex: 1; background: #0a0001; border: 1px solid var(--border-2);
+    /* 16px: por debajo, el movil amplia la pagina al enfocar y hay que bajar
+       el zoom a mano para poder escribir. */
+    flex: 1; min-width: 0; background: #0a0001; border: 1px solid var(--border-2);
     color: var(--red-bright); padding: 13px 15px; border-radius: 3px;
-    font-family: inherit; font-size: 14px; outline: none;
+    font-family: inherit; font-size: 16px; outline: none;
     transition: box-shadow var(--t), border-color var(--t);
   }
   .bottom input::placeholder { color: var(--faint); }

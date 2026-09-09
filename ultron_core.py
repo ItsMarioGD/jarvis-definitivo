@@ -133,6 +133,13 @@ class UltronCore(JarvisCore):
 
     # ── Despacho con prioridad del arsenal Ultron ───────────────────────────
     def _procesar(self, text: str, state_callback=None, speak_server: bool = True) -> str:
+        # Los comandos de voz del señor van los primeros tambien en ULTRON: si
+        # se despacharan solo en super()._procesar(), el arsenal de ULTRON se
+        # habria comido antes cualquier frase que coincidiera.
+        r_cmd = self.despachar_comandos_voz(text, speak_server=speak_server)
+        if r_cmd:
+            return r_cmd
+
         ag = getattr(self, "agentes_ia", None)
         if ag is not None:
             try:

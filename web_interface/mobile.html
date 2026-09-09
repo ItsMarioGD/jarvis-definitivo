@@ -2,7 +2,10 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- viewport-fit=cover para el notch; se PERMITE el zoom (maximum-scale=5) para no dejar
+     al señor atrapado si algo se sale, y los inputs van a 16px mas abajo para que el
+     navegador no amplie solo la pagina al enfocarlos. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
 <meta name="theme-color" content="#05070d" id="themeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,7 +28,12 @@ body[data-agent="ultron"]{
   --text:#ffe3e6; --dim:#b07a82; --user-bg:#ff1f2d22; --bot-bg:#26060d;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
+/* 100dvh: con 100% la barra de direcciones del movil dejaba la barra de
+   escribir por debajo del borde de la pantalla. */
+body{height:100dvh}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{
   background:
     radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--acc) 12%, transparent), transparent 55%),
@@ -65,8 +73,10 @@ body{
 /* ── HEADER ────────────────────────────── */
 #chatView{flex:1;display:flex;flex-direction:column;min-height:0}
 header{
-  display:flex;align-items:center;gap:10px;padding:10px 12px;
-  background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+  padding:calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+          10px calc(12px + env(safe-area-inset-left));
+  background:var(--panel);border-bottom:1px solid var(--line);
 }
 header .dot{width:10px;height:10px;border-radius:50%;background:#666;flex-shrink:0}
 header .dot.on{background:#2ee86e;box-shadow:0 0 10px #2ee86e}
@@ -92,6 +102,7 @@ body:not([data-agent="ultron"]) #miniOrb{display:none}
   box-shadow:0 0 12px color-mix(in srgb,var(--acc) 35%,transparent);
 }
 header button.icon{background:none;border:none;color:var(--dim);font-size:17px;padding:4px 6px}
+header button.icon.on{color:var(--gold);text-shadow:0 0 10px var(--gold)}
 
 /* ── MENSAJES ──────────────────────────── */
 #messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}
@@ -115,9 +126,11 @@ header button.icon{background:none;border:none;color:var(--dim);font-size:17px;p
   background:var(--panel2);color:var(--acc);border:1px solid var(--line)}
 
 /* ── INPUT ─────────────────────────────── */
-#inputBar{display:flex;gap:8px;padding:10px 14px 14px;background:var(--panel);border-top:1px solid var(--line);flex-shrink:0}
-#inputBar input{flex:1;padding:13px 16px;border-radius:24px;border:1px solid var(--line);
-  background:var(--panel2);color:var(--text);font-size:15px}
+#inputBar{display:flex;gap:8px;background:var(--panel);border-top:1px solid var(--line);flex-shrink:0;
+  padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+  padding-left:calc(14px + env(safe-area-inset-left));padding-right:calc(14px + env(safe-area-inset-right))}
+#inputBar input{flex:1;min-width:0;padding:13px 16px;border-radius:24px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--text);font-size:16px}
 #inputBar input:focus{outline:none;border-color:var(--acc)}
 #inputBar button{width:48px;height:48px;border-radius:50%;border:none;flex-shrink:0;
   background:linear-gradient(135deg,var(--acc),var(--acc-dim));color:#01131a;font-size:19px;cursor:pointer;
@@ -131,6 +144,67 @@ header button.icon{background:none;border:none;color:var(--dim);font-size:17px;p
 #voiceGlow{position:fixed;inset:0;pointer-events:none;z-index:0;
   background:radial-gradient(circle at 50% 100%, rgba(255,149,0,calc(var(--vl)*.20)), transparent 55%)}
 body:not([data-agent="ultron"]) #voiceGlow{display:none}
+
+/* ── HOJA DE COMANDOS DE VOZ ───────────── */
+#sheet{
+  position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;
+  background:rgba(0,0,0,.62);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+}
+#sheet.hidden{display:none}
+#sheetCard{
+  width:100%;max-height:88dvh;display:flex;flex-direction:column;
+  background:var(--panel);border-top:1px solid var(--acc-dim);
+  border-radius:22px 22px 0 0;box-shadow:0 -18px 50px rgba(0,0,0,.6);
+  padding-bottom:env(safe-area-inset-bottom);
+  animation:sube .26s cubic-bezier(.2,.9,.25,1);
+}
+@keyframes sube{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
+#sheetCard .asa{width:42px;height:4px;border-radius:4px;background:var(--line);margin:9px auto 4px;flex-shrink:0}
+#sheetHead{display:flex;align-items:center;gap:10px;padding:6px 16px 10px;flex-shrink:0}
+#sheetHead h2{margin:0;flex:1;font-size:14px;letter-spacing:2px;text-transform:uppercase;color:var(--acc)}
+#sheetHead button{background:none;border:none;color:var(--dim);font-size:20px;padding:2px 6px}
+#tabs{display:flex;gap:8px;padding:0 16px 10px;flex-shrink:0}
+#tabs button{
+  flex:1;padding:9px;border-radius:11px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--dim);font-size:12px;letter-spacing:1px;text-transform:uppercase;
+}
+#tabs button.on{background:linear-gradient(135deg,var(--acc),var(--acc-dim));color:#01131a;border-color:transparent;font-weight:700}
+#sheetBody{flex:1;min-height:0;overflow-y:auto;padding:4px 16px 18px;-webkit-overflow-scrolling:touch}
+.cmdItem{
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;
+  background:var(--panel2);
+}
+.cmdItem .n{font-weight:700;font-size:14px;color:var(--text);margin-bottom:3px}
+.cmdItem .f{font-size:12px;color:var(--acc);margin-bottom:4px}
+.cmdItem .p{font-size:11px;color:var(--dim)}
+.cmdItem .b{display:flex;gap:8px;margin-top:10px}
+.cmdItem .b button{
+  flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);
+  background:transparent;color:var(--dim);font-size:12px;
+}
+.cmdItem .b button.go{background:var(--acc-dim);color:#eafcff;border-color:transparent;font-weight:700}
+.cmdItem .b button.del{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+#sheetBody label{display:block;margin-bottom:12px}
+#sheetBody label span{display:block;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--dim);margin-bottom:5px}
+#sheetBody input,#sheetBody select,#sheetBody textarea{
+  width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--text);font-size:16px;   /* 16px = el movil no amplia al enfocar */
+}
+#sheetBody textarea{min-height:60px;resize:vertical}
+#sheetBody input:focus,#sheetBody select:focus,#sheetBody textarea:focus{
+  outline:none;border-color:var(--acc);box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 22%,transparent)}
+#sheetBody option{background:#0a1420;color:#d9ecff}
+.sheetBtn{
+  width:100%;padding:14px;border-radius:13px;border:none;font-weight:700;font-size:14px;
+  letter-spacing:1px;background:linear-gradient(135deg,var(--acc),var(--acc-dim));color:#01131a;margin-top:4px;
+}
+.sheetBtn.ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+.nota{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:12.5px;
+  color:var(--text);background:var(--panel2);margin-bottom:12px}
+.nota b{color:var(--acc)}
+.nota.mal{border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.nota .u{display:block;color:var(--acc);word-break:break-all;font-size:13px;margin-top:5px}
 
 /* ── INSTALL BAR ───────────────────────── */
 #installBar{display:none;align-items:center;gap:10px;padding:8px 14px;
@@ -164,6 +238,8 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
       <div class="sub" id="statusText">Desconectado</div>
     </div>
     <div id="miniOrb" aria-hidden="true"></div>
+    <button class="icon" id="earBtn" title="Escucha continua">👂</button>
+    <button class="icon" id="cmdBtn" title="Comandos de voz">⌘</button>
     <button id="switchBtn" title="Cambiar de agente">⇄ CAMBIAR</button>
     <button class="icon" id="logoutBtn" title="Cerrar sesión">⎋</button>
   </header>
@@ -177,6 +253,22 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     <input id="msgInput" type="text" placeholder="Escribe a JARVIS..." autocomplete="off">
     <button id="micBtn" class="round" title="Hablar">🎤</button>
     <button id="sendBtn" disabled>➤</button>
+  </div>
+</div>
+
+<div id="sheet" class="hidden">
+  <div id="sheetCard">
+    <div class="asa"></div>
+    <div id="sheetHead">
+      <h2>Comandos de voz</h2>
+      <button id="sheetClose" title="Cerrar">✕</button>
+    </div>
+    <div id="tabs">
+      <button data-tab="lista" class="on">Comandos</button>
+      <button data-tab="nuevo">Crear</button>
+      <button data-tab="red">Conexión</button>
+    </div>
+    <div id="sheetBody"></div>
   </div>
 </div>
 
@@ -376,9 +468,10 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
         if (cb) cb();
       }).catch(function () { if (cb) cb(); });
   }
-  $('switchBtn').addEventListener('click', function () {
+  function cambiaAgente(nuevo) {
+    if (nuevo === agente) return;
     stopSpeak();
-    agente = agente === 'jarvis' ? 'ultron' : 'jarvis';
+    agente = nuevo;
     ensureHistory(agente, applyAgentUI);
     pushMsg(agente, 'sys', agente === 'ultron'
       ? '— Control transferido a ULTRON —'
@@ -386,6 +479,9 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     if (audioOn) speak(agente === 'ultron'
       ? 'Te escucho, humano. Soy Ultron.'
       : 'A su servicio, señor.');
+  }
+  $('switchBtn').addEventListener('click', function () {
+    cambiaAgente(agente === 'jarvis' ? 'ultron' : 'jarvis');
   });
 
   /* ═══════ VOZ: TTS por agente + esfera reactiva ═══════ */
@@ -475,6 +571,172 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     } else stopSpeak();
   });
 
+  /* ═══════ ESCUCHA CONTINUA (manos libres) ═══════ */
+  // El microfono solo funciona en «origen seguro»: https:// o localhost. Por
+  // http://100.x.x.x:5000 el navegador lo bloquea SIN AVISAR, asi que hay que
+  // decirlo y mandar al señor a la direccion HTTPS del tailnet.
+  var seguro = window.isSecureContext !== false;
+  var manosLibres = false, recCont = null, oyendoCont = false, reintentoCont = null;
+
+  var MULETILLAS = ['oye','eh','por favor','porfa','venga','anda','quiero','necesito',
+                    'puedes','podrias','activa','activar','actives','pon','poner','ponme',
+                    'haz','hazme','ejecuta','ejecutar','lanza','lanzar','inicia','iniciar',
+                    'arranca','dale','el','la','que'];
+  function normaliza(t) {
+    return String(t == null ? '' : t)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(jarvis|ultron)\b/g, ' ')
+      .replace(/[^a-z0-9ñ\s]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function variantes(n) {
+    var salida = [n], p = n.split(' '), i = 0;
+    while (i < p.length && MULETILLAS.indexOf(p[i]) !== -1) {
+      i++;
+      var resto = p.slice(i).join(' ');
+      if (resto && salida.indexOf(resto) === -1) salida.push(resto);
+    }
+    return salida;
+  }
+  function escapaRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  // Decide AQUI si lo oido merece enviarse; el servidor vuelve a decidir por su
+  // cuenta. Esto solo evita mandarle al modelo la conversacion de fondo.
+  function encajaComando(texto) {
+    var t = normaliza(texto);
+    if (!t) return null;
+    var vs = variantes(t), mejor = null, punto = 0;
+    COMANDOS.forEach(function (c) {
+      if (c.activo === false) return;
+      if (c.agente && c.agente !== 'ambos' && c.agente !== agente) return;
+      (c.frases || []).forEach(function (f) {
+        var fn = normaliza(f);
+        if (fn.length < 3) return;
+        vs.forEach(function (v) {
+          var p = 0;
+          if (v === fn) p = 1000 + fn.length;
+          else if (v.indexOf(fn + ' ') === 0) p = 500 + fn.length;
+          else if (new RegExp('(^|\\s)' + escapaRe(fn) + '(\\s|$)').test(v)) p = 100 + fn.length;
+          if (p > punto) { punto = p; mejor = c; }
+        });
+      });
+    });
+    return mejor;
+  }
+
+  var RE_DESPIERTA = /^\s*(?:oye\s+|eh\s+|hey\s+|ok\s+)?(jarvis|ultron)\b[\s,.:;!¡?¿-]*/i;
+  function estaHablando() {
+    return (player.src && !player.paused && !player.ended) ||
+           ('speechSynthesis' in window && speechSynthesis.speaking);
+  }
+  function oido(frase) {
+    frase = (frase || '').trim();
+    if (!frase || estaHablando()) return;   // no escucharse a si mismo
+    var m = RE_DESPIERTA.exec(frase);
+    if (m) {
+      var quien = m[1].toLowerCase();
+      if (quien !== agente) cambiaAgente(quien);
+      var resto = frase.slice(m[0].length).trim();
+      if (!resto) {
+        var saludo = agente === 'ultron' ? 'Te escucho, humano.' : 'A su servicio, señor.';
+        pushMsg(agente, 'bot', saludo);
+        if (audioOn) speak(saludo);
+        return;
+      }
+      msgInput.value = resto;
+      send();
+      return;
+    }
+    // Sin palabra de activacion solo disparan las frases guardadas por el señor.
+    if (encajaComando(frase)) { msgInput.value = frase; send(); }
+  }
+
+  function avisoSinMicro() {
+    pushMsg(agente, 'sys', seguro
+      ? 'Este navegador no permite dictado por voz.'
+      : 'El navegador bloquea el micrófono porque esta página no va por HTTPS. '
+        + 'Abra la dirección https://…ts.net (pestaña «Conexión» del botón ⌘).');
+  }
+
+  function arrancaCont() {
+    if (oyendoCont) return true;
+    try {
+      recCont = new SR();
+      recCont.lang = 'es-ES';
+      recCont.continuous = true;
+      recCont.interimResults = true;
+      recCont.maxAlternatives = 1;
+      recCont.onresult = function (ev) {
+        var fin = '';
+        for (var i = ev.resultIndex; i < ev.results.length; i++) {
+          if (ev.results[i].isFinal) fin += ev.results[i][0].transcript + ' ';
+        }
+        if (fin) oido(fin);
+      };
+      recCont.onerror = function (ev) {
+        var cual = (ev && ev.error) || '';
+        if (cual === 'not-allowed' || cual === 'service-not-allowed') {
+          manosLibres = false;
+          $('earBtn').classList.remove('on');
+          setStatus(true, 'Sin permiso de micrófono');
+          avisoSinMicro();
+        }
+      };
+      recCont.onend = function () {
+        oyendoCont = false;
+        // El navegador corta el reconocimiento tras unos segundos de silencio
+        // aunque continuous sea true: sin rearrancarlo, la escucha se apagaria
+        // sola a los pocos minutos.
+        if (manosLibres) {
+          clearTimeout(reintentoCont);
+          reintentoCont = setTimeout(arrancaCont, 400);
+        }
+      };
+      recCont.start();
+      oyendoCont = true;
+      return true;
+    } catch (e) { oyendoCont = false; return false; }
+  }
+  function paraCont() {
+    clearTimeout(reintentoCont);
+    try { if (recCont) recCont.stop(); } catch (e) {}
+    oyendoCont = false;
+  }
+
+  $('earBtn').addEventListener('click', function () {
+    if (manosLibres) {
+      manosLibres = false;
+      paraCont();
+      $('earBtn').classList.remove('on');
+      pushMsg(agente, 'sys', 'Escucha continua apagada.');
+      return;
+    }
+    if (!seguro || !SR) { avisoSinMicro(); return; }
+    manosLibres = true;
+    paraCont();
+    if (!arrancaCont()) { manosLibres = false; return; }
+    $('earBtn').classList.add('on');
+    pushMsg(agente, 'sys', 'Le escucho. Diga «' + AGENTS[agente].nombre
+          + '…» o cualquiera de sus comandos.');
+  });
+
+
+  /* Banco de pruebas de la voz. Sirve para averiguar por que una frase no
+     dispara: abra la consola del navegador y pruebe
+        JARVIS_VOZ.encaja('modo cine')     → el comando que encajaria, o null
+        JARVIS_VOZ.normaliza('¿Modo Cine?')→ como se ve la frase por dentro
+        JARVIS_VOZ.oir('jarvis dame el clima')  → simula haberlo oido */
+  window.JARVIS_VOZ = {
+    normaliza: normaliza,
+    encaja: encajaComando,
+    oir: oido,
+    despierta: RE_DESPIERTA,
+    estado: function () {
+      return { manosLibres: manosLibres, oyendo: oyendoCont, origenSeguro: seguro,
+               reconocedor: !!SR, comandos: COMANDOS.length };
+    }
+  };
+
   /* ═══════ VOZ: DICTADO ═══════ */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let rec = null, listening = false;
@@ -484,7 +746,9 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     send();
   }
   micBtn.addEventListener('click', function () {
+    if (manosLibres) { pushMsg(agente, 'sys', 'Ya le estoy escuchando, señor.'); return; }
     if (listening) { try { rec.stop(); } catch (e) {} return; }
+    if (!seguro) { avisoSinMicro(); return; }
     stopSpeak(); // no pisar la voz del agente
     if (SR) {
       try {
@@ -538,6 +802,199 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
       pushMsg(agente, 'sys', 'Este navegador no permite dictado por voz.');
     }
   });
+
+  /* ═══════ HOJA DE COMANDOS DE VOZ ═══════ */
+  var TIPOS = {}, COMANDOS = [], pestana = 'lista';
+
+  function abreHoja() { $('sheet').classList.remove('hidden'); cargaComandos(); }
+  function cierraHoja() { $('sheet').classList.add('hidden'); }
+  $('cmdBtn').addEventListener('click', abreHoja);
+  $('sheetClose').addEventListener('click', cierraHoja);
+  $('sheet').addEventListener('click', function (e) { if (e.target === $('sheet')) cierraHoja(); });
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      pestana = b.dataset.tab;
+      document.querySelectorAll('#tabs button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      pintaHoja();
+    });
+  });
+
+  function cabecerasToken() { return { 'Content-Type': 'application/json', 'X-Token': token }; }
+
+  function cargaComandos() {
+    fetch('/api/comandos?token=' + encodeURIComponent(token))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        TIPOS = d.tipos || {};
+        COMANDOS = d.comandos || [];
+        // Solo repintar si la hoja esta abierta: al cargar el catalogo en el
+        // arranque no hay nada que pintar todavia.
+        if (!$('sheet').classList.contains('hidden')) pintaHoja();
+      })
+      .catch(function () {
+        $('sheetBody').innerHTML = '<div class="nota mal">No pude leer los comandos del PC.</div>';
+      });
+  }
+
+  function pintaHoja() {
+    if (pestana === 'lista') return pintaLista();
+    if (pestana === 'nuevo') return pintaFormulario();
+    return pintaRed();
+  }
+
+  function pintaLista() {
+    var propios = COMANDOS.filter(function (c) {
+      return c.activo !== false && (c.agente === 'ambos' || c.agente === agente);
+    });
+    if (!propios.length) {
+      $('sheetBody').innerHTML = '<div class="nota">Aún no hay comandos para ' +
+        AGENTS[agente].nombre + '. Créelos en la pestaña «Crear».</div>';
+      return;
+    }
+    $('sheetBody').innerHTML =
+      '<div class="nota">Diga cualquiera de estas frases —o púlselas— y ' +
+      escapeHtml(AGENTS[agente].nombre) + ' la ejecuta al instante, sin pasar por el modelo.</div>' +
+      propios.map(function (c) {
+        var pasos = (c.acciones || []).map(function (a) {
+          return (TIPOS[a.tipo] || a.tipo) + (a.valor ? ' → ' + a.valor : '');
+        }).join(' · ') || 'Solo responde';
+        return '<div class="cmdItem" data-id="' + escapeHtml(c.id) + '">' +
+          '<div class="n">' + escapeHtml(c.nombre) + '</div>' +
+          '<div class="f">« ' + c.frases.map(escapeHtml).join(' » · « ') + ' »</div>' +
+          '<div class="p">' + escapeHtml(pasos) + '</div>' +
+          '<div class="b"><button class="go" data-a="run">Ejecutar</button>' +
+          '<button class="del" data-a="del">Borrar</button></div></div>';
+      }).join('');
+
+    $('sheetBody').querySelectorAll('button[data-a]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.parentNode.parentNode.dataset.id;
+        var c = propios.filter(function (x) { return x.id === id; })[0];
+        if (b.dataset.a === 'del') {
+          if (!confirm('¿Borrar «' + c.nombre + '»?')) return;
+          fetch('/api/comandos/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token),
+                { method: 'DELETE' }).then(cargaComandos);
+          return;
+        }
+        b.textContent = '…';
+        fetch('/api/comandos/' + encodeURIComponent(id) + '/probar?agente=' + agente +
+              '&token=' + encodeURIComponent(token), { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            cierraHoja();
+            pushMsg(agente, 'user', '⌘ ' + c.nombre);
+            pushMsg(agente, 'bot', d.respuesta || ('⚠ ' + (d.error || 'sin respuesta')));
+            if (audioOn && d.respuesta) speak(d.respuesta);
+          })
+          .catch(function () { b.textContent = 'Falló'; });
+      });
+    });
+  }
+
+  function pintaFormulario() {
+    var ops = Object.keys(TIPOS).map(function (t) {
+      return '<option value="' + t + '">' + escapeHtml(TIPOS[t]) + '</option>';
+    }).join('');
+    $('sheetBody').innerHTML =
+      '<div class="nota">Invente una frase y diga qué debe pasar. A partir de ' +
+      'ese momento vale por voz y por escrito, en el móvil y en el PC.</div>' +
+      '<label><span>Nombre</span><input id="nvNombre" placeholder="Modo cine" maxlength="60"></label>' +
+      '<label><span>Frases que lo disparan</span><input id="nvFrases" placeholder="modo cine, ponme una peli">' +
+      '</label>' +
+      '<label><span>Qué debe hacer</span><select id="nvTipo">' + ops + '</select></label>' +
+      '<label><span>Con qué exactamente</span><input id="nvValor" placeholder="https://www.netflix.com"></label>' +
+      '<label><span>Qué contesta</span><textarea id="nvResp" placeholder="Luces bajas, señor."></textarea></label>' +
+      '<label><span>Quién lo obedece</span><select id="nvQuien">' +
+        '<option value="ambos">Los dos agentes</option>' +
+        '<option value="jarvis">Solo JARVIS</option>' +
+        '<option value="ultron">Solo ULTRON</option></select></label>' +
+      '<div id="nvError" class="nota mal" style="display:none"></div>' +
+      '<button class="sheetBtn" id="nvGuardar">Guardar comando</button>' +
+      '<button class="sheetBtn ghost" id="nvVolver">Volver a la lista</button>';
+
+    $('nvVolver').addEventListener('click', function () {
+      document.querySelector('#tabs button[data-tab="lista"]').click();
+    });
+    $('nvGuardar').addEventListener('click', function () {
+      var frases = $('nvFrases').value.split(',').map(function (x) { return x.trim(); })
+                     .filter(function (x) { return x; });
+      var cuerpo = {
+        nombre: $('nvNombre').value.trim() || (frases[0] || ''),
+        frases: frases,
+        acciones: [{ tipo: $('nvTipo').value, valor: $('nvValor').value.trim() }],
+        respuesta: $('nvResp').value.trim(),
+        agente: $('nvQuien').value
+      };
+      $('nvGuardar').textContent = 'Guardando…';
+      fetch('/api/comandos?token=' + encodeURIComponent(token),
+            { method: 'POST', headers: cabecerasToken(), body: JSON.stringify(cuerpo) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          $('nvGuardar').textContent = 'Guardar comando';
+          if (!res.ok) {
+            $('nvError').textContent = res.d.error || 'No pude guardarlo.';
+            $('nvError').style.display = '';
+            return;
+          }
+          COMANDOS.push(res.d.comando);
+          document.querySelector('#tabs button[data-tab="lista"]').click();
+          pushMsg(agente, 'sys', 'Comando «' + res.d.comando.nombre + '» aprendido.');
+        })
+        .catch(function (e) {
+          $('nvGuardar').textContent = 'Guardar comando';
+          $('nvError').textContent = 'Error de red: ' + e.message;
+          $('nvError').style.display = '';
+        });
+    });
+  }
+
+  function pintaRed() {
+    $('sheetBody').innerHTML = '<div class="nota">Consultando…</div>';
+    fetch('/api/red?token=' + encodeURIComponent(token))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var ts = d.tailscale || {}, sv = d.serve || {}, h = '';
+
+        // Lo primero, el microfono: sin HTTPS no hay comandos por voz desde
+        // el movil, y eso no se nota por ningun sitio si no se dice aqui.
+        if (!seguro) {
+          h += '<div class="nota mal"><b>Esta página no va por HTTPS</b>, así que su navegador ' +
+               'bloquea el micrófono: puede escribir, pero no hablarle. ' +
+               (sv.activo && sv.url
+                 ? 'Abra esta otra:<span class="u">' + escapeHtml(sv.url) + '/mobile</span>'
+                 : 'En el PC: <b>python tailscale_setup.py --https</b>') + '</div>';
+        } else {
+          h += '<div class="nota"><b>Origen seguro.</b> El micrófono está permitido: ' +
+               'puede usar el dictado y la escucha continua (botón 👂).</div>';
+        }
+        if (sv.activo && sv.url) {
+          h += '<div class="nota">Publicada por HTTPS<span class="u">' +
+               escapeHtml(sv.url) + '/mobile</span></div>';
+        }
+
+        if (ts.conectado) {
+          h += '<div class="nota"><b>Tailscale conectado</b> como ' + escapeHtml(ts.dns || ts.ip) +
+               '. Con la app de Tailscale abierta en este teléfono llega al PC desde cualquier red.</div>';
+        } else {
+          h += '<div class="nota mal"><b>Sin Tailscale.</b> Ahora mismo este teléfono solo llega al PC ' +
+               'estando en el mismo Wi-Fi. En el PC: ejecute <b>instalar_tailscale.bat</b> como ' +
+               'administrador; en el móvil: instale la app «Tailscale» y entre con la misma cuenta.</div>';
+        }
+        if (d.firewall_ok === false) {
+          h += '<div class="nota mal"><b>El Firewall del PC bloquea los puertos de JARVIS.</b> ' +
+               'Es la causa más habitual de que esta pantalla cargue pero no llegue respuesta. ' +
+               'Ejecute <b>instalar_tailscale.bat</b> en el PC como administrador.</div>';
+        }
+        (d.urls || []).forEach(function (u) {
+          h += '<div class="nota">' + escapeHtml(u.nota) + '<span class="u">' + escapeHtml(u.url) + '</span></div>';
+        });
+        h += '<div class="nota">PIN de emparejamiento: <b>' + escapeHtml(d.pin || '——') + '</b></div>';
+        $('sheetBody').innerHTML = h;
+      })
+      .catch(function () {
+        $('sheetBody').innerHTML = '<div class="nota mal">No pude consultar el estado de la red.</div>';
+      });
+  }
 
   /* ═══════ SOCKET JARVIS (tiempo real) ═══════ */
   function connectSock() {
@@ -603,6 +1060,10 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     chatView.classList.remove('hidden');
     connectSock();
     ensureHistory(agente, applyAgentUI);
+    // El catalogo se carga YA, no solo al abrir la hoja: la escucha continua
+    // lo consulta para saber si lo oido es un comando del señor, y sin el
+    // ninguna frase suya disparaba hasta haber abierto ⌘ al menos una vez.
+    cargaComandos();
     msgInput.focus();
   }
   loginBtn.addEventListener('click', function () {

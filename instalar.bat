@@ -187,6 +187,7 @@ if defined FALLOS (
 echo ===========================================================
 echo   Abrir JARVIS:        icono "JARVIS" del Escritorio
 echo   Abrir ULTRON:        icono "ULTRON" del Escritorio
+echo   Conectar el movil:   instalar_tailscale.bat  ^(como administrador^)
 echo   Conectar Calendar:   "%PYTHON%" autorizar_google.py
 echo   Ver que falla:       "%PYTHON%" diagnostico_bots.py
 echo   Quitar autoarranque: instalar.bat --quitar-autoarranque

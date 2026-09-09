@@ -174,6 +174,105 @@
 - **Modo alto contraste:** Alternativa en configuración que invierte la paleta pero mantiene funcionalidad de la esfera
 - **Reducir movimiento:** Opción para reemplazar animaciones por estados estáticos con indicadores de texto
 
+### Interfaz Web «Núcleo» (nueva, servida en `/`)
+
+`web_interface/jarvis.html` sustituye al HUD anterior como pantalla principal
+del PC. El antiguo sigue disponible en `/clasico`.
+
+**Por qué se rehízo:** el HUD viejo era un único fichero de ~900 KB pensado para
+1920 px. En el móvil entraba «ampliado», la barra de escribir quedaba fuera de
+la pantalla y había que bajar el zoom a mano para poder escribir. Ahora `/`
+detecta el dispositivo: el PC recibe el HUD nuevo y el teléfono la consola
+táctil (`/mobile`), que sí está hecha para su pantalla.
+
+**Composición**
+
+```
+┌───────────────────────────────────────────────────────────────────────┐
+│ ◉ JARVIS   ● Núcleo activo  20:14:02      ⌘ Comandos ◎ Red ▣ Móvil ⇄  │
+├──────────────┬──────────────────────────────────────┬─────────────────┤
+│ CONSTANTES   │            ◉ REACTOR                 │ REGISTRO        │
+│ CPU  ▓▓▓░ 32%│      (5 anillos + triángulo)         │ 20:13 Canal ok  │
+│ RAM  ▓▓░░ 41%│         Estado · En reposo           │ 20:13 Comando…  │
+│ Disco ▓▓▓ 78%│                                      │                 │
+│ Temp   54 °C ├──────────────────────────────────────┤ CONEXIÓN        │
+│              │  Conversación                        │ Teléfono  100.…  │
+│ PROCESOS     │  ─────────────────────────────────── │ Tailscale  OK   │
+│ chrome  12 % │  [chips de comandos rápidos]         │ Comandos    9   │
+│ code     6 % │  [ escribir…      🎤  ➤ ]            │                 │
+└──────────────┴──────────────────────────────────────┴─────────────────┘
+```
+
+**Decisiones de diseño**
+
+| Elemento | Decisión |
+|----------|----------|
+| **Reactor** | Canvas de 5 anillos segmentados con velocidades y sentidos distintos, triángulo interior y núcleo con degradado radial. Late con el nivel real de la voz (analizador `AudioContext` sobre el MP3 de ElevenLabs) y cambia de color según el estado. |
+| **Estados** | Reposo (cian/carmesí) · Escuchando (ámbar) · Procesando (violeta) · Respondiendo (verde) · Incidencia (rojo). Cada uno con su velocidad de giro. |
+| **Paneles** | Cristal esmerilado (`backdrop-filter`) con esquinas en ángulo dibujadas con `::before`/`::after`. Es la firma visual: nada de cajas rectas. |
+| **Fondo** | Nebulosa que deriva 44 s, rejilla con máscara radial, barrido vertical y campo de estrellas en canvas que parpadea. Todo se tiñe con el color del agente activo. |
+| **Dos agentes** | Un solo `data-agent` en `<html>` reescribe toda la paleta mediante variables CSS, con transición de 600 ms. JARVIS cian sobre azul noche; ULTRON carmesí sobre negro sangre. |
+| **Sin dependencias** | Ni fuentes ni librerías externas: el PC puede estar sin internet y la interfaz se ve igual. |
+| **Accesibilidad** | `prefers-reduced-motion` desactiva todas las animaciones; campos a 16 px; foco visible con anillo de 3 px. |
+
+### Corrección del zoom en el móvil
+
+Tres causas encadenadas, las tres arregladas:
+
+1. **`/` servía el HUD de escritorio.** Ahora detecta el `User-Agent` (y
+   `Sec-CH-UA-Mobile`) y entrega `mobile.html`. Con `?escritorio=1` se fuerza el
+   HUD si se quiere.
+2. **Campos de texto a 14-15 px.** Por debajo de 16 px, iOS y Android amplían la
+   página al enfocar el campo y no la devuelven: por eso había que bajar la
+   escala a mano. Todos los `input`, `select` y `textarea` de las interfaces
+   están a 16 px.
+3. **`user-scalable=no` y altura `100%`.** El primero dejaba al usuario atrapado
+   si algo se salía; ahora es `maximum-scale=5`. La altura pasa a `100dvh` y las
+   barras superior e inferior respetan `env(safe-area-inset-*)`, así la barra de
+   escribir ya no queda bajo el gesto del sistema.
+
+### Comandos de voz (nuevo módulo)
+
+`comandos_voz.py` es el **primer** despachador de la cadena, por delante de la
+agencia de especialistas y de las habilidades de fábrica: si el señor define una
+frase, esa frase manda.
+
+- **Catálogo de fábrica** editable: modo enfoque, estudio, reunión, desarrollo,
+  bloquear el equipo, estado de la red, recorte de pantalla, informe de guardia.
+- **Taller** en las dos interfaces: botón **⌘ Comandos** en el PC (comandos de
+  varios pasos, edición, prueba en caliente) y hoja deslizante **⌘** en el móvil.
+- **Alta hablando**: «crea un comando: cuando diga *radio*, abre
+  *open.spotify.com*».
+- **Ocho tipos de acción** encadenables: decir, abrir, programa, shell, teclas,
+  escribir, agente y esperar.
+- Compartidos por JARVIS y ULTRON, o asignados a uno solo.
+
+### Escucha continua
+
+Botón **👂** en las dos interfaces. El reconocimiento se queda abierto y se
+rearranca solo cuando el navegador lo corta por silencio.
+
+| Lo que se oye | Qué hace |
+|---------------|----------|
+| «**Jarvis**, …» / «**Ultron**, …» | Manda el resto al agente; si nombra al otro, **cambia de agente** |
+| Una frase guardada como comando | La ejecuta sin palabra de activación |
+| Cualquier otra cosa | Se ignora: la conversación de fondo no llega al modelo |
+
+El pie del reactor pasa a «Escuchando · diga «JARVIS…»» y muestra en gris lo
+que va oyendo. Mientras suena la voz del agente, el reconocimiento no dispara,
+para que no se escuche a sí mismo.
+
+La coincidencia es la misma de `comandos_voz.py` portada a JavaScript (tildes,
+mayúsculas, signos y muletillas fuera), y decide solo si **merece enviarse**:
+el servidor vuelve a decidir por su cuenta. `window.JARVIS_VOZ` expone
+`encaja()`, `normaliza()` y `estado()` para depurar desde la consola por qué una
+frase no dispara.
+
+**Límite real:** el micrófono solo funciona en origen seguro (`https://` o
+`localhost`). Por `http://100.x.x.x:5000` el navegador lo bloquea sin avisar, así
+que ambas interfaces lo detectan (`isSecureContext`) y mandan a la dirección
+HTTPS del tailnet.
+
 ### Estado Actual del Diseño
 
 | Componente | Avance | Comentarios |
@@ -185,6 +284,13 @@
 | **Flujo de Interacción** | ✅ 100% | Lógica asíncrona real conectada en `jarvis_core.py`. |
 | **Paleta de Colores Neón** | ✅ 100% | Actualizada. |
 | **Tipografía Tech** | ✅ 100% | Courier New / Consolas aplicadas. |
-| **Accesibilidad** | 🟡 80% | Alto contraste neón listo, pendiente opciones de "reducir movimiento". |
+| **Accesibilidad** | ✅ 100% | Alto contraste neón, `prefers-reduced-motion` y campos a 16 px. |
+| **Interfaz Web «Núcleo»** | ✅ 100% | `web_interface/jarvis.html`, servida en `/`. Reactor en canvas, paneles de cristal, dos agentes con una sola paleta conmutable. |
+| **Consola móvil** | ✅ 100% | Zoom corregido, zona segura respetada y hoja de comandos de voz. |
+| **Comandos de voz** | ✅ 100% | Catálogo de fábrica + taller propio en PC y móvil + alta hablando. |
+| **Escucha continua** | ✅ 100% | Palabra de activación, cambio de agente por voz y filtro local de frases. |
+| **Conexión del teléfono** | ✅ 100% | Tailscale y reglas de Firewall automatizadas; diagnóstico en la propia interfaz. |
 
-**Próxima acción de diseño:** Conectar los placeholders del panel izquierdo a librerías reales de recolección de datos del sistema (como `psutil`) para mostrar CPU y RAM reales del ordenador anfitrión.
+**Próxima acción de diseño:** llevar el módulo multimedia (Kling/Flux) al visor
+central del HUD nuevo, con la esfera desplazándose a la esquina mientras se
+reproduce, tal y como describe la sección «Módulo de Renderizado Multimedia».

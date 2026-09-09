@@ -262,6 +262,17 @@ class JarvisCore:
         self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
         self.tts_thread.start()
 
+        # Comandos de voz del señor (catalogo de fabrica + los que el invente).
+        # Van los PRIMEROS de la cadena: un comando suyo manda sobre cualquier
+        # habilidad de fabrica que use la misma frase.
+        self._saltar_comandos_voz = False
+        try:
+            from comandos_voz import ComandosVoz
+            self.comandos_voz = ComandosVoz(core=self, log=self.log)
+        except Exception as e:
+            self.comandos_voz = None
+            self.log(f"Comandos de voz desactivados: {e}")
+
         # Habilidades del sistema (Sprint 2): respuestas instantáneas sin LLM
         try:
             self.skills = SkillsManager(
@@ -1108,6 +1119,42 @@ class JarvisCore:
             return [texto]
         return partes[:3]
 
+    def despachar_comandos_voz(self, text: str, speak_server: bool = True):
+        """Comandos de voz del señor. Devuelve la respuesta, o None si ninguno encaja.
+
+        Lo llaman JarvisCore._procesar y UltronCore._procesar antes que nada
+        para que un comando inventado por el señor mande sobre cualquier
+        habilidad de fábrica que use la misma frase.
+
+        _saltar_comandos_voz lo pone el propio despachador cuando una acción de
+        tipo «agente» reinyecta texto en el núcleo: sin esa marca, un comando
+        que se llama a sí mismo se quedaría en bucle infinito.
+        """
+        if getattr(self, "comandos_voz", None) is None \
+                or getattr(self, "_saltar_comandos_voz", False):
+            return None
+        try:
+            respuesta = self.comandos_voz.handle(text)
+        except Exception as e:
+            self.log(f"[{getattr(self, 'nombre_agente', 'JARVIS')}] "
+                     f"comandos de voz fallaron: {e}")
+            return None
+        if not respuesta:
+            return None
+        self.history.append({"role": "user", "content": text})
+        self.save_to_memory("user", text)
+        self.history.append({"role": "assistant", "content": respuesta})
+        self.save_to_memory("assistant", respuesta)
+        if len(self.history) > 17:
+            self.history = [self.history[0]] + self.history[-16:]
+        if speak_server:
+            self.tts_queue.put(respuesta)
+        try:
+            self._contexto_append(text, respuesta)
+        except Exception:
+            pass
+        return respuesta
+
     def _procesar(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
         # ── Mute de la voz local: lo primero, para que funcione siempre ──
         try:
@@ -1119,6 +1166,11 @@ class JarvisCore:
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": _r_voz})
             return _r_voz
+
+        # ── Comandos de voz del señor: mandan sobre todo lo demás ──
+        _r_cmd = self.despachar_comandos_voz(text, speak_server=speak_server)
+        if _r_cmd:
+            return _r_cmd
 
         # ── Agencia de especialistas: prioridad máxima (frases inequívocas) ──
         if getattr(self, "agentes_ia", None) is not None:

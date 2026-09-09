@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="es" data-agent="jarvis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04070e" id="themeColor">
+<title>JARVIS · Núcleo</title>
+<link rel="icon" type="image/png" href="/icon-192.png">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   JARVIS · NÚCLEO — interfaz única para los dos agentes
+   Sin fuentes ni librerías externas: funciona con el PC sin internet.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#04070e; --bg2:#070d18;
+  --glass:rgba(12,24,40,.55); --glass2:rgba(9,18,32,.75);
+  --line:rgba(53,230,255,.18); --line-hot:rgba(53,230,255,.45);
+  --acc:#35e6ff; --acc2:#0a7ea4; --acc-soft:rgba(53,230,255,.12);
+  --gold:#ffcb5c; --ok:#3ee88b; --bad:#ff4d6a;
+  --text:#dff2ff; --dim:#7fa3c0;
+  --halo:53,230,255;
+  --vl:0;                      /* nivel de voz 0..1, lo mueve el bucle de audio */
+  --r:16px;
+}
+html[data-agent="ultron"]{
+  --bg:#0b0204; --bg2:#160408;
+  --glass:rgba(38,8,14,.55); --glass2:rgba(26,5,10,.78);
+  --line:rgba(255,45,63,.20); --line-hot:rgba(255,45,63,.5);
+  --acc:#ff2d3f; --acc2:#8a0f1c; --acc-soft:rgba(255,45,63,.12);
+  --gold:#ff8a1f; --text:#ffe0e4; --dim:#c08890;
+  --halo:255,45,63;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{
+  background:var(--bg); color:var(--text); overflow:hidden;
+  font-family:"Segoe UI Variable Display","Segoe UI",Roboto,-apple-system,system-ui,sans-serif;
+  font-size:14px; line-height:1.5;
+  transition:background .6s ease,color .6s ease;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-hot);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+.mono{font-family:"Cascadia Mono",Consolas,"SF Mono",ui-monospace,monospace}
+
+/* ── Fondo: nebulosa + rejilla + barrido ─────────────────────────────────── */
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+#bg .neb{
+  position:absolute;inset:-30%;
+  background:
+    radial-gradient(38% 30% at 22% 18%, rgba(var(--halo),.16), transparent 70%),
+    radial-gradient(34% 34% at 78% 76%, rgba(var(--halo),.10), transparent 70%),
+    radial-gradient(60% 50% at 50% 120%, rgba(var(--halo),.08), transparent 70%),
+    var(--bg2);
+  animation:deriva 44s ease-in-out infinite alternate;
+}
+@keyframes deriva{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(2%,2%,0) scale(1.08)}}
+#bg .grid{
+  position:absolute;inset:0;opacity:.30;
+  background-image:
+    linear-gradient(rgba(var(--halo),.10) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(var(--halo),.10) 1px,transparent 1px);
+  background-size:56px 56px;
+  mask-image:radial-gradient(70% 60% at 50% 45%,#000 25%,transparent 85%);
+  -webkit-mask-image:radial-gradient(70% 60% at 50% 45%,#000 25%,transparent 85%);
+}
+#bg .scan{
+  position:absolute;left:0;right:0;height:180px;
+  background:linear-gradient(180deg,transparent,rgba(var(--halo),.055),transparent);
+  animation:barrido 9s linear infinite;
+}
+@keyframes barrido{from{top:-200px}to{top:100%}}
+#stars{position:absolute;inset:0}
+
+/* ── Estructura ──────────────────────────────────────────────────────────── */
+#app{position:relative;z-index:1;height:100%;display:flex;flex-direction:column}
+
+/* Marco HUD: esquinas en ángulo, la firma visual de la casa */
+.panel{
+  position:relative;background:var(--glass);border:1px solid var(--line);
+  border-radius:var(--r);backdrop-filter:blur(14px) saturate(1.2);
+  -webkit-backdrop-filter:blur(14px) saturate(1.2);
+}
+.panel::before,.panel::after{
+  content:'';position:absolute;width:16px;height:16px;pointer-events:none;
+  border:1px solid var(--line-hot);
+}
+.panel::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-radius:var(--r) 0 0 0}
+.panel::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-radius:0 0 var(--r) 0}
+
+/* ── Barra superior ──────────────────────────────────────────────────────── */
+header{
+  display:flex;align-items:center;gap:14px;padding:12px 18px;flex-shrink:0;
+  border-bottom:1px solid var(--line);background:var(--glass2);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.sigil{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;position:relative;
+  background:radial-gradient(circle at 50% 50%,#fff 0%,var(--acc) 26%,transparent 62%);
+  box-shadow:0 0 18px rgba(var(--halo),.65),inset 0 0 10px rgba(var(--halo),.6);
+  animation:latido 3.4s ease-in-out infinite;
+}
+@keyframes latido{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.07);filter:brightness(1.25)}}
+.brand h1{
+  margin:0;font-size:17px;font-weight:600;letter-spacing:.42em;text-transform:uppercase;
+  color:var(--acc);text-shadow:0 0 22px rgba(var(--halo),.6);white-space:nowrap;
+}
+.brand .tag{font-size:10.5px;letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
+.spacer{flex:1}
+
+.pill{
+  display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--acc-soft);font-size:11.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--dim);white-space:nowrap;
+}
+.pill b{color:var(--text);font-weight:600;letter-spacing:.04em;text-transform:none}
+.led{width:8px;height:8px;border-radius:50%;background:var(--bad);box-shadow:0 0 9px var(--bad);flex-shrink:0}
+.led.on{background:var(--ok);box-shadow:0 0 9px var(--ok)}
+.led.warn{background:var(--gold);box-shadow:0 0 9px var(--gold)}
+
+.hbtn{
+  padding:8px 13px;border-radius:11px;border:1px solid var(--line);background:transparent;
+  color:var(--dim);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  transition:.18s;white-space:nowrap;
+}
+.hbtn:hover{color:var(--acc);border-color:var(--line-hot);background:var(--acc-soft);
+  box-shadow:0 0 18px rgba(var(--halo),.20)}
+.hbtn.on{color:#04121a;background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;font-weight:600}
+html[data-agent="ultron"] .hbtn.on{color:#1a0004}
+
+#swap{
+  padding:8px 16px;border-radius:11px;font-weight:700;letter-spacing:.16em;font-size:12px;
+  color:#04121a;background:linear-gradient(135deg,var(--acc),var(--acc2));
+  box-shadow:0 0 22px rgba(var(--halo),.4);text-transform:uppercase;transition:.25s;
+}
+html[data-agent="ultron"] #swap{color:#1a0004}
+#swap:hover{transform:translateY(-1px);box-shadow:0 0 30px rgba(var(--halo),.65)}
+
+/* ── Rejilla principal ───────────────────────────────────────────────────── */
+main{
+  flex:1;min-height:0;display:grid;gap:14px;padding:14px 18px 18px;
+  grid-template-columns:264px minmax(0,1fr) 300px;
+}
+aside{display:flex;flex-direction:column;gap:14px;min-height:0}
+.card{padding:14px}
+.card h3{
+  margin:0 0 11px;font-size:10.5px;font-weight:600;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--dim);display:flex;align-items:center;gap:8px;
+}
+.card h3::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--line-hot),transparent)}
+
+/* Métricas */
+.metric{margin-bottom:12px}
+.metric:last-child{margin-bottom:0}
+.metric .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.metric .k{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+.metric .v{font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.bar{height:5px;border-radius:4px;background:rgba(var(--halo),.10);overflow:hidden}
+.bar i{
+  display:block;height:100%;width:0;border-radius:4px;transition:width .55s cubic-bezier(.2,.8,.2,1);
+  background:linear-gradient(90deg,var(--acc2),var(--acc));box-shadow:0 0 12px rgba(var(--halo),.7);
+}
+.bar i.hot{background:linear-gradient(90deg,var(--gold),var(--bad))}
+.proc{display:flex;justify-content:space-between;font-size:11.5px;color:var(--dim);padding:3px 0}
+.proc b{color:var(--text);font-weight:500}
+.atajos{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.atajos a{
+  padding:9px;border-radius:10px;border:1px solid var(--line);text-align:center;
+  font-size:11.5px;color:var(--dim);text-decoration:none;transition:.16s;
+}
+.atajos a:hover{color:var(--acc);border-color:var(--line-hot);background:var(--acc-soft)}
+
+/* Registro */
+#logBox{flex:1;min-height:0;display:flex;flex-direction:column}
+#log{flex:1;min-height:0;overflow-y:auto;font-size:11px;line-height:1.65}
+#log div{padding:2px 0;color:var(--dim);border-bottom:1px solid rgba(var(--halo),.05)}
+#log div span{color:var(--acc);opacity:.75;margin-right:7px}
+#log div.ev{color:var(--text)}
+#log div.err{color:var(--bad)}
+
+/* ── Centro: reactor + conversación ──────────────────────────────────────── */
+#center{display:flex;flex-direction:column;gap:14px;min-height:0}
+#core{
+  position:relative;flex-shrink:0;height:236px;display:flex;align-items:center;
+  justify-content:center;overflow:hidden;
+}
+#reactor{display:block;width:236px;height:236px;
+  filter:drop-shadow(0 0 calc(18px + var(--vl)*40px) rgba(var(--halo),calc(.45 + var(--vl)*.5)))}
+#coreState{
+  position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:10.5px;
+  letter-spacing:.34em;text-transform:uppercase;color:var(--dim);pointer-events:none;
+}
+#coreState b{color:var(--acc);font-weight:600}
+
+#chatCard{flex:1;min-height:0;display:flex;flex-direction:column;padding:0;overflow:hidden}
+#chat{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+/* Empuja la conversacion al fondo del panel sin romper el scroll. */
+#chat::before{content:'';margin-top:auto}
+.msg{max-width:74%;padding:11px 15px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word;
+  animation:entra .3s cubic-bezier(.2,.9,.3,1);font-size:13.5px}
+@keyframes entra{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.msg.user{align-self:flex-end;background:var(--acc-soft);border:1px solid var(--line-hot);
+  border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--glass2);border:1px solid var(--line);
+  border-bottom-left-radius:4px}
+.msg.sys{align-self:center;background:none;border:none;color:var(--dim);font-size:11px;
+  letter-spacing:.1em;text-transform:uppercase;max-width:100%}
+.msg .who{display:block;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:5px}
+.msg .when{display:block;font-size:9.5px;color:var(--dim);opacity:.65;margin-top:6px;text-align:right}
+#dots{display:inline-flex;gap:5px;align-items:center}
+#dots i{width:7px;height:7px;border-radius:50%;background:var(--acc);animation:pip 1.15s infinite}
+#dots i:nth-child(2){animation-delay:.18s}#dots i:nth-child(3){animation-delay:.36s}
+@keyframes pip{0%,65%,100%{opacity:.2;transform:scale(.8)}32%{opacity:1;transform:scale(1)}}
+
+#dock{display:flex;gap:8px;padding:10px 14px;overflow-x:auto;border-top:1px solid var(--line);
+  scrollbar-width:none;
+  mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 34px),transparent 100%);
+  -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 34px),transparent 100%)}
+#dock::-webkit-scrollbar{display:none}
+.chip{
+  padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;
+  color:var(--dim);font-size:11.5px;white-space:nowrap;transition:.16s;flex-shrink:0;
+}
+.chip:hover{color:var(--acc);border-color:var(--line-hot);background:var(--acc-soft)}
+
+#composer{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--line);
+  background:var(--glass2)}
+#texto{
+  flex:1;min-width:0;padding:12px 16px;border-radius:13px;border:1px solid var(--line);
+  background:rgba(0,0,0,.28);color:var(--text);font-size:16px;   /* 16px: por debajo, el móvil hace zoom solo al enfocar */
+  outline:none;transition:.2s;
+}
+#texto::placeholder{color:var(--dim);opacity:.65}
+#texto:focus{border-color:var(--line-hot);box-shadow:0 0 0 3px rgba(var(--halo),.10)}
+.iconbtn{
+  width:46px;height:46px;flex-shrink:0;border-radius:13px;border:1px solid var(--line);
+  color:var(--dim);font-size:17px;transition:.18s;display:flex;align-items:center;justify-content:center;
+}
+.iconbtn:hover{color:var(--acc);border-color:var(--line-hot);background:var(--acc-soft)}
+.iconbtn.on{color:#04121a;background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent}
+html[data-agent="ultron"] .iconbtn.on{color:#1a0004}
+.iconbtn.rec{animation:pulso 1.05s infinite}
+@keyframes pulso{0%,100%{box-shadow:0 0 6px var(--gold)}50%{box-shadow:0 0 24px var(--gold)}}
+#enviar{border:none;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04121a;
+  box-shadow:0 0 20px rgba(var(--halo),.35)}
+html[data-agent="ultron"] #enviar{color:#1a0004}
+#enviar:disabled{opacity:.32;box-shadow:none;cursor:default}
+
+/* ── Modales ─────────────────────────────────────────────────────────────── */
+.veil{
+  position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;
+  padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+}
+.veil.open{display:flex;animation:aparece .22s ease}
+@keyframes aparece{from{opacity:0}to{opacity:1}}
+.modal{width:min(720px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--glass2)}
+.modal header{border-bottom:1px solid var(--line);background:transparent;padding:15px 20px}
+.modal header h2{margin:0;font-size:13px;letter-spacing:.26em;text-transform:uppercase;color:var(--acc);flex:1}
+.modal .body{padding:18px 20px;overflow-y:auto}
+.close{font-size:20px;line-height:1;color:var(--dim);padding:0 6px}
+.close:hover{color:var(--bad)}
+
+label.f{display:block;margin-bottom:13px}
+label.f span{display:block;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:6px}
+label.f input,label.f textarea,label.f select{
+  width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
+  background:rgba(0,0,0,.30);color:var(--text);font-size:16px;outline:none;
+}
+label.f input:focus,label.f textarea:focus,label.f select:focus{border-color:var(--line-hot)}
+label.f small{display:block;color:var(--dim);font-size:11px;margin-top:5px;letter-spacing:0;text-transform:none}
+label.f textarea{resize:vertical;min-height:62px}
+select option{background:#0a1420;color:#dff2ff}
+
+.acc-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap}
+/* Estos controles viven fuera de un label.f, asi que necesitan su propio
+   estilo: sin el, el desplegable salia casi invisible sobre el fondo oscuro. */
+.acc-row select,.acc-row input{
+  padding:11px 13px;border-radius:11px;border:1px solid var(--line);
+  background:rgba(0,0,0,.30);color:var(--text);font-size:15px;outline:none;
+}
+.acc-row select:focus,.acc-row input:focus{border-color:var(--line-hot)}
+.acc-row select{flex:1 1 190px;min-width:0}
+.acc-row input{flex:2 1 240px;min-width:0}
+.acc-row .iconbtn{width:42px;height:42px;font-size:15px;flex:0 0 auto}
+
+.cmd{border:1px solid var(--line);border-radius:13px;padding:13px 15px;margin-bottom:11px;
+  background:rgba(0,0,0,.20);transition:.18s}
+.cmd:hover{border-color:var(--line-hot)}
+.cmd .top{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.cmd .nom{font-weight:600;color:var(--text);flex:1}
+.cmd .badge{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;padding:3px 8px;
+  border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.cmd .badge.j{color:#35e6ff;border-color:rgba(53,230,255,.4)}
+.cmd .badge.u{color:#ff2d3f;border-color:rgba(255,45,63,.4)}
+.cmd .frases{font-size:12px;color:var(--acc);margin-bottom:5px}
+.cmd .pasos{font-size:11.5px;color:var(--dim)}
+.cmd .acciones{display:flex;gap:6px;margin-top:9px}
+.cmd .acciones button{font-size:11px;padding:5px 11px;border-radius:9px;border:1px solid var(--line);color:var(--dim)}
+.cmd .acciones button:hover{color:var(--acc);border-color:var(--line-hot)}
+.cmd .acciones button.del:hover{color:var(--bad);border-color:var(--bad)}
+
+.btn{padding:11px 18px;border-radius:12px;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid var(--line);color:var(--dim);transition:.18s}
+.btn:hover{color:var(--acc);border-color:var(--line-hot);background:var(--acc-soft)}
+.btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04121a;border-color:transparent;font-weight:700}
+html[data-agent="ultron"] .btn.pri{color:#1a0004}
+.filas{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+
+.aviso{border-radius:12px;padding:12px 14px;font-size:12.5px;margin-bottom:14px;
+  border:1px solid var(--line);background:var(--acc-soft);color:var(--text)}
+.aviso.mal{border-color:rgba(255,77,106,.45);background:rgba(255,77,106,.10)}
+.aviso.bien{border-color:rgba(62,232,139,.4);background:rgba(62,232,139,.09)}
+.aviso b{color:var(--acc)}
+.url{display:block;font-size:14px;color:var(--acc);word-break:break-all;margin:5px 0;
+  font-family:"Cascadia Mono",Consolas,ui-monospace,monospace}
+#pinBig{font-size:44px;letter-spacing:.26em;text-align:center;color:var(--acc);
+  text-shadow:0 0 28px rgba(var(--halo),.6);font-variant-numeric:tabular-nums;margin:10px 0}
+
+/* ── Adaptación a pantallas menores ──────────────────────────────────────── */
+@media (max-width:1180px){
+  main{grid-template-columns:230px minmax(0,1fr)}
+  #right{display:none}
+}
+@media (max-width:860px){
+  main{grid-template-columns:minmax(0,1fr);padding:10px}
+  #left{display:none}
+  header{padding:10px 12px;gap:9px;flex-wrap:wrap}
+  .brand h1{font-size:14px;letter-spacing:.28em}
+  #core{height:170px}
+  #reactor{width:170px;height:170px}
+  .hbtn span.txt{display:none}
+  .msg{max-width:88%}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<div id="bg">
+  <div class="neb"></div>
+  <canvas id="stars"></canvas>
+  <div class="grid"></div>
+  <div class="scan"></div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="brand">
+      <div class="sigil"></div>
+      <div>
+        <h1 id="nombreAgente">JARVIS</h1>
+        <div class="tag" id="lemaAgente">Núcleo operativo</div>
+      </div>
+    </div>
+
+    <div class="pill"><i class="led" id="ledNucleo"></i><span id="txtNucleo">Conectando</span></div>
+    <div class="pill" id="pillModo" hidden><b id="txtModo">—</b></div>
+    <div class="pill mono"><span id="reloj">--:--:--</span></div>
+
+    <div class="spacer"></div>
+
+    <button class="hbtn" id="btnComandos" title="Comandos de voz">⌘ <span class="txt">Comandos</span></button>
+    <button class="hbtn" id="btnRed" title="Conexión del teléfono">◎ <span class="txt">Red</span></button>
+    <button class="hbtn" id="btnPair" title="Emparejar teléfono">▣ <span class="txt">Móvil</span></button>
+    <button class="hbtn" id="btnEscucha" title="Escucha continua: hablarle sin pulsar nada">👂 <span class="txt">Escucha</span></button>
+    <button class="hbtn" id="btnVoz" title="Leer las respuestas en voz alta">🔊 <span class="txt">Voz</span></button>
+    <button id="swap">⇄ Ultron</button>
+  </header>
+
+  <main>
+    <aside id="left">
+      <div class="panel card">
+        <h3>Constantes</h3>
+        <div class="metric">
+          <div class="row"><span class="k">Procesador</span><span class="v" id="vCpu">--</span></div>
+          <div class="bar"><i id="bCpu"></i></div>
+        </div>
+        <div class="metric">
+          <div class="row"><span class="k">Memoria</span><span class="v" id="vRam">--</span></div>
+          <div class="bar"><i id="bRam"></i></div>
+        </div>
+        <div class="metric">
+          <div class="row"><span class="k">Disco</span><span class="v" id="vDisco">--</span></div>
+          <div class="bar"><i id="bDisco"></i></div>
+        </div>
+        <div class="metric">
+          <div class="row"><span class="k">Temperatura</span><span class="v" id="vTemp">--</span></div>
+        </div>
+      </div>
+      <div class="panel card" style="flex:0 1 auto;min-height:0;overflow:auto">
+        <h3>Procesos</h3>
+        <div id="procs"><div class="proc"><span>Midiendo…</span></div></div>
+      </div>
+      <div class="panel card" style="flex:0 0 auto">
+        <h3>Accesos</h3>
+        <div class="atajos">
+          <a href="/camera" target="_blank">Cámara</a>
+          <a href="/screen" target="_blank">Pantalla</a>
+          <a href="/touchpad" target="_blank">Touchpad</a>
+          <a href="/dashboard" target="_blank">Panel</a>
+          <a href="/centro" target="_blank">Centro</a>
+          <a href="/clasico">HUD clásico</a>
+        </div>
+      </div>
+      <div style="flex:1"></div>
+    </aside>
+
+    <section id="center">
+      <div class="panel" id="core">
+        <canvas id="reactor" width="472" height="472"></canvas>
+        <div id="coreState">Estado · <b id="estadoTxt">En reposo</b></div>
+      </div>
+
+      <div class="panel" id="chatCard">
+        <div id="chat"></div>
+        <div id="dock"></div>
+        <div id="composer">
+          <input id="texto" type="text" placeholder="Hable con JARVIS…" autocomplete="off">
+          <button class="iconbtn" id="btnMic" title="Dictar">🎤</button>
+          <button class="iconbtn" id="enviar" title="Enviar" disabled>➤</button>
+        </div>
+      </div>
+    </section>
+
+    <aside id="right">
+      <div class="panel card" id="logBox">
+        <h3>Registro</h3>
+        <div id="log"></div>
+      </div>
+      <div class="panel card">
+        <h3>Conexión</h3>
+        <div class="metric"><div class="row"><span class="k">Teléfono</span>
+          <span class="v mono" style="font-size:11px" id="vRed">—</span></div></div>
+        <div class="metric"><div class="row"><span class="k">Tailscale</span>
+          <span class="v" style="font-size:12px" id="vTs">—</span></div></div>
+        <div class="metric"><div class="row"><span class="k">Comandos</span>
+          <span class="v" id="vCmds">—</span></div></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- ═══ TALLER DE COMANDOS DE VOZ ═══ -->
+<div class="veil" id="veilComandos">
+  <div class="panel modal">
+    <header><h2>Comandos de voz</h2><button class="close" data-cierra="veilComandos">✕</button></header>
+    <div class="body">
+      <div class="aviso">
+        Diga cualquiera de estas frases a <b id="cvAgente">JARVIS</b> —por voz o escritas— y las ejecutará
+        al instante, sin pasar por el modelo. Los comandos son compartidos por los dos agentes salvo que
+        elija uno concreto.
+      </div>
+
+      <div class="filas" style="margin-bottom:16px">
+        <button class="btn pri" id="cvNuevo">+ Nuevo comando</button>
+        <button class="btn" id="cvRestaurar">Restaurar los de fábrica</button>
+      </div>
+
+      <form id="cvForm" hidden style="border:1px solid var(--line-hot);border-radius:14px;padding:16px;margin-bottom:18px">
+        <input type="hidden" id="cvId">
+        <label class="f"><span>Nombre</span>
+          <input id="cvNombre" placeholder="Modo cine" maxlength="60" required></label>
+        <label class="f"><span>Frases que lo disparan</span>
+          <input id="cvFrases" placeholder="modo cine, ponme una peli, hora de cine" required>
+          <small>Separadas por comas. Se ignoran tildes, mayúsculas y muletillas: «oye Jarvis, activa el modo cine» también vale.</small>
+        </label>
+
+        <span style="display:block;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);margin-bottom:7px">Qué debe hacer</span>
+        <div id="cvAcciones"></div>
+        <button type="button" class="btn" id="cvAddAcc" style="margin-bottom:14px">+ Añadir paso</button>
+
+        <label class="f"><span>Qué contesta</span>
+          <textarea id="cvRespuesta" placeholder="Luces bajas y palomitas, señor." maxlength="400"></textarea></label>
+        <label class="f"><span>Quién lo obedece</span>
+          <select id="cvQuien">
+            <option value="ambos">Los dos agentes</option>
+            <option value="jarvis">Solo JARVIS</option>
+            <option value="ultron">Solo ULTRON</option>
+          </select></label>
+
+        <div id="cvError" class="aviso mal" hidden></div>
+        <div class="filas">
+          <button type="submit" class="btn pri">Guardar</button>
+          <button type="button" class="btn" id="cvCancelar">Cancelar</button>
+        </div>
+      </form>
+
+      <div id="cvLista"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RED / TAILSCALE ═══ -->
+<div class="veil" id="veilRed">
+  <div class="panel modal">
+    <header><h2>Conexión del teléfono</h2><button class="close" data-cierra="veilRed">✕</button></header>
+    <div class="body" id="redBody">Consultando la red…</div>
+  </div>
+</div>
+
+<!-- ═══ EMPAREJAR ═══ -->
+<div class="veil" id="veilPair">
+  <div class="panel modal" style="width:min(460px,100%)">
+    <header><h2>Emparejar el teléfono</h2><button class="close" data-cierra="veilPair">✕</button></header>
+    <div class="body" style="text-align:center">
+      <div class="tag" style="letter-spacing:.24em;color:var(--dim);font-size:10.5px;text-transform:uppercase">PIN de acceso</div>
+      <div id="pinBig">••••••</div>
+      <img id="qr" alt="Código QR de emparejamiento" style="width:210px;height:210px;border-radius:14px;border:1px solid var(--line);background:#fff;padding:8px">
+      <div class="url" id="pairUrl">—</div>
+      <div style="color:var(--dim);font-size:12px">Escanee el código o abra esa dirección en el móvil e introduzca el PIN.</div>
+    </div>
+  </div>
+</div>
+
+<audio id="tts" style="display:none"></audio>
+
+<script src="/socket.io.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var raiz = document.documentElement;
+
+  /* ═══════════════ Agentes ═══════════════ */
+  var AGENTES = {
+    jarvis: {
+      nombre: 'JARVIS', lema: 'Núcleo operativo', color: '#04070e',
+      saludo: 'A su servicio, señor.', placeholder: 'Hable con JARVIS…',
+      chips: [
+        ['Informe', 'dame el informe'], ['Salud del PC', 'salud del pc'],
+        ['Clima', 'dame el clima'], ['Noticias', 'dame las noticias del dia'],
+        ['Qué suena', 'que esta sonando'], ['Agenda', 'que tengo hoy en la agenda'],
+        ['Modo enfoque', 'modo enfoque'], ['Modo estudio', 'modo estudio'],
+        ['Mis comandos', 'que comandos tienes'], ['Qué puedes hacer', 'que puedes hacer']
+      ]
+    },
+    ultron: {
+      nombre: 'ULTRON', lema: 'Segunda mente · autonomía máxima', color: '#0b0204',
+      saludo: 'Te escucho, humano.', placeholder: 'Ordene, humano…',
+      chips: [
+        ['Estado', 'estado del sistema, informe completo'], ['Procesos', 'lista procesos top'],
+        ['Guardia', 'informe de guardia'], ['Salud', 'salud del pc'],
+        ['Red', 'estado de la red'], ['Modo enfoque', 'modo enfoque'],
+        ['Mis comandos', 'que comandos tienes']
+      ]
+    }
+  };
+  var agente = localStorage.getItem('agente_activo') === 'ultron' ? 'ultron' : 'jarvis';
+  var COMANDOS = [];               // catálogo vivo, lo rellena cargaComandos()
+  var historial = { jarvis: [], ultron: [] };
+  var cargado = { jarvis: false, ultron: false };
+  var token = '', socket = null, conectado = false, modoUltron = '';
+
+  /* ═══════════════ Registro ═══════════════ */
+  function log(texto, clase) {
+    var d = document.createElement('div');
+    if (clase) d.className = clase;
+    d.innerHTML = '<span>' + new Date().toLocaleTimeString('es-ES') + '</span>' + esc(texto);
+    var caja = $('log');
+    caja.appendChild(d);
+    while (caja.children.length > 220) caja.removeChild(caja.firstChild);
+    caja.scrollTop = caja.scrollHeight;
+  }
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /* ═══════════════ Reactor ═══════════════ */
+  var cv = $('reactor'), cx = cv.getContext('2d');
+  var estado = 'reposo', giro = 0, nivelVoz = 0;
+  var COLORES = {
+    reposo:      { j: '#35e6ff', u: '#ff2d3f', txt: 'En reposo',   vel: 1.0 },
+    escuchando:  { j: '#ffcb5c', u: '#ff8a1f', txt: 'Escuchando',  vel: 1.9 },
+    pensando:    { j: '#c46bff', u: '#ff5cf0', txt: 'Procesando',  vel: 2.8 },
+    hablando:    { j: '#3ee88b', u: '#ff6b76', txt: 'Respondiendo',vel: 1.5 },
+    error:       { j: '#ff4d6a', u: '#ff4d6a', txt: 'Incidencia',  vel: .6 }
+  };
+  function setEstado(e) {
+    estado = COLORES[e] ? e : 'reposo';
+    // En escucha continua el pie del reactor lleva el aviso de la palabra de
+    // activacion y este <b> no existe; sin la guarda, cada cambio de estado
+    // reventaba con «null.textContent».
+    var el = $('estadoTxt');
+    if (el) el.textContent = COLORES[estado].txt;
+  }
+  function tono() { return COLORES[estado][agente === 'ultron' ? 'u' : 'j']; }
+
+  function dibujaReactor(t) {
+    var L = cv.width, C = L / 2;
+    cx.clearRect(0, 0, L, L);
+    var col = tono();
+    var vel = COLORES[estado].vel;
+    giro += 0.0045 * vel;
+    var pulso = 1 + nivelVoz * 0.30 + Math.sin(t / 620) * 0.018;
+
+    cx.save(); cx.translate(C, C); cx.scale(pulso, pulso);
+
+    /* Anillos segmentados: cada uno gira a su ritmo y en su sentido */
+    var anillos = [
+      { r: 208, seg: 3,  hueco: .30, gr: 2,   op: .30, dir: 1,   fase: 0 },
+      { r: 184, seg: 18, hueco: .48, gr: 5,   op: .55, dir: -1,  fase: .4 },
+      { r: 154, seg: 6,  hueco: .22, gr: 2.5, op: .42, dir: 1.7, fase: 1.1 },
+      { r: 126, seg: 42, hueco: .55, gr: 8,   op: .80, dir: -2.4,fase: 0 },
+      { r: 96,  seg: 4,  hueco: .18, gr: 3,   op: .50, dir: 3.1, fase: .7 }
+    ];
+    anillos.forEach(function (a) {
+      var paso = (Math.PI * 2) / a.seg;
+      cx.lineWidth = a.gr;
+      cx.strokeStyle = col;
+      cx.globalAlpha = a.op;
+      cx.shadowBlur = 16 + nivelVoz * 26;
+      cx.shadowColor = col;
+      for (var i = 0; i < a.seg; i++) {
+        var ini = giro * a.dir + a.fase + i * paso;
+        cx.beginPath();
+        cx.arc(0, 0, a.r, ini, ini + paso * a.hueco);
+        cx.stroke();
+      }
+    });
+
+    /* Triángulo interior: la firma del reactor */
+    cx.globalAlpha = .55 + nivelVoz * .35;
+    cx.lineWidth = 3;
+    cx.beginPath();
+    for (var k = 0; k < 3; k++) {
+      var ang = -Math.PI / 2 + giro * .8 + k * (Math.PI * 2 / 3);
+      var x = Math.cos(ang) * 68, y = Math.sin(ang) * 68;
+      k ? cx.lineTo(x, y) : cx.moveTo(x, y);
+    }
+    cx.closePath(); cx.stroke();
+
+    /* Núcleo */
+    var brillo = 42 + nivelVoz * 34 + Math.sin(t / 380) * 4;
+    var g = cx.createRadialGradient(0, 0, 0, 0, 0, brillo);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(.34, col);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    cx.globalAlpha = 1;
+    cx.fillStyle = g;
+    cx.beginPath(); cx.arc(0, 0, brillo, 0, Math.PI * 2); cx.fill();
+
+    cx.restore();
+  }
+
+  /* Audio: se declara ANTES del bucle de dibujo, que lo consulta en cada
+     frame para hacer latir el reactor al ritmo de la voz. */
+  var reproductor = $('tts'), vozOn = false;
+  var actx = null, analizador = null, buffer = null, enchufado = false;
+
+  /* Estrellas del fondo */
+  var scv = $('stars'), sx = scv.getContext('2d'), estrellas = [];
+  function siembraEstrellas() {
+    scv.width = innerWidth; scv.height = innerHeight;
+    estrellas = [];
+    var n = Math.min(180, Math.round(innerWidth * innerHeight / 11000));
+    for (var i = 0; i < n; i++) {
+      estrellas.push({ x: Math.random() * scv.width, y: Math.random() * scv.height,
+                       r: Math.random() * 1.25 + .25, f: Math.random() * Math.PI * 2,
+                       v: .0006 + Math.random() * .0018 });
+    }
+  }
+  addEventListener('resize', siembraEstrellas);
+  siembraEstrellas();
+
+  (function bucle(t) {
+    requestAnimationFrame(bucle);
+    /* Nivel de voz: del analizador si suena el MP3, simulado si habla el navegador */
+    var objetivo = 0;
+    var sonando = reproductor.src && !reproductor.paused && !reproductor.ended;
+    if (analizador && sonando) {
+      if (!buffer) buffer = new Uint8Array(analizador.frequencyBinCount);
+      analizador.getByteFrequencyData(buffer);
+      var s = 0; for (var i = 0; i < buffer.length; i++) s += buffer[i];
+      objetivo = Math.min(1, (s / buffer.length) / 110);
+    } else if ('speechSynthesis' in window && speechSynthesis.speaking) {
+      objetivo = .40 + .28 * Math.abs(Math.sin(t / 165));
+    } else if (estado === 'pensando') {
+      objetivo = .12 + .10 * Math.abs(Math.sin(t / 400));
+    }
+    nivelVoz += (objetivo - nivelVoz) * (objetivo > nivelVoz ? .5 : .09);
+    raiz.style.setProperty('--vl', nivelVoz.toFixed(3));
+
+    dibujaReactor(t);
+
+    sx.clearRect(0, 0, scv.width, scv.height);
+    var col = getComputedStyle(raiz).getPropertyValue('--halo').trim();
+    estrellas.forEach(function (e) {
+      e.f += e.v * 16;
+      sx.globalAlpha = .18 + .42 * (Math.sin(e.f) * .5 + .5);
+      sx.fillStyle = 'rgb(' + col + ')';
+      sx.beginPath(); sx.arc(e.x, e.y, e.r, 0, 6.2832); sx.fill();
+    });
+  })(0);
+
+  /* ═══════════════ Conversación ═══════════════ */
+  function pinta(rol, texto, quien) {
+    var d = document.createElement('div');
+    d.className = 'msg ' + (rol === 'sys' ? 'sys' : rol === 'user' ? 'user' : 'bot');
+    if (rol === 'sys') d.textContent = texto;
+    else {
+      d.innerHTML = '<span class="who">' + esc(quien || (rol === 'user' ? 'Usted' : AGENTES[agente].nombre)) + '</span>' +
+                    esc(texto) +
+                    '<span class="when">' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) + '</span>';
+    }
+    $('chat').appendChild(d);
+    $('chat').scrollTop = $('chat').scrollHeight;
+  }
+  function guarda(ag, rol, texto) {
+    historial[ag].push({ rol: rol, texto: texto });
+    if (ag === agente) pinta(rol, texto);
+  }
+  function escribiendo(on) {
+    var e = $('elDots');
+    if (on && !e) {
+      e = document.createElement('div');
+      e.id = 'elDots'; e.className = 'msg bot';
+      e.innerHTML = '<div id="dots"><i></i><i></i><i></i></div>';
+      $('chat').appendChild(e); $('chat').scrollTop = $('chat').scrollHeight;
+    } else if (!on && e) e.remove();
+  }
+
+  function enviar() {
+    var texto = $('texto').value.trim();
+    if (!texto) return;
+    $('texto').value = ''; $('enviar').disabled = true;
+    setEstado('pensando');
+
+    if (agente === 'jarvis' && socket && conectado) {
+      escribiendo(true);
+      socket.emit('send_message', { text: texto });   // el servidor devuelve el eco
+      return;
+    }
+    guarda(agente, 'user', texto);
+    escribiendo(true);
+    var url = agente === 'ultron' ? '/u/chat' : '/process_text';
+    var cuerpo = agente === 'ultron' ? { text: texto } : { text: texto };
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': token },
+                 body: JSON.stringify(cuerpo) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        escribiendo(false);
+        var resp = d.reply || d.response || d.respuesta || '';
+        if (resp) { guarda(agente, 'bot', resp); habla(resp); setEstado('hablando'); }
+        else { guarda(agente, 'sys', d.error || 'Sin respuesta.'); setEstado('error'); }
+        setTimeout(function () { if (estado !== 'escuchando') setEstado('reposo'); }, 2600);
+      })
+      .catch(function (e) {
+        escribiendo(false); setEstado('error');
+        guarda(agente, 'sys', 'No llegué al núcleo: ' + e.message);
+        log('Fallo de red al enviar: ' + e.message, 'err');
+      });
+  }
+
+  /* ═══════════════ Voz ═══════════════ */
+  function grafoAudio() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!actx) actx = new AC();
+      if (actx.state === 'suspended') actx.resume().catch(function () {});
+      if (!enchufado) {
+        try {
+          var src = actx.createMediaElementSource(reproductor);
+          analizador = actx.createAnalyser();
+          analizador.fftSize = 256; analizador.smoothingTimeConstant = .75;
+          src.connect(analizador); analizador.connect(actx.destination);
+        } catch (e) {}
+        enchufado = true;
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('pointerdown', function () { grafoAudio(); }, { once: true });
+
+  function habla(texto) {
+    if (!vozOn) return;
+    var limpio = String(texto || '').replace(/[«»"…]/g, ' ').trim().slice(0, 600);
+    if (!limpio) return;
+    grafoAudio();
+    fetch(agente === 'ultron' ? '/u/speak' : '/api/speak', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': token },
+      body: JSON.stringify({ text: limpio })
+    }).then(function (r) {
+      if (!r.ok || r.status === 204) throw new Error('sin voz de servidor');
+      return r.blob();
+    }).then(function (b) {
+      var url = URL.createObjectURL(b);
+      reproductor.src = url;
+      reproductor.onended = function () { URL.revokeObjectURL(url); setEstado('reposo'); };
+      return reproductor.play();
+    }).catch(function () { vozNavegador(limpio); });
+  }
+  function vozNavegador(texto) {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'es-ES';
+    u.rate = agente === 'ultron' ? .92 : 1.02;
+    u.pitch = agente === 'ultron' ? .7 : 1.0;
+    var pref = agente === 'ultron' ? /mark/i : /david/i;
+    var vs = speechSynthesis.getVoices();
+    var v = vs.find(function (x) { return /es/i.test(x.lang) && pref.test(x.name); }) ||
+            vs.find(function (x) { return /^es/i.test(x.lang); });
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  }
+  function calla() {
+    try { reproductor.pause(); reproductor.currentTime = 0; } catch (e) {}
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  }
+  $('btnVoz').addEventListener('click', function () {
+    vozOn = !vozOn;
+    this.classList.toggle('on', vozOn);
+    if (vozOn) { grafoAudio(); habla(AGENTES[agente].saludo); }
+    else calla();
+  });
+
+  /* ═══════════════ Voz de entrada: pulsar, o escucha continua ═══════════════ */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null, oyendo = false, manosLibres = false, reintento = null;
+
+  /* El microfono solo funciona en «origen seguro»: https:// o localhost. Por
+     http://100.x.x.x:5000 el navegador lo bloquea sin avisar, asi que hay que
+     decirlo nosotros y mandar al señor a la direccion HTTPS del tailnet. */
+  var seguro = window.isSecureContext !== false;
+  function sinMicrofono(motivo) {
+    guarda(agente, 'sys', motivo);
+    log(motivo, 'err');
+  }
+  function compruebaMicrofono() {
+    if (!seguro) {
+      sinMicrofono('El navegador bloquea el micrófono porque esta página no va por HTTPS. '
+                 + 'Abra la dirección https://…ts.net (botón «Red») o use el PC.');
+      return false;
+    }
+    if (!SR) { sinMicrofono('Este navegador no permite dictado por voz.'); return false; }
+    return true;
+  }
+
+  /* Porta la normalización de comandos_voz.py para decidir AQUÍ si lo que se
+     ha oído merece enviarse. El servidor vuelve a decidir por su cuenta: esto
+     solo evita mandarle al modelo la conversación de fondo de la habitación. */
+  var MULETILLAS = ['oye', 'eh', 'por favor', 'porfa', 'venga', 'anda', 'quiero', 'necesito',
+                    'puedes', 'podrias', 'activa', 'activar', 'actives', 'pon', 'poner',
+                    'ponme', 'haz', 'hazme', 'ejecuta', 'ejecutar', 'lanza', 'lanzar',
+                    'inicia', 'iniciar', 'arranca', 'dale', 'el', 'la', 'que'];
+  function normaliza(t) {
+    return String(t == null ? '' : t)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(jarvis|ultron)\b/g, ' ')
+      .replace(/[^a-z0-9ñ\s]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function variantes(n) {
+    var salida = [n], p = n.split(' '), i = 0;
+    while (i < p.length && MULETILLAS.indexOf(p[i]) !== -1) {
+      i++;
+      var resto = p.slice(i).join(' ');
+      if (resto && salida.indexOf(resto) === -1) salida.push(resto);
+    }
+    return salida;
+  }
+  function escapaRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function encajaComando(texto) {
+    var t = normaliza(texto);
+    if (!t) return null;
+    var vs = variantes(t), mejor = null, punto = 0;
+    COMANDOS.forEach(function (c) {
+      if (c.activo === false) return;
+      if (c.agente && c.agente !== 'ambos' && c.agente !== agente) return;
+      (c.frases || []).forEach(function (f) {
+        var fn = normaliza(f);
+        if (fn.length < 3) return;
+        vs.forEach(function (v) {
+          var p = 0;
+          if (v === fn) p = 1000 + fn.length;
+          else if (v.indexOf(fn + ' ') === 0) p = 500 + fn.length;
+          else if (new RegExp('(^|\\s)' + escapaRe(fn) + '(\\s|$)').test(v)) p = 100 + fn.length;
+          if (p > punto) { punto = p; mejor = c; }
+        });
+      });
+    });
+    return mejor;
+  }
+
+  var RE_DESPIERTA = /^\s*(?:oye\s+|eh\s+|hey\s+|ok\s+)?(jarvis|ultron)\b[\s,.:;!¡?¿-]*/i;
+  function estaHablando() {
+    return (reproductor.src && !reproductor.paused && !reproductor.ended) ||
+           ('speechSynthesis' in window && speechSynthesis.speaking);
+  }
+
+  function oido(frase) {
+    frase = (frase || '').trim();
+    if (!frase) return;
+    // No escucharse a si mismo: mientras suena su propia voz, lo que entra por
+    // el microfono es el altavoz, no el señor.
+    if (estaHablando()) return;
+
+    var m = RE_DESPIERTA.exec(frase);
+    if (m) {
+      var quien = m[1].toLowerCase();
+      if (quien !== agente) cambiaAgente(quien);
+      var resto = frase.slice(m[0].length).trim();
+      if (!resto) {
+        guarda(agente, 'bot', AGENTES[agente].saludo);
+        if (vozOn) habla(AGENTES[agente].saludo);
+        return;
+      }
+      $('texto').value = resto;
+      enviar();
+      return;
+    }
+    // Sin palabra de activacion solo disparan las frases que el señor ha
+    // guardado como comando; lo demas se ignora a proposito.
+    if (encajaComando(frase)) {
+      $('texto').value = frase;
+      enviar();
+    }
+  }
+
+  function pintaEscucha() {
+    $('btnEscucha').classList.toggle('on', manosLibres);
+    if (manosLibres) {
+      $('coreState').innerHTML = 'Escuchando · diga <b>«' + AGENTES[agente].nombre + '…»</b>';
+    } else {
+      $('coreState').innerHTML = 'Estado · <b id="estadoTxt">' + COLORES[estado].txt + '</b>';
+    }
+  }
+
+  function arrancaReconocedor() {
+    if (oyendo) return true;
+    try {
+      rec = new SR();
+      rec.lang = 'es-ES';
+      rec.continuous = manosLibres;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      rec.onresult = function (ev) {
+        var fin = '', med = '';
+        for (var i = ev.resultIndex; i < ev.results.length; i++) {
+          if (ev.results[i].isFinal) fin += ev.results[i][0].transcript + ' ';
+          else med += ev.results[i][0].transcript;
+        }
+        if (manosLibres) {
+          if (fin) oido(fin);
+          else if (med) $('coreState').textContent = '… ' + med.trim().slice(-70);
+        } else {
+          $('texto').value = (fin || med).trim();
+          $('enviar').disabled = !$('texto').value;
+          if (fin) enviar();
+        }
+      };
+      rec.onerror = function (ev) {
+        var cual = (ev && ev.error) || '';
+        if (cual === 'not-allowed' || cual === 'service-not-allowed') {
+          manosLibres = false;
+          sinMicrofono('Sin permiso de micrófono: apago la escucha continua.');
+          pintaEscucha();
+        }
+      };
+      rec.onend = function () {
+        oyendo = false;
+        // El navegador corta el reconocimiento tras unos segundos de silencio
+        // aunque continuous sea true: sin volver a arrancarlo, la escucha
+        // continua se apagaria sola a los pocos minutos.
+        if (manosLibres) {
+          clearTimeout(reintento);
+          reintento = setTimeout(arrancaReconocedor, 400);
+        } else {
+          $('btnMic').classList.remove('on', 'rec');
+          if (estado === 'escuchando') setEstado('reposo');
+        }
+      };
+      rec.start();
+      oyendo = true;
+      return true;
+    } catch (e) {
+      oyendo = false;
+      return false;
+    }
+  }
+  function paraReconocedor() {
+    clearTimeout(reintento);
+    try { if (rec) rec.stop(); } catch (e) {}
+    oyendo = false;
+  }
+
+  $('btnEscucha').addEventListener('click', function () {
+    if (manosLibres) {
+      manosLibres = false;
+      paraReconocedor();
+      pintaEscucha();
+      setEstado('reposo');
+      log('Escucha continua apagada.', 'ev');
+      return;
+    }
+    if (!compruebaMicrofono()) return;
+    manosLibres = true;
+    paraReconocedor();                 // reiniciar con continuous = true
+    if (!arrancaReconocedor()) { manosLibres = false; }
+    pintaEscucha();
+    if (manosLibres) {
+      log('Escucha continua encendida.', 'ev');
+      guarda(agente, 'sys', 'Le escucho. Diga «' + AGENTES[agente].nombre
+            + '…» o cualquiera de sus comandos.');
+    }
+  });
+
+  $('btnMic').addEventListener('click', function () {
+    if (manosLibres) { guarda(agente, 'sys', 'Ya le estoy escuchando, señor.'); return; }
+    if (oyendo) { paraReconocedor(); return; }
+    if (!compruebaMicrofono()) return;
+    calla();
+    if (arrancaReconocedor()) {
+      $('btnMic').classList.add('on', 'rec');
+      setEstado('escuchando');
+    }
+  });
+
+
+  /* Banco de pruebas de la voz. Sirve para averiguar por que una frase no
+     dispara: abra la consola del navegador y pruebe
+        JARVIS_VOZ.encaja('modo cine')     → el comando que encajaria, o null
+        JARVIS_VOZ.normaliza('¿Modo Cine?')→ como se ve la frase por dentro
+        JARVIS_VOZ.oir('jarvis dame el clima')  → simula haberlo oido */
+  window.JARVIS_VOZ = {
+    normaliza: normaliza,
+    encaja: encajaComando,
+    oir: oido,
+    despierta: RE_DESPIERTA,
+    estado: function () {
+      return { manosLibres: manosLibres, oyendo: oyendo, origenSeguro: seguro,
+               reconocedor: !!SR, comandos: COMANDOS.length };
+    }
+  };
+
+  /* ═══════════════ Socket.IO (tiempo real de JARVIS) ═══════════════ */
+  function conecta() {
+    if (typeof io !== 'function') { log('Socket.IO no cargó; uso REST.', 'err'); return; }
+    if (socket) { socket.disconnect(); socket = null; }
+    socket = io({ auth: { token: token }, transports: ['websocket', 'polling'], reconnection: true });
+    socket.on('connect', function () { conectado = true; salud(); log('Canal en tiempo real abierto.', 'ev'); });
+    socket.on('disconnect', function () { conectado = false; salud(); });
+    socket.on('connect_error', function (e) {
+      conectado = false;
+      log('Canal rechazado: ' + ((e && e.message) || e), 'err');
+    });
+    socket.on('history', function (d) {
+      var l = (d && d.messages) || [];
+      if (!historial.jarvis.length && l.length) {
+        l.forEach(function (m) { historial.jarvis.push({ rol: m.role === 'user' ? 'user' : 'bot', texto: m.text || '' }); });
+        if (agente === 'jarvis') repinta();
+      }
+      cargado.jarvis = true;
+    });
+    socket.on('user_message', function (d) { guarda('jarvis', 'user', d.text); });
+    socket.on('typing', function () { if (agente === 'jarvis') escribiendo(true); });
+    socket.on('receive_message', function (d) {
+      escribiendo(false);
+      guarda('jarvis', 'bot', d.text);
+      if (agente === 'jarvis') { habla(d.text); setEstado('hablando'); }
+      setTimeout(function () { if (estado !== 'escuchando') setEstado('reposo'); }, 2600);
+    });
+    socket.on('notification', function (d) {
+      if (!d || !d.text) return;
+      guarda('jarvis', 'sys', 'Aviso · ' + d.text);
+      log('Aviso: ' + d.text, 'ev');
+    });
+  }
+
+  /* ═══════════════ Estado del sistema ═══════════════ */
+  function salud() {
+    if (agente === 'ultron') {
+      fetch('/u/health').then(function (r) { return r.ok ? r.json() : null; }).then(function (h) {
+        var vivo = !!(h && h.ok);
+        $('ledNucleo').className = 'led' + (vivo ? ' on' : '');
+        $('txtNucleo').textContent = vivo ? (h.core_loaded ? 'Núcleo activo' : 'Despertando') : 'Sin respuesta';
+        modoUltron = (h && h.mode) || '';
+        $('pillModo').hidden = !modoUltron;
+        $('txtModo').textContent = modoUltron;
+      }).catch(function () {
+        $('ledNucleo').className = 'led';
+        $('txtNucleo').textContent = 'ULTRON offline';
+      });
+      return;
+    }
+    $('pillModo').hidden = true;
+    fetch('/api/status').then(function (r) { return r.json(); }).then(function (d) {
+      var vivo = !!d.core;
+      $('ledNucleo').className = 'led' + (vivo ? ' on' : conectado ? ' warn' : '');
+      $('txtNucleo').textContent = vivo ? 'Núcleo activo' : (d.core_error ? 'Núcleo caído' : 'Cargando núcleo');
+      if (!vivo && d.core_error) log('Núcleo: ' + d.core_error, 'err');
+    }).catch(function () {
+      $('ledNucleo').className = 'led';
+      $('txtNucleo').textContent = 'Servidor caído';
+    });
+  }
+
+  function pct(v) { return Math.max(0, Math.min(100, Number(v) || 0)); }
+  function telemetria() {
+    fetch('/stats').then(function (r) { return r.json(); }).then(function (s) {
+      if (s.error) return;
+      var cpu = pct(s.cpu);
+      $('vCpu').textContent = cpu.toFixed(0) + ' %';
+      $('bCpu').style.width = cpu + '%';
+      $('bCpu').className = cpu > 85 ? 'hot' : '';
+
+      var ram = pct(s.ram_pct);
+      $('vRam').textContent = (s.ram_used_gb != null ? s.ram_used_gb + ' / ' + s.ram_total_gb + ' GB' : ram + ' %');
+      $('bRam').style.width = ram + '%';
+      $('bRam').className = ram > 88 ? 'hot' : '';
+
+      if (s.disco_total_gb) {
+        var usado = pct(100 - (s.disco_libre_gb / s.disco_total_gb) * 100);
+        $('vDisco').textContent = s.disco_libre_gb + ' GB libres';
+        $('bDisco').style.width = usado + '%';
+        $('bDisco').className = usado > 92 ? 'hot' : '';
+      }
+      $('vTemp').textContent = s.temp != null ? s.temp + ' °C' : 'n/d';
+
+      if (s.top && s.top.length) {
+        $('procs').innerHTML = s.top.map(function (p) {
+          return '<div class="proc"><b>' + esc(p.nombre) + '</b><span>' + p.cpu + ' %</span></div>';
+        }).join('');
+      }
+    }).catch(function () {});
+  }
+
+  function red() {
+    fetch('/api/red').then(function (r) { return r.json(); }).then(function (d) {
+      var ts = d.tailscale || {};
+      $('vTs').textContent = ts.conectado ? 'Conectado' : ts.instalado ? 'Desconectado' : 'No instalado';
+      $('vTs').style.color = ts.conectado ? 'var(--ok)' : 'var(--bad)';
+      $('vRed').textContent = (d.recomendada || '').replace(/^https?:\/\//, '');
+      pintaRed(d);
+    }).catch(function () {});
+  }
+
+  /* ═══════════════ Modales ═══════════════ */
+  function abre(id) { $(id).classList.add('open'); }
+  function cierra(id) { $(id).classList.remove('open'); }
+  document.querySelectorAll('[data-cierra]').forEach(function (b) {
+    b.addEventListener('click', function () { cierra(b.dataset.cierra); });
+  });
+  document.querySelectorAll('.veil').forEach(function (v) {
+    v.addEventListener('click', function (e) { if (e.target === v) cierra(v.id); });
+  });
+  addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') document.querySelectorAll('.veil.open').forEach(function (v) { cierra(v.id); });
+  });
+
+  /* ── Red ── */
+  $('btnRed').addEventListener('click', function () { abre('veilRed'); red(); });
+  function pintaRed(d) {
+    var ts = d.tailscale || {}, sv = d.serve || {}, h = '';
+
+    // El microfono es lo primero: sin HTTPS no hay comandos de voz en el movil,
+    // y eso no se ve por ningun sitio si no se dice aqui.
+    if (!seguro) {
+      h += '<div class="aviso mal"><b>Esta página no va por HTTPS</b>, así que el navegador ' +
+           'bloquea el micrófono: desde aquí no se puede dictar ni usar los comandos por voz. ' +
+           (sv.activo && sv.url
+             ? 'Abra <span class="url">' + esc(sv.url) + '/mobile</span> en su lugar.'
+             : 'Ejecute <code>python tailscale_setup.py --https</code> en el PC para publicarla ' +
+               'en https://…ts.net.') +
+           '</div>';
+    }
+    if (sv.activo && sv.url) {
+      h += '<div class="aviso bien"><b>Publicada por HTTPS</b> en <span class="url">' +
+           esc(sv.url) + '</span> — es la única dirección desde la que el móvil puede ' +
+           'usar el micrófono.</div>';
+    } else if (ts.conectado) {
+      h += '<div class="aviso"><b>Sin HTTPS.</b> El teléfono llega y puede escribir, pero no ' +
+           'hablarle: el micrófono solo funciona en origen seguro. Ejecute ' +
+           '<code>python tailscale_setup.py --https</code> en el PC.' +
+           (sv.error ? '<br><small>' + esc(sv.error) + '</small>' : '') + '</div>';
+    }
+
+    if (ts.conectado) {
+      h += '<div class="aviso bien"><b>Tailscale conectado</b> como ' + esc(ts.dns || ts.ip) +
+           '. El teléfono llega al PC desde cualquier red mientras tenga la app abierta.</div>';
+    } else if (ts.instalado) {
+      h += '<div class="aviso mal"><b>Tailscale instalado pero desconectado.</b> Ábralo en la bandeja del ' +
+           'sistema y pulse «Connect», o ejecute <code>instalar_tailscale.bat</code>.</div>';
+    } else {
+      h += '<div class="aviso mal"><b>Tailscale no está instalado.</b> Sin él, el teléfono solo llega ' +
+           'estando en el mismo Wi-Fi. Ejecute <code>instalar_tailscale.bat</code> (con botón derecho → ' +
+           'Ejecutar como administrador) y entre con la misma cuenta en el móvil.</div>';
+    }
+    if (d.firewall_ok === false) {
+      h += '<div class="aviso mal"><b>El Firewall de Windows no tiene abiertos mis puertos.</b> Esta es la ' +
+           'causa más habitual de que el móvil cargue la página pero no reciba respuesta. ' +
+           '<div class="filas"><button class="btn pri" id="btnFw">Abrir los puertos ahora</button></div></div>';
+    }
+    h += '<h3 style="font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);margin:18px 0 8px">Direcciones para el móvil</h3>';
+    (d.urls || []).forEach(function (u) {
+      h += '<div class="cmd"><span class="url">' + esc(u.url) + '</span>' +
+           '<div class="pasos">' + esc(u.nota) + '</div></div>';
+    });
+    h += '<div class="aviso">PIN de emparejamiento: <b>' + esc(d.pin || '——————') + '</b></div>';
+    if (ts.equipos && ts.equipos.length) {
+      h += '<h3 style="font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);margin:18px 0 8px">Equipos en su red privada</h3>';
+      ts.equipos.forEach(function (e) {
+        h += '<div class="proc"><b>' + esc(e.nombre) + '</b><span>' + esc(e.ip) +
+             ' · ' + (e.en_linea ? 'en línea' : 'apagado') + '</span></div>';
+      });
+    }
+    $('redBody').innerHTML = h;
+    var fw = $('btnFw');
+    if (fw) fw.addEventListener('click', function () {
+      fw.textContent = 'Abriendo…'; fw.disabled = true;
+      fetch('/api/red/firewall', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          log(res.ok ? 'Puertos abiertos en el Firewall.' : 'El Firewall rechazó la petición.', res.ok ? 'ev' : 'err');
+          red();
+        })
+        .catch(function () { fw.textContent = 'No se pudo — use instalar_tailscale.bat'; });
+    });
+  }
+
+  /* ── Emparejar ── */
+  $('btnPair').addEventListener('click', function () {
+    abre('veilPair');
+    fetch('/pair_info').then(function (r) { return r.json(); }).then(function (d) {
+      $('pinBig').textContent = d.pin || '——————';
+      $('pairUrl').textContent = d.url || '';
+      $('qr').src = '/qr?t=' + Date.now();
+    }).catch(function () { $('pairUrl').textContent = 'No pude leer los datos de emparejamiento.'; });
+  });
+
+  /* ═══════════════ Taller de comandos ═══════════════ */
+  var TIPOS = {};   // COMANDOS se declara arriba: lo usa la escucha continua
+  $('btnComandos').addEventListener('click', function () { abre('veilComandos'); cargaComandos(); });
+
+  function cargaComandos() {
+    fetch('/api/comandos', { headers: { 'X-Token': token } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        TIPOS = d.tipos || {};
+        COMANDOS = d.comandos || [];
+        $('vCmds').textContent = COMANDOS.length;
+        pintaComandos(COMANDOS);
+      })
+      .catch(function () { $('cvLista').innerHTML = '<div class="aviso mal">No pude leer los comandos.</div>'; });
+  }
+
+  function pintaComandos(lista) {
+    if (!lista.length) {
+      $('cvLista').innerHTML = '<div class="aviso">Todavía no hay comandos. Cree el primero con «+ Nuevo comando».</div>';
+      return;
+    }
+    $('cvLista').innerHTML = lista.map(function (c) {
+      var quien = c.agente === 'jarvis' ? '<span class="badge j">Jarvis</span>'
+                : c.agente === 'ultron' ? '<span class="badge u">Ultron</span>'
+                : '<span class="badge">Ambos</span>';
+      var pasos = (c.acciones || []).map(function (a) {
+        return (TIPOS[a.tipo] || a.tipo) + (a.valor ? ' → ' + a.valor : '');
+      }).join(' · ') || 'Solo responde';
+      return '<div class="cmd" data-id="' + esc(c.id) + '">' +
+        '<div class="top"><span class="nom">' + esc(c.nombre) + '</span>' + quien +
+        (c.origen === 'fabrica' ? '<span class="badge">De fábrica</span>' : '') +
+        (c.usos ? '<span class="badge">' + c.usos + ' usos</span>' : '') + '</div>' +
+        '<div class="frases">« ' + c.frases.map(esc).join(' » · « ') + ' »</div>' +
+        '<div class="pasos">' + esc(pasos) + '</div>' +
+        '<div class="acciones">' +
+          '<button data-act="probar">Probar</button>' +
+          '<button data-act="editar">Editar</button>' +
+          '<button data-act="borrar" class="del">Borrar</button>' +
+        '</div></div>';
+    }).join('');
+
+    $('cvLista').querySelectorAll('button[data-act]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.closest('.cmd').dataset.id;
+        var c = lista.find(function (x) { return x.id === id; });
+        if (b.dataset.act === 'borrar') {
+          if (!confirm('¿Borrar «' + c.nombre + '»?')) return;
+          fetch('/api/comandos/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-Token': token } })
+            .then(function () { cargaComandos(); log('Comando borrado: ' + c.nombre, 'ev'); });
+        } else if (b.dataset.act === 'editar') {
+          abreForm(c);
+        } else {
+          b.textContent = '…';
+          fetch('/api/comandos/' + encodeURIComponent(id) + '/probar?agente=' + agente,
+                { method: 'POST', headers: { 'X-Token': token } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              b.textContent = 'Probar';
+              guarda(agente, 'bot', d.respuesta || ('⚠ ' + (d.error || 'sin respuesta')));
+              cierra('veilComandos');
+              habla(d.respuesta || '');
+            })
+            .catch(function () { b.textContent = 'Falló'; });
+        }
+      });
+    });
+  }
+
+  function filaAccion(a) {
+    var div = document.createElement('div');
+    div.className = 'acc-row';
+    var tipos = Object.keys(TIPOS);
+    // Un comando de fabrica puede usar un tipo interno que no esta en la lista:
+    // si no lo añadimos, editarlo lo convertiria en otra cosa sin avisar.
+    if (a && a.tipo && tipos.indexOf(a.tipo) === -1) tipos.push(a.tipo);
+    var opciones = tipos.map(function (t) {
+      return '<option value="' + t + '"' + (a && a.tipo === t ? ' selected' : '') + '>' +
+             esc(TIPOS[t] || t) + '</option>';
+    }).join('');
+    div.innerHTML = '<select>' + opciones + '</select>' +
+      '<input placeholder="Qué exactamente (una web, un programa, un comando…)" value="' +
+      esc(a ? a.valor : '') + '">' +
+      '<button type="button" class="iconbtn" title="Quitar">✕</button>';
+    div.querySelector('button').addEventListener('click', function () { div.remove(); });
+    return div;
+  }
+  $('cvAddAcc').addEventListener('click', function () { $('cvAcciones').appendChild(filaAccion(null)); });
+
+  function abreForm(c) {
+    $('cvForm').hidden = false;
+    $('cvError').hidden = true;
+    $('cvId').value = c ? c.id : '';
+    $('cvNombre').value = c ? c.nombre : '';
+    $('cvFrases').value = c ? c.frases.join(', ') : '';
+    $('cvRespuesta').value = c ? c.respuesta : '';
+    $('cvQuien').value = c ? c.agente : 'ambos';
+    $('cvAcciones').innerHTML = '';
+    ((c && c.acciones) || []).forEach(function (a) { $('cvAcciones').appendChild(filaAccion(a)); });
+    if (!$('cvAcciones').children.length) $('cvAcciones').appendChild(filaAccion(null));
+    $('cvForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('cvNombre').focus();
+  }
+  $('cvNuevo').addEventListener('click', function () { abreForm(null); });
+  $('cvCancelar').addEventListener('click', function () { $('cvForm').hidden = true; });
+
+  $('cvForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var acciones = [];
+    $('cvAcciones').querySelectorAll('.acc-row').forEach(function (f) {
+      var tipo = f.querySelector('select').value;
+      var valor = f.querySelector('input').value.trim();
+      if (tipo) acciones.push({ tipo: tipo, valor: valor });
+    });
+    var cuerpo = {
+      id: $('cvId').value || undefined,
+      nombre: $('cvNombre').value.trim(),
+      frases: $('cvFrases').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+      acciones: acciones,
+      respuesta: $('cvRespuesta').value.trim(),
+      agente: $('cvQuien').value
+    };
+    fetch('/api/comandos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': token },
+      body: JSON.stringify(cuerpo)
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          $('cvError').textContent = res.d.error || 'No pude guardarlo.';
+          $('cvError').hidden = false;
+          return;
+        }
+        $('cvForm').hidden = true;
+        cargaComandos();
+        log('Comando guardado: ' + res.d.comando.nombre, 'ev');
+      })
+      .catch(function (err) {
+        $('cvError').textContent = 'Error de red: ' + err.message;
+        $('cvError').hidden = false;
+      });
+  });
+
+  $('cvRestaurar').addEventListener('click', function () {
+    if (!confirm('Se vuelven a añadir los comandos de fábrica. Los suyos NO se tocan. ¿Seguimos?')) return;
+    fetch('/api/comandos/restaurar', { method: 'POST', headers: { 'X-Token': token } })
+      .then(function () { cargaComandos(); });
+  });
+
+  /* ═══════════════ Cambio de agente ═══════════════ */
+  function repinta() {
+    $('chat').innerHTML = '';
+    historial[agente].forEach(function (m) { pinta(m.rol, m.texto); });
+  }
+  function aplicaAgente() {
+    var A = AGENTES[agente];
+    raiz.dataset.agent = agente;
+    localStorage.setItem('agente_activo', agente);
+    $('nombreAgente').textContent = A.nombre;
+    $('lemaAgente').textContent = A.lema;
+    $('texto').placeholder = A.placeholder;
+    $('themeColor').content = A.color;
+    $('cvAgente').textContent = A.nombre;
+    $('swap').textContent = '⇄ ' + (agente === 'jarvis' ? 'Ultron' : 'Jarvis');
+    document.title = A.nombre + ' · Núcleo';
+    $('dock').innerHTML = '';
+    A.chips.forEach(function (c) {
+      var b = document.createElement('button');
+      b.className = 'chip'; b.textContent = c[0];
+      b.addEventListener('click', function () { $('texto').value = c[1]; enviar(); });
+      $('dock').appendChild(b);
+    });
+    repinta();
+    salud();
+    pintaEscucha();
+  }
+  function cambiaAgente(nuevo) {
+    if (nuevo === agente) return;
+    calla();
+    agente = nuevo;
+    aplicaAgente();
+    guarda(agente, 'sys', agente === 'ultron' ? 'Control transferido a ULTRON' : 'Control devuelto a JARVIS');
+    log('Agente activo: ' + AGENTES[agente].nombre, 'ev');
+    if (vozOn) habla(AGENTES[agente].saludo);
+  }
+  $('swap').addEventListener('click', function () {
+    cambiaAgente(agente === 'jarvis' ? 'ultron' : 'jarvis');
+  });
+
+  /* ═══════════════ Arranque ═══════════════ */
+  $('texto').addEventListener('input', function () { $('enviar').disabled = !this.value.trim(); });
+  $('texto').addEventListener('keydown', function (e) { if (e.key === 'Enter') enviar(); });
+  $('enviar').addEventListener('click', enviar);
+
+  setInterval(function () { $('reloj').textContent = new Date().toLocaleTimeString('es-ES'); }, 1000);
+  setInterval(telemetria, 3000);
+  setInterval(salud, 8000);
+  setInterval(red, 60000);
+
+  setEstado('reposo');
+  aplicaAgente();
+  telemetria(); salud(); red();
+  log('Interfaz iniciada.', 'ev');
+
+  /* El PIN se pide solo: en el propio PC el servidor lo entrega sin preguntar. */
+  fetch('/api/local_token').then(function (r) { return r.ok ? r.json() : { token: '' }; })
+    .then(function (d) {
+      token = d.token || '';
+      if (!token) log('Sin PIN local: el canal en tiempo real irá por REST.', 'err');
+      conecta();
+      cargaComandos();
+    })
+    .catch(function () { conecta(); cargaComandos(); });
+
+  if (!historial.jarvis.length) guarda('jarvis', 'sys', 'Núcleo en línea. ¿En qué puedo ayudarle, señor?');
+})();
+</script>
+</body>
+</html>
