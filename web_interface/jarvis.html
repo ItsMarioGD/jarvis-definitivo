@@ -371,6 +371,7 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
     <button class="hbtn" id="btnComandos" title="Comandos de voz">⌘ <span class="txt">Comandos</span></button>
     <button class="hbtn" id="btnRed" title="Conexión del teléfono">◎ <span class="txt">Red</span></button>
     <button class="hbtn" id="btnPair" title="Emparejar teléfono">▣ <span class="txt">Móvil</span></button>
+    <button class="hbtn" id="btnEscucha" title="Escucha continua: hablarle sin pulsar nada">👂 <span class="txt">Escucha</span></button>
     <button class="hbtn" id="btnVoz" title="Leer las respuestas en voz alta">🔊 <span class="txt">Voz</span></button>
     <button id="swap">⇄ Ultron</button>
   </header>
@@ -554,6 +555,7 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
     }
   };
   var agente = localStorage.getItem('agente_activo') === 'ultron' ? 'ultron' : 'jarvis';
+  var COMANDOS = [];               // catálogo vivo, lo rellena cargaComandos()
   var historial = { jarvis: [], ultron: [] };
   var cargado = { jarvis: false, ultron: false };
   var token = '', socket = null, conectado = false, modoUltron = '';
@@ -584,7 +586,11 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
   };
   function setEstado(e) {
     estado = COLORES[e] ? e : 'reposo';
-    $('estadoTxt').textContent = COLORES[estado].txt;
+    // En escucha continua el pie del reactor lleva el aviso de la palabra de
+    // activacion y este <b> no existe; sin la guarda, cada cambio de estado
+    // reventaba con «null.textContent».
+    var el = $('estadoTxt');
+    if (el) el.textContent = COLORES[estado].txt;
   }
   function tono() { return COLORES[estado][agente === 'ultron' ? 'u' : 'j']; }
 
@@ -817,36 +823,225 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
     else calla();
   });
 
-  /* Dictado */
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, oyendo = false;
-  $('btnMic').addEventListener('click', function () {
-    if (oyendo) { try { rec.stop(); } catch (e) {} return; }
-    if (!SR) { guarda(agente, 'sys', 'Este navegador no permite dictado.'); return; }
-    calla();
+  /* ═══════════════ Voz de entrada: pulsar, o escucha continua ═══════════════ */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null, oyendo = false, manosLibres = false, reintento = null;
+
+  /* El microfono solo funciona en «origen seguro»: https:// o localhost. Por
+     http://100.x.x.x:5000 el navegador lo bloquea sin avisar, asi que hay que
+     decirlo nosotros y mandar al señor a la direccion HTTPS del tailnet. */
+  var seguro = window.isSecureContext !== false;
+  function sinMicrofono(motivo) {
+    guarda(agente, 'sys', motivo);
+    log(motivo, 'err');
+  }
+  function compruebaMicrofono() {
+    if (!seguro) {
+      sinMicrofono('El navegador bloquea el micrófono porque esta página no va por HTTPS. '
+                 + 'Abra la dirección https://…ts.net (botón «Red») o use el PC.');
+      return false;
+    }
+    if (!SR) { sinMicrofono('Este navegador no permite dictado por voz.'); return false; }
+    return true;
+  }
+
+  /* Porta la normalización de comandos_voz.py para decidir AQUÍ si lo que se
+     ha oído merece enviarse. El servidor vuelve a decidir por su cuenta: esto
+     solo evita mandarle al modelo la conversación de fondo de la habitación. */
+  var MULETILLAS = ['oye', 'eh', 'por favor', 'porfa', 'venga', 'anda', 'quiero', 'necesito',
+                    'puedes', 'podrias', 'activa', 'activar', 'actives', 'pon', 'poner',
+                    'ponme', 'haz', 'hazme', 'ejecuta', 'ejecutar', 'lanza', 'lanzar',
+                    'inicia', 'iniciar', 'arranca', 'dale', 'el', 'la', 'que'];
+  function normaliza(t) {
+    return String(t == null ? '' : t)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(jarvis|ultron)\b/g, ' ')
+      .replace(/[^a-z0-9ñ\s]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function variantes(n) {
+    var salida = [n], p = n.split(' '), i = 0;
+    while (i < p.length && MULETILLAS.indexOf(p[i]) !== -1) {
+      i++;
+      var resto = p.slice(i).join(' ');
+      if (resto && salida.indexOf(resto) === -1) salida.push(resto);
+    }
+    return salida;
+  }
+  function escapaRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function encajaComando(texto) {
+    var t = normaliza(texto);
+    if (!t) return null;
+    var vs = variantes(t), mejor = null, punto = 0;
+    COMANDOS.forEach(function (c) {
+      if (c.activo === false) return;
+      if (c.agente && c.agente !== 'ambos' && c.agente !== agente) return;
+      (c.frases || []).forEach(function (f) {
+        var fn = normaliza(f);
+        if (fn.length < 3) return;
+        vs.forEach(function (v) {
+          var p = 0;
+          if (v === fn) p = 1000 + fn.length;
+          else if (v.indexOf(fn + ' ') === 0) p = 500 + fn.length;
+          else if (new RegExp('(^|\\s)' + escapaRe(fn) + '(\\s|$)').test(v)) p = 100 + fn.length;
+          if (p > punto) { punto = p; mejor = c; }
+        });
+      });
+    });
+    return mejor;
+  }
+
+  var RE_DESPIERTA = /^\s*(?:oye\s+|eh\s+|hey\s+|ok\s+)?(jarvis|ultron)\b[\s,.:;!¡?¿-]*/i;
+  function estaHablando() {
+    return (reproductor.src && !reproductor.paused && !reproductor.ended) ||
+           ('speechSynthesis' in window && speechSynthesis.speaking);
+  }
+
+  function oido(frase) {
+    frase = (frase || '').trim();
+    if (!frase) return;
+    // No escucharse a si mismo: mientras suena su propia voz, lo que entra por
+    // el microfono es el altavoz, no el señor.
+    if (estaHablando()) return;
+
+    var m = RE_DESPIERTA.exec(frase);
+    if (m) {
+      var quien = m[1].toLowerCase();
+      if (quien !== agente) cambiaAgente(quien);
+      var resto = frase.slice(m[0].length).trim();
+      if (!resto) {
+        guarda(agente, 'bot', AGENTES[agente].saludo);
+        if (vozOn) habla(AGENTES[agente].saludo);
+        return;
+      }
+      $('texto').value = resto;
+      enviar();
+      return;
+    }
+    // Sin palabra de activacion solo disparan las frases que el señor ha
+    // guardado como comando; lo demas se ignora a proposito.
+    if (encajaComando(frase)) {
+      $('texto').value = frase;
+      enviar();
+    }
+  }
+
+  function pintaEscucha() {
+    $('btnEscucha').classList.toggle('on', manosLibres);
+    if (manosLibres) {
+      $('coreState').innerHTML = 'Escuchando · diga <b>«' + AGENTES[agente].nombre + '…»</b>';
+    } else {
+      $('coreState').innerHTML = 'Estado · <b id="estadoTxt">' + COLORES[estado].txt + '</b>';
+    }
+  }
+
+  function arrancaReconocedor() {
+    if (oyendo) return true;
     try {
       rec = new SR();
-      rec.lang = 'es-ES'; rec.interimResults = true; rec.maxAlternatives = 1;
+      rec.lang = 'es-ES';
+      rec.continuous = manosLibres;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
       rec.onresult = function (ev) {
         var fin = '', med = '';
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           if (ev.results[i].isFinal) fin += ev.results[i][0].transcript + ' ';
           else med += ev.results[i][0].transcript;
         }
-        $('texto').value = (fin || med).trim();
-        $('enviar').disabled = !$('texto').value;
-        if (fin) enviar();
+        if (manosLibres) {
+          if (fin) oido(fin);
+          else if (med) $('coreState').textContent = '… ' + med.trim().slice(-70);
+        } else {
+          $('texto').value = (fin || med).trim();
+          $('enviar').disabled = !$('texto').value;
+          if (fin) enviar();
+        }
       };
-      rec.onend = rec.onerror = function () {
+      rec.onerror = function (ev) {
+        var cual = (ev && ev.error) || '';
+        if (cual === 'not-allowed' || cual === 'service-not-allowed') {
+          manosLibres = false;
+          sinMicrofono('Sin permiso de micrófono: apago la escucha continua.');
+          pintaEscucha();
+        }
+      };
+      rec.onend = function () {
         oyendo = false;
-        $('btnMic').classList.remove('on', 'rec');
-        if (estado === 'escuchando') setEstado('reposo');
+        // El navegador corta el reconocimiento tras unos segundos de silencio
+        // aunque continuous sea true: sin volver a arrancarlo, la escucha
+        // continua se apagaria sola a los pocos minutos.
+        if (manosLibres) {
+          clearTimeout(reintento);
+          reintento = setTimeout(arrancaReconocedor, 400);
+        } else {
+          $('btnMic').classList.remove('on', 'rec');
+          if (estado === 'escuchando') setEstado('reposo');
+        }
       };
+      rec.start();
       oyendo = true;
+      return true;
+    } catch (e) {
+      oyendo = false;
+      return false;
+    }
+  }
+  function paraReconocedor() {
+    clearTimeout(reintento);
+    try { if (rec) rec.stop(); } catch (e) {}
+    oyendo = false;
+  }
+
+  $('btnEscucha').addEventListener('click', function () {
+    if (manosLibres) {
+      manosLibres = false;
+      paraReconocedor();
+      pintaEscucha();
+      setEstado('reposo');
+      log('Escucha continua apagada.', 'ev');
+      return;
+    }
+    if (!compruebaMicrofono()) return;
+    manosLibres = true;
+    paraReconocedor();                 // reiniciar con continuous = true
+    if (!arrancaReconocedor()) { manosLibres = false; }
+    pintaEscucha();
+    if (manosLibres) {
+      log('Escucha continua encendida.', 'ev');
+      guarda(agente, 'sys', 'Le escucho. Diga «' + AGENTES[agente].nombre
+            + '…» o cualquiera de sus comandos.');
+    }
+  });
+
+  $('btnMic').addEventListener('click', function () {
+    if (manosLibres) { guarda(agente, 'sys', 'Ya le estoy escuchando, señor.'); return; }
+    if (oyendo) { paraReconocedor(); return; }
+    if (!compruebaMicrofono()) return;
+    calla();
+    if (arrancaReconocedor()) {
       $('btnMic').classList.add('on', 'rec');
       setEstado('escuchando');
-      rec.start();
-    } catch (e) { oyendo = false; }
+    }
   });
+
+
+  /* Banco de pruebas de la voz. Sirve para averiguar por que una frase no
+     dispara: abra la consola del navegador y pruebe
+        JARVIS_VOZ.encaja('modo cine')     → el comando que encajaria, o null
+        JARVIS_VOZ.normaliza('¿Modo Cine?')→ como se ve la frase por dentro
+        JARVIS_VOZ.oir('jarvis dame el clima')  → simula haberlo oido */
+  window.JARVIS_VOZ = {
+    normaliza: normaliza,
+    encaja: encajaComando,
+    oir: oido,
+    despierta: RE_DESPIERTA,
+    estado: function () {
+      return { manosLibres: manosLibres, oyendo: oyendo, origenSeguro: seguro,
+               reconocedor: !!SR, comandos: COMANDOS.length };
+    }
+  };
 
   /* ═══════════════ Socket.IO (tiempo real de JARVIS) ═══════════════ */
   function conecta() {
@@ -966,7 +1161,30 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
   /* ── Red ── */
   $('btnRed').addEventListener('click', function () { abre('veilRed'); red(); });
   function pintaRed(d) {
-    var ts = d.tailscale || {}, h = '';
+    var ts = d.tailscale || {}, sv = d.serve || {}, h = '';
+
+    // El microfono es lo primero: sin HTTPS no hay comandos de voz en el movil,
+    // y eso no se ve por ningun sitio si no se dice aqui.
+    if (!seguro) {
+      h += '<div class="aviso mal"><b>Esta página no va por HTTPS</b>, así que el navegador ' +
+           'bloquea el micrófono: desde aquí no se puede dictar ni usar los comandos por voz. ' +
+           (sv.activo && sv.url
+             ? 'Abra <span class="url">' + esc(sv.url) + '/mobile</span> en su lugar.'
+             : 'Ejecute <code>python tailscale_setup.py --https</code> en el PC para publicarla ' +
+               'en https://…ts.net.') +
+           '</div>';
+    }
+    if (sv.activo && sv.url) {
+      h += '<div class="aviso bien"><b>Publicada por HTTPS</b> en <span class="url">' +
+           esc(sv.url) + '</span> — es la única dirección desde la que el móvil puede ' +
+           'usar el micrófono.</div>';
+    } else if (ts.conectado) {
+      h += '<div class="aviso"><b>Sin HTTPS.</b> El teléfono llega y puede escribir, pero no ' +
+           'hablarle: el micrófono solo funciona en origen seguro. Ejecute ' +
+           '<code>python tailscale_setup.py --https</code> en el PC.' +
+           (sv.error ? '<br><small>' + esc(sv.error) + '</small>' : '') + '</div>';
+    }
+
     if (ts.conectado) {
       h += '<div class="aviso bien"><b>Tailscale conectado</b> como ' + esc(ts.dns || ts.ip) +
            '. El teléfono llega al PC desde cualquier red mientras tenga la app abierta.</div>';
@@ -1021,7 +1239,7 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
   });
 
   /* ═══════════════ Taller de comandos ═══════════════ */
-  var TIPOS = {};
+  var TIPOS = {};   // COMANDOS se declara arriba: lo usa la escucha continua
   $('btnComandos').addEventListener('click', function () { abre('veilComandos'); cargaComandos(); });
 
   function cargaComandos() {
@@ -1029,8 +1247,9 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
       .then(function (r) { return r.json(); })
       .then(function (d) {
         TIPOS = d.tipos || {};
-        $('vCmds').textContent = (d.comandos || []).length;
-        pintaComandos(d.comandos || []);
+        COMANDOS = d.comandos || [];
+        $('vCmds').textContent = COMANDOS.length;
+        pintaComandos(COMANDOS);
       })
       .catch(function () { $('cvLista').innerHTML = '<div class="aviso mal">No pude leer los comandos.</div>'; });
   }
@@ -1191,14 +1410,19 @@ html[data-agent="ultron"] .btn.pri{color:#1a0004}
     });
     repinta();
     salud();
+    pintaEscucha();
   }
-  $('swap').addEventListener('click', function () {
+  function cambiaAgente(nuevo) {
+    if (nuevo === agente) return;
     calla();
-    agente = agente === 'jarvis' ? 'ultron' : 'jarvis';
+    agente = nuevo;
     aplicaAgente();
     guarda(agente, 'sys', agente === 'ultron' ? 'Control transferido a ULTRON' : 'Control devuelto a JARVIS');
     log('Agente activo: ' + AGENTES[agente].nombre, 'ev');
     if (vozOn) habla(AGENTES[agente].saludo);
+  }
+  $('swap').addEventListener('click', function () {
+    cambiaAgente(agente === 'jarvis' ? 'ultron' : 'jarvis');
   });
 
   /* ═══════════════ Arranque ═══════════════ */

@@ -105,6 +105,23 @@ python tailscale_setup.py --firewall   # solo abrir los puertos
 También está en la interfaz: botón **◎ Red** en el PC, pestaña **Conexión** en
 el móvil. Y por voz: «*estado de la red*».
 
+### Y HTTPS, o el móvil no le oye
+
+Aunque Tailscale conecte el teléfono, **por `http://` el navegador bloquea el
+micrófono**: `http://100.x.x.x:5000` no es un «origen seguro», así que ni el
+dictado ni la escucha continua funcionan desde el móvil. El instalador lo
+resuelve publicando la misma interfaz en `https://<equipo>.ts.net`:
+
+```bash
+python tailscale_setup.py --https      # publicar
+python tailscale_setup.py --sin-https  # retirar
+```
+
+Hace falta tener **MagicDNS** y **HTTPS Certificates** activados en
+https://login.tailscale.com/admin/dns. Si no lo están, el script se lo dice.
+Las dos interfaces avisan cuando la página no va por HTTPS y le dan la
+dirección buena.
+
 ## ⌘ Comandos de voz
 
 Una frase suya, una acción inmediata: los comandos se despachan **antes** que
@@ -139,6 +156,29 @@ lista de pasos:
 | `esperar` | Pausa N segundos entre pasos |
 
 Otras frases útiles: «*qué comandos tienes*», «*olvida el comando radio*».
+
+### Hablarle sin pulsar nada (escucha continua)
+
+Botón **👂 Escucha** en el PC, **👂** en la cabecera del móvil. Mientras está
+encendida:
+
+- «**Jarvis**, dame el clima» — la palabra de activación le manda cualquier cosa.
+- «**Ultron**, estado del sistema» — además **cambia de agente** solo.
+- «modo enfoque» — sus comandos guardados disparan **sin** palabra de activación.
+- Lo demás que se hable en la habitación **se ignora**: sin palabra de activación,
+  solo pasan las frases que usted ha guardado, así que la conversación de fondo
+  no llega al modelo.
+
+No se escucha a sí mismo (calla el reconocimiento mientras suena su voz) y se
+vuelve a arrancar solo cuando el navegador corta el reconocimiento por silencio.
+
+¿Una frase no dispara? Abra la consola del navegador (F12) y pruebe:
+
+```js
+JARVIS_VOZ.encaja('modo cine')       // el comando que encajaría, o null
+JARVIS_VOZ.normaliza('¿Modo Cine?')  // cómo se ve la frase por dentro
+JARVIS_VOZ.estado()                  // micrófono, origen seguro, nº de comandos
+```
 
 Se guardan en `<Descargas>/JARVIS/Prefs/comandos_voz.json`, compartidos por
 JARVIS y ULTRON (o asignados a uno solo, si lo prefiere).

@@ -247,6 +247,32 @@ frase, esa frase manda.
   escribir, agente y esperar.
 - Compartidos por JARVIS y ULTRON, o asignados a uno solo.
 
+### Escucha continua
+
+Botón **👂** en las dos interfaces. El reconocimiento se queda abierto y se
+rearranca solo cuando el navegador lo corta por silencio.
+
+| Lo que se oye | Qué hace |
+|---------------|----------|
+| «**Jarvis**, …» / «**Ultron**, …» | Manda el resto al agente; si nombra al otro, **cambia de agente** |
+| Una frase guardada como comando | La ejecuta sin palabra de activación |
+| Cualquier otra cosa | Se ignora: la conversación de fondo no llega al modelo |
+
+El pie del reactor pasa a «Escuchando · diga «JARVIS…»» y muestra en gris lo
+que va oyendo. Mientras suena la voz del agente, el reconocimiento no dispara,
+para que no se escuche a sí mismo.
+
+La coincidencia es la misma de `comandos_voz.py` portada a JavaScript (tildes,
+mayúsculas, signos y muletillas fuera), y decide solo si **merece enviarse**:
+el servidor vuelve a decidir por su cuenta. `window.JARVIS_VOZ` expone
+`encaja()`, `normaliza()` y `estado()` para depurar desde la consola por qué una
+frase no dispara.
+
+**Límite real:** el micrófono solo funciona en origen seguro (`https://` o
+`localhost`). Por `http://100.x.x.x:5000` el navegador lo bloquea sin avisar, así
+que ambas interfaces lo detectan (`isSecureContext`) y mandan a la dirección
+HTTPS del tailnet.
+
 ### Estado Actual del Diseño
 
 | Componente | Avance | Comentarios |
@@ -262,6 +288,7 @@ frase, esa frase manda.
 | **Interfaz Web «Núcleo»** | ✅ 100% | `web_interface/jarvis.html`, servida en `/`. Reactor en canvas, paneles de cristal, dos agentes con una sola paleta conmutable. |
 | **Consola móvil** | ✅ 100% | Zoom corregido, zona segura respetada y hoja de comandos de voz. |
 | **Comandos de voz** | ✅ 100% | Catálogo de fábrica + taller propio en PC y móvil + alta hablando. |
+| **Escucha continua** | ✅ 100% | Palabra de activación, cambio de agente por voz y filtro local de frases. |
 | **Conexión del teléfono** | ✅ 100% | Tailscale y reglas de Firewall automatizadas; diagnóstico en la propia interfaz. |
 
 **Próxima acción de diseño:** llevar el módulo multimedia (Kling/Flux) al visor
