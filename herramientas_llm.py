@@ -139,12 +139,29 @@ class Herramientas:
             h("orden_libre", "Ejecuta cualquier otra orden en el lenguaje de siempre. "
                              "Úsala solo si ninguna herramienta encaja.",
               {"orden": texto}, ["orden"]),
-        ]
+        ] + self._definiciones_mcp()
+
+    def _definiciones_mcp(self) -> list:
+        """Herramientas de los servidores MCP configurados (Prefs/mcp.json)."""
+        if os.getenv("JARVIS_MCP", "1") == "0":
+            return []
+        try:
+            import mcp_generico
+            return mcp_generico.definiciones_openai(log=self.log)
+        except Exception as e:
+            self.log(f"[HERRAMIENTAS] MCP no disponible: {e}")
+            return []
 
     # ── ejecución ───────────────────────────────────────────────────────────
     def ejecutar(self, nombre: str, argumentos: dict) -> str:
         """Ejecuta una herramienta y devuelve el texto del resultado."""
         try:
+            if nombre.startswith("mcp__"):
+                import mcp_generico
+                resultado = mcp_generico.llamar(nombre, argumentos or {}, log=self.log)
+                self.usadas.append(nombre)
+                self.log(f"[HERRAMIENTA] {nombre}({argumentos}) -> {str(resultado)[:80]}")
+                return str(resultado or "hecho")
             metodo = getattr(self, f"_t_{nombre}", None)
             if metodo is None:
                 return f"No tengo ninguna herramienta llamada {nombre}."
