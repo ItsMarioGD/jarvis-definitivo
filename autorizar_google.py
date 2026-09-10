@@ -29,7 +29,13 @@ import consola_utf8  # noqa: F401  (salida a prueba de cp1252)
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, RAIZ)
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    # Sub-agente de correo (correo_gmail.py): leer la bandeja y, con
+    # confirmacion del señor, enviar. Si no quieres Gmail, borra estas dos.
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 
 def _explicar_access_denied(info):

@@ -98,7 +98,23 @@ class Enjambre:
                    self._ag_casa, intervalo_s=3600, presupuesto_dia=8),
             Agente("mercado", "cotizaciones vigiladas",
                    self._ag_mercado, intervalo_s=1800, presupuesto_dia=16),
+            Agente("correo", "correos sin leer que parecen importantes",
+                   self._ag_correo, intervalo_s=1800, presupuesto_dia=20),
         ]
+
+    def _ag_correo(self) -> list:
+        """Bandeja de Gmail: avisa solo si hay correo que parece importante."""
+        try:
+            import correo_gmail
+        except Exception:
+            return []
+        hallazgos = []
+        try:
+            for titulo, detalle, importancia in correo_gmail.hallazgos_para_enjambre(log=self.log):
+                hallazgos.append(Hallazgo("correo", titulo, detalle, importancia))
+        except Exception as e:
+            self.log(f"[ENJAMBRE] correo: {e}")
+        return hallazgos
 
     def _ag_codigo(self) -> list:
         """Repos git con cambios sin commitear: trabajo en riesgo de perderse."""

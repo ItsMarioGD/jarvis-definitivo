@@ -108,6 +108,10 @@ class Herramientas:
                                        "del señor y responde citando el archivo.",
               {"pregunta": texto}, ["pregunta"]),
             h("recados_pendientes", "Resume los mensajes y recados sin leer.", {}),
+            h("revisar_correo", "Resume los correos sin leer de Gmail "
+                                "(remitente y asunto). Solo lectura.",
+              {"solo_importantes": {"type": "boolean",
+                                    "description": "true = solo los que parecen urgentes"}}),
             h("analizar_con_codigo",
               "Resuelve una tarea de datos escribiendo y ejecutando un programa: "
               "cruzar hojas de cálculo, calcular estadísticas, generar gráficas, "
@@ -288,6 +292,14 @@ class Herramientas:
     def _t_recados_pendientes(self, a):
         import recados
         return recados.resumen()
+
+    def _t_revisar_correo(self, a):
+        import correo_gmail
+        return correo_gmail.resumen(log=self.log) if not a.get("solo_importantes") \
+            else "\n".join(
+                f"{c['de']} — {c['asunto']}"
+                for c in correo_gmail.no_leidos(15, solo_importantes=True, log=self.log)
+            ) or "Sin correos importantes sin leer, señor."
 
     def _t_analizar_con_codigo(self, a):
         import analista
