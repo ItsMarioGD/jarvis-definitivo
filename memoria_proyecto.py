@@ -60,9 +60,12 @@ def cargar(log=print) -> str:
 
 def contexto(log=print) -> str:
     txt = cargar(log=log)
-    # Si sigue siendo la plantilla intacta (todas las secciones vacías), no
-    # gastamos tokens metiéndola en el prompt.
-    if not txt or txt.count("(aún nada)") >= 3:
+    if not txt:
+        return ""
+    # Si no hay ni un punto real (todo son placeholders), no gastamos tokens.
+    reales = [l for l in txt.splitlines()
+              if l.lstrip().startswith("- ") and l.strip() != "- (aún nada)"]
+    if not reales:
         return ""
     return "[Memoria permanente del señor (JARVIS.md):\n" + txt + "\n]"
 
