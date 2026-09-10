@@ -55,19 +55,14 @@ echo       %PYTHON%
 :: ── 2. DEPENDENCIAS (JARVIS y ULTRON comparten requirements.txt) ───────────
 echo.
 echo [2/7] Dependencias de Python ^(varios minutos la primera vez^)
-"%PYTHON%" -m pip install --upgrade pip --quiet 2>nul
-"%PYTHON%" -m pip install -r requirements.txt --quiet
-if errorlevel 1 (
-    echo       [!] requirements.txt fallo. Instalo lo imprescindible...
-    "%PYTHON%" -m pip install flask flask-socketio requests psutil openai python-dotenv --quiet
-    set "FALLOS=!FALLOS! dependencias-parciales"
-)
-"%PYTHON%" -c "import google_auth_oauthlib" 2>nul
-if errorlevel 1 (
-    echo       Anado las librerias de Google Calendar...
-    "%PYTHON%" -m pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 --quiet
-)
-echo       Listo.
+:: Se delega en instalar_dependencias.py en vez de hacer un "pip install -r"
+:: aqui: pip resuelve el requirements ENTERO antes de instalar nada, asi que
+:: una sola linea que falle dejaba el equipo sin NINGUNA dependencia. Es lo
+:: que pasaba antes, y por eso faltaban qrcode, Pillow y el QR no se generaba.
+:: Ese script instala de golpe si puede y, si no, paquete a paquete, y al
+:: final dice exactamente que ha quedado fuera y que funcion se pierde.
+"%PYTHON%" instalar_dependencias.py
+if errorlevel 1 set "FALLOS=!FALLOS! dependencias"
 
 :: ── 3. OLLAMA ──────────────────────────────────────────────────────────────
 echo.
@@ -118,6 +113,7 @@ if errorlevel 1 (
 echo       Servicio en marcha. Descargando modelo ^(unos GB^)...
 :: Se prueban en orden y se usa el primero que baje, para no depender de que
 :: un tag concreto siga publicado en el registro de Ollama.
+call :probar_modelo qwen3:8b
 call :probar_modelo qwen3:4b-instruct
 call :probar_modelo qwen3:4b
 call :probar_modelo qwen2.5:3b
@@ -167,6 +163,18 @@ if /I "!RESP!"=="s" set "AUTO=-Autoarranque"
 :hacer_accesos
 powershell -NoProfile -ExecutionPolicy Bypass -File "herramientas\accesos_directos.ps1" -Raiz "%RAIZ%" -Crear !AUTO!
 if errorlevel 1 set "FALLOS=!FALLOS! accesos-directos"
+
+:: Firewall: sin esto el telefono conecta o no segun el perfil de red activo.
+:: Solo funciona si esta ventana se abrio como administrador; si no, se avisa.
+echo.
+echo       Abriendo el puerto del movil en el firewall...
+powershell -NoProfile -ExecutionPolicy Bypass -File "herramientas\abrir_firewall.ps1" <nul
+if errorlevel 1 (
+    echo       [!] No pude tocar el firewall ^(hace falta ser administrador^).
+    echo           Si el telefono no conecta, haz clic derecho en
+    echo           herramientas\abrir_firewall.ps1 y "Ejecutar como administrador".
+    set "FALLOS=!FALLOS! firewall"
+)
 :tras_accesos
 
 :: ── 7. COMPROBACION ────────────────────────────────────────────────────────

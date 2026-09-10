@@ -224,6 +224,7 @@ class FacialGuardian:
                 if conf <= UMBRAL_LBPH:
                     self._streak = 0
                     self._ultimo_visto = ahora
+                    self._registrar_presencia(ahora)
                     continue
                 # Rostro NO reconocido
                 self._streak += 1
@@ -258,12 +259,66 @@ class FacialGuardian:
                 fh.write(f"[{marca}] Intruso conf={conf:.1f} — PC bloqueado\n")
         except Exception as e:
             self.log(f"[GUARDIAN] No pude guardar evidencia: {e}")
+        # El fichero de texto servía para el susto del momento, pero no se podía
+        # consultar después. En el almacén queda con fecha, confianza y ruta de
+        # la evidencia, así que «¿quién entró ayer?» tiene respuesta.
+        try:
+            from storage import get_storage
+            get_storage(log=self.log).registrar_evento(
+                tipo="intruso",
+                titulo="Rostro no reconocido frente al equipo",
+                detalle=f"confianza={conf:.1f}; equipo bloqueado automáticamente",
+                gravedad="alta",
+                datos=locals().get("base", ""),
+                agente="ULTRON")
+        except Exception as e:
+            self.log(f"[GUARDIAN] No pude registrar el evento: {e}")
         try:
             subprocess_lock()
         except Exception as e:
             self.log(f"[GUARDIAN] Bloqueo físico falló: {e}")
         self.alerta("Intruso identificado. Evidencia archivada. "
                     "Bloqueando tu imperio, mi señor.")
+
+    def _registrar_presencia(self, marca):
+        """Deja constancia de cuándo se vio al señor, no solo de los intrusos.
+
+        Sin esto, el historial solo tenía sobresaltos: no había forma de
+        distinguir «nadie ha entrado» de «la cámara llevaba horas sin ver nada».
+        Se anota como mucho una vez por hora para no inundar el registro.
+        """
+        try:
+            import time as _t
+            ahora_s = _t.time()
+            if getattr(self, "_ultimo_registro_presencia", 0) and \
+                    (ahora_s - self._ultimo_registro_presencia) < 3600:
+                return
+            self._ultimo_registro_presencia = ahora_s
+            from storage import get_storage
+            get_storage(log=self.log).registrar_evento(
+                tipo="presencia", titulo="El señor está frente al equipo",
+                detalle=str(marca), gravedad="info", agente="ULTRON")
+        except Exception:
+            pass
+
+    def historial(self, limite: int = 10, horas: int = 0) -> str:
+        """Línea temporal consultable de lo que ha visto el guardián."""
+        try:
+            from storage import get_storage
+            db = get_storage(log=self.log)
+            intrusos = db.eventos_recientes(limite, tipo="intruso", horas=horas)
+            presencias = db.eventos_recientes(limite, tipo="presencia", horas=horas)
+        except Exception as e:
+            return f"No pude leer el historial del guardián: {e}"
+        if not intrusos and not presencias:
+            return "El guardián no ha registrado nada todavía."
+        partes = []
+        if intrusos:
+            partes.append("Intrusos: " + "; ".join(
+                f"{e['ts'][5:16]} ({e['detalle'][:40]})" for e in intrusos[:5]))
+        if presencias:
+            partes.append("Te vi por última vez: " + presencias[0]["ts"][5:16])
+        return ". ".join(partes) + "."
 
     def estado(self):
         n_eventos = 0

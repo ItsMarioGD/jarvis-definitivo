@@ -34,6 +34,11 @@ import unicodedata
 import urllib.request
 from datetime import datetime, timedelta
 
+try:
+    from calendar_engine import calendar_engine
+except Exception:
+    calendar_engine = None
+
 # Puerto de cada servidor MCP (los mismos que arranca start_jarvis.bat).
 SERVIDORES = {
     "ha": int(os.getenv("HA_MCP_PORT", "8001")),
@@ -179,10 +184,24 @@ class ConectorCalendar(Conector):
         r"cuales\s+son\s+mis|dime\s+(?:mi|mis|que)|mira\s+mi|consulta\s+mi|ver\s+mi)\b")
     BORRAR = re.compile(r"\b(?:cancela(?:me)?|cancelar|borra(?:me)?|borrar|"
                         r"elimina(?:me)?|eliminar|quita(?:me)?|anula)\b")
+    REPROGRAMAR = re.compile(r"\b(?:mueve(?:me)?|mover|pasa(?:me)?|pasar|pospon(?:me)?|posponer|"
+                             r"reprograma(?:me)?|reprogramar|cambia(?:me)?|cambiar|aplaza(?:me)?)\b")
+    # «cuanta ram tengo libre» contiene «tengo libre», y la agenda acababa
+    # contestando a una pregunta sobre memoria. La disponibilidad se
+    # pregunta sobre TIEMPO: si la frase habla de recursos del equipo, no
+    # es cosa del calendario.
+    RECURSOS = r"(?:ram|memoria|disco|espacio|bateria|batería|gigas?|gb|cpu)"
+    DISPONIBILIDAD = re.compile(
+        r"\b(?:tengo\s+libre|hay\s+hueco|estoy\s+libre|tengo\s+tiempo|disponibilidad)\b"
+        r"(?!.*\b" + RECURSOS + r"\b)")
 
     def handle(self, t: str, orig: str):
         if not self.CALENDARIO.search(t):
             return None
+        if self.DISPONIBILIDAD.search(t):
+            return self._disponibilidad(t, orig)
+        if self.REPROGRAMAR.search(t):
+            return self._reprogramar(t, orig)
         if self.CONSULTAR.search(t):
             return self._consultar(t, orig)
         if self.BORRAR.search(t):
@@ -201,21 +220,35 @@ class ConectorCalendar(Conector):
             return (f"Señor, ¿para cuándo agendo «{asunto}»? Dígame el día y la hora, "
                     "por ejemplo «mañana a las 5».")
         fin = cuando + timedelta(hours=1)
+        start_iso = cuando.strftime("%Y-%m-%dT%H:%M:%S")
+        end_iso = fin.strftime("%Y-%m-%dT%H:%M:%S")
+        desc = f"Creado por JARVIS desde: «{orig.strip()[:200]}»"
+        ev = None
         try:
             ev = self.llamar("cal_create_event", {
                 "summary": asunto,
-                "start": cuando.strftime("%Y-%m-%dT%H:%M:%S"),
-                "end": fin.strftime("%Y-%m-%dT%H:%M:%S"),
-                "description": f"Creado por JARVIS desde: «{orig.strip()[:200]}»",
+                "start": start_iso,
+                "end": end_iso,
+                "description": desc,
             })
         except Exception as e:
-            self.log(f"[CONECTORES] cal_create_event fallo: {e}")
-            return self._sin_servicio(e)
+            if calendar_engine:
+                try:
+                    ev = calendar_engine.create_event(asunto, start_iso, end_iso, description=desc)
+                except Exception as ex2:
+                    self.log(f"[CONECTORES] calendar_engine fallback falló: {ex2}")
+                    return self._sin_servicio(e)
+            else:
+                self.log(f"[CONECTORES] cal_create_event falló: {e}")
+                return self._sin_servicio(e)
+
         enlace = (ev or {}).get("htmlLink", "") if isinstance(ev, dict) else ""
+        src = (ev or {}).get("source", "local") if isinstance(ev, dict) else "local"
+        destino_txt = "su Google Calendar" if src == "google" else "su agenda persistente"
         return self.avisos.avisar(
             orig,
             f"Agendado, señor: «{asunto}» el {self._bonita(cuando)}.",
-            f"Está en su {self.servicio}." + (f" {enlace}" if enlace else ""))
+            f"Está guardado en {destino_txt}." + (f" {enlace}" if enlace else ""))
 
     # Trozos que hay que sacar del titulo: el verbo, las muletillas de
     # calendario y la parte temporal. Con tildes opcionales porque el titulo
@@ -410,15 +443,29 @@ class ConectorCalendar(Conector):
         else:
             hasta = desde.replace(hour=23, minute=59, second=59)
             cuando = "hoy"
+
+        eventos = None
         try:
             eventos = self.lista("cal_list_events", {
                 "time_min": desde.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
                 "time_max": hasta.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
-                "max_results": 10,
+                "max_results": 20,
             })
         except Exception as e:
-            self.log(f"[CONECTORES] cal_list_events fallo: {e}")
-            return self._sin_servicio(e)
+            if calendar_engine:
+                try:
+                    eventos = calendar_engine.list_events(
+                        time_min=desde.strftime("%Y-%m-%dT%H:%M:%S"),
+                        time_max=hasta.strftime("%Y-%m-%dT%H:%M:%S"),
+                        max_results=20
+                    )
+                except Exception as ex2:
+                    self.log(f"[CONECTORES] calendar_engine fallback fallo: {ex2}")
+                    return self._sin_servicio(e)
+            else:
+                self.log(f"[CONECTORES] cal_list_events fallo: {e}")
+                return self._sin_servicio(e)
+
         if not eventos:
             return f"Señor, no tiene nada agendado {cuando}."
         lineas = []
@@ -430,9 +477,10 @@ class ConectorCalendar(Conector):
 
     @staticmethod
     def _hora_iso(iso: str) -> str:
-        """Hora legible de una fecha ISO devuelta por Google."""
+        """Hora legible de una fecha ISO devuelta por Google o SQLite."""
         try:
-            return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%H:%M")
+            iso_clean = (iso or "").replace("Z", "").split("+")[0]
+            return datetime.fromisoformat(iso_clean).strftime("%H:%M")
         except Exception:
             return ""
 
@@ -445,6 +493,7 @@ class ConectorCalendar(Conector):
         if not pista:
             return "Señor, ¿qué cita cancelo? Dígame parte del título."
         ahora = datetime.now()
+        eventos = None
         try:
             eventos = self.lista("cal_list_events", {
                 "time_min": ahora.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
@@ -452,8 +501,16 @@ class ConectorCalendar(Conector):
                 "max_results": 50,
             })
         except Exception as e:
-            return self._sin_servicio(e)
-        candidatos = [e for e in eventos
+            if calendar_engine:
+                eventos = calendar_engine.list_events(
+                    time_min=ahora.strftime("%Y-%m-%dT%H:%M:%S"),
+                    time_max=(ahora + timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    max_results=50
+                )
+            else:
+                return self._sin_servicio(e)
+
+        candidatos = [e for e in (eventos or [])
                       if isinstance(e, dict) and e.get("id")
                       and pista in _norm(e.get("summary", ""))]
         if not candidatos:
@@ -466,13 +523,74 @@ class ConectorCalendar(Conector):
         try:
             self.llamar("cal_delete_event", {"event_id": ev["id"]})
         except Exception as e:
-            self.log(f"[CONECTORES] cal_delete_event fallo: {e}")
-            return self._sin_servicio(e)
+            if calendar_engine:
+                calendar_engine.delete_event(ev["id"])
+            else:
+                self.log(f"[CONECTORES] cal_delete_event fallo: {e}")
+                return self._sin_servicio(e)
         return self.avisos.avisar(
             orig,
             f"Cancelada, señor: «{ev.get('summary', '')}» "
             f"del {self._bonita(self._dt(ev.get('start', '')))}.",
             f"La he quitado de su {self.servicio}.")
+
+    # ── reprogramar ──────────────────────────────────────────────────────────
+    def _reprogramar(self, t: str, orig: str):
+        cuando, asunto = self._cuando_y_asunto(t, orig)
+        if not asunto:
+            return "Señor, ¿qué cita desea mover? Indique el título y la nueva fecha u hora."
+        if cuando is None:
+            return f"Señor, ¿a qué día u hora muevo «{asunto}»?"
+        ahora = datetime.now()
+        eventos = []
+        try:
+            eventos = self.lista("cal_list_events", {
+                "time_min": ahora.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+                "time_max": (ahora + timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+                "max_results": 50,
+            })
+        except Exception:
+            if calendar_engine:
+                eventos = calendar_engine.list_events(
+                    time_min=ahora.strftime("%Y-%m-%dT%H:%M:%S"),
+                    time_max=(ahora + timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%S")
+                )
+        candidatos = [e for e in eventos if isinstance(e, dict) and e.get("id") and _norm(asunto) in _norm(e.get("summary", ""))]
+        if not candidatos:
+            return f"Señor, no encontré ninguna cita con «{asunto}» para reprogramar."
+        ev = candidatos[0]
+        fin = cuando + timedelta(hours=1)
+        start_iso = cuando.strftime("%Y-%m-%dT%H:%M:%S")
+        end_iso = fin.strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            self.llamar("cal_reschedule_event", {
+                "event_id": ev["id"],
+                "new_start": start_iso,
+                "new_end": end_iso
+            })
+        except Exception:
+            if calendar_engine:
+                calendar_engine.reschedule_event(ev["id"], start_iso, end_iso)
+        return self.avisos.avisar(
+            orig,
+            f"Reprogramada, señor: «{ev.get('summary', '')}» para el {self._bonita(cuando)}.",
+            f"Actualizada en su agenda.")
+
+    # ── disponibilidad ───────────────────────────────────────────────────────
+    def _disponibilidad(self, t: str, orig: str):
+        cuando = self._cuando(t) or datetime.now()
+        fin = cuando + timedelta(hours=1)
+        start_iso = cuando.strftime("%Y-%m-%dT%H:%M:%S")
+        end_iso = fin.strftime("%Y-%m-%dT%H:%M:%S")
+        if calendar_engine:
+            res = calendar_engine.check_availability(start_iso, end_iso)
+            if res.get("available"):
+                return f"Señor, tiene completamente libre el horario del {self._bonita(cuando)}."
+            else:
+                conf = res.get("conflicts", [])
+                titulos = ", ".join(c.get("summary", "") for c in conf)
+                return f"Señor, tiene conflicto a esa hora con: «{titulos}»."
+        return f"Señor, consultando su disponibilidad para el {self._bonita(cuando)}."
 
     @staticmethod
     def _dt(iso: str):

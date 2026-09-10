@@ -12,6 +12,9 @@ import time
 import subprocess
 import sqlite3
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import consola_utf8  # noqa: F401  (salida a prueba de cp1252)
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_FILES = ["jarvis_memory.db", "ultron_memory.db"]
 
@@ -48,17 +51,29 @@ def wal_checkpoint_all():
                     print(f"  [ERR] {db} WAL fallo: {e}")
                 time.sleep(0.5)
 
-def start_server(name, cwd, script):
-    """Arranca un servidor pythonw en background."""
-    exe = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+def start_server(name, cwd, script, *extra):
+    """Arranca un servidor pythonw en background.
+
+    `extra` son argumentos sueltos para el script (p. ej. "--http", "5001").
+    Van aparte y no dentro de `script`: Popen con una lista trata cada
+    elemento como UN argumento, asi que "script.py --http 5001" se le pasaria
+    a Python como si fuera el nombre de un fichero con espacios.
+    """
+    # El Python con las dependencias puede no ser el de este terminal.
+    try:
+        from interprete import python_del_proyecto
+        base = python_del_proyecto() or sys.executable
+    except Exception:
+        base = sys.executable
+    exe = os.path.join(os.path.dirname(base), "pythonw.exe")
     if not os.path.exists(exe):
-        exe = sys.executable
+        exe = base
     flags = 0
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         subprocess.Popen(
-            [exe, script],
+            [exe, script, *extra],
             cwd=os.path.join(ROOT, cwd),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -71,7 +86,13 @@ def start_server(name, cwd, script):
         print(f"  [ERR] {name} no arranco: {e}")
 
 def wait_health(url, name, timeout=15):
-    """Espera a que /health responda 200."""
+    """Espera a que /health conteste algo.
+
+    Cualquier respuesta HTTP vale como «esta vivo». El calendario, por
+    ejemplo, devuelve 503 mientras no haya una cuenta de Google autorizada, y
+    eso no es un fallo del arranque: el proceso esta escuchando y hara su
+    trabajo en cuanto se autorice.
+    """
     import requests
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -79,7 +100,9 @@ def wait_health(url, name, timeout=15):
             r = requests.get(url, timeout=3)
             if r.status_code == 200:
                 print(f"  [OK] {name} salud OK")
-                return True
+            else:
+                print(f"  [OK] {name} escuchando (responde {r.status_code})")
+            return True
         except Exception:
             pass
         time.sleep(0.8)
@@ -91,24 +114,52 @@ if __name__ == "__main__":
     print("  REINICIO BLINDADO JARVIS + ULTRON")
     print("=" * 50)
 
-    print("\n[1/5] Matando pythonw previos...")
+    print("\n[1/6] Matando pythonw previos...")
     kill_pythonw()
 
-    print("\n[2/5] Checkpoint WAL (TRUNCATE)...")
+    print("\n[2/6] Checkpoint WAL (TRUNCATE)...")
     wal_checkpoint_all()
 
-    print("\n[3/5] Arrancando JARVIS (web_interface)...")
+    # Los servidores MCP van ANTES que JARVIS: si el calendario no esta
+    # escuchando en el 8002 cuando alguien pregunta por su agenda, JARVIS
+    # responde «no pude hablar con Google Calendar» aunque la cuenta este
+    # perfectamente autorizada. Antes este script no los arrancaba y solo
+    # subian con start_jarvis.bat, asi que el calendario fallaba segun por
+    # donde se hubiera arrancado el sistema.
+    print("\n[3/6] Arrancando servidores MCP (calendario, casa, movil)...")
+    for nombre, script in (("Calendar MCP", "calendar_server.py"),
+                           ("Home Assistant MCP", "ha_server.py"),
+                           ("Android MCP", "android_server.py")):
+        start_server(nombre, "mcp_servers", script)
+    # El MCP de JARVIS (puerto 5001) expone sus habilidades a herramientas
+    # externas; tampoco lo arrancaba nadie.
+    start_server("JARVIS MCP", ".", "jarvis_mcp_server.py", "--http", "5001")
+
+    print("\n[4/6] Arrancando JARVIS (web_interface)...")
     start_server("JARVIS", "web_interface", "app.py")
 
-    print("\n[4/5] Arrancando ULTRON (ultron_interface)...")
+    print("\n[5/6] Arrancando ULTRON (ultron_interface)...")
     start_server("ULTRON", "ultron_interface", "app.py")
 
-    print("\n[5/5] Verificando salud...")
+    print("\n[6/6] Verificando salud...")
     time.sleep(3)
     wait_health("http://127.0.0.1:5000/health", "JARVIS :5000")
     wait_health("http://127.0.0.1:8766/health", "ULTRON :8766")
+    # El calendario responde 503 mientras no haya cuenta autorizada, asi que
+    # aqui basta con saber que el proceso escucha.
+    wait_health("http://127.0.0.1:8002/health", "Calendar MCP :8002", timeout=8)
+
+    import socket as _sock
+    try:
+        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
+        _s.connect(("8.8.8.8", 80))
+        ip = _s.getsockname()[0]
+        _s.close()
+    except Exception:
+        ip = "127.0.0.1"
 
     print("\n" + "=" * 50)
-    print("  LISTO. Interfaz móvil: http://<IP>:5000/mobile")
-    print("  PIN en: http://<IP>:5000/pair")
+    print("  LISTO.")
+    print(f"  Emparejar el telefono:  http://{ip}:5000/pair")
+    print(f"  Interfaz movil:         http://{ip}:5000/mobile")
     print("=" * 50)

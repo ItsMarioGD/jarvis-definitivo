@@ -12,7 +12,7 @@ HOST = os.getenv("JARVIS_HOST", "0.0.0.0")  # 0.0.0.0 = escucha en todas las int
 # ── Ollama ───────────────────────────────────────────────────────────────────
 OLLAMA_BASE = os.getenv("QWEN_BASE_URL", "http://localhost:11434")
 OLLAMA_URL = f"{OLLAMA_BASE.rstrip('/')}/api/generate"
-OLLAMA_MODEL = os.getenv("QWEN_MODEL", "qwen3:4b-instruct")
+OLLAMA_MODEL = os.getenv("QWEN_MODEL", "qwen3:8b")
 OLLAMA_KEY = os.getenv("QWEN_API_KEY", "ollama")
 
 # ── Rutas base ───────────────────────────────────────────────────────────────
@@ -321,10 +321,30 @@ def get_local_ip():
 
 LOCAL_IP = get_local_ip()
 
+_ip_cache = {"ip": LOCAL_IP, "ts": 0.0}
+
+
+def ip_actual():
+    """IP de ahora mismo, no la del arranque.
+
+    El router reparte direcciones nuevas cada pocos dias. Con la IP congelada
+    del arranque, el QR del telefono apuntaba a una direccion muerta y el
+    emparejamiento se quedaba cargando. Se recalcula, con medio minuto de
+    memoria para no preguntar en cada peticion.
+    """
+    import time
+    global LOCAL_IP
+    if time.time() - _ip_cache["ts"] > 30:
+        _ip_cache["ip"] = get_local_ip()
+        _ip_cache["ts"] = time.time()
+        LOCAL_IP = _ip_cache["ip"]
+    return _ip_cache["ip"]
+
+
 # ── URLs de servicios ────────────────────────────────────────────────────────
 def url_flask(path=""):
     """URL completa del servidor Flask."""
-    return f"http://{LOCAL_IP}:{PORT}{path}"
+    return f"http://{ip_actual()}:{PORT}{path}"
 
 def url_ollama():
     """URL de la API de Ollama (generate)."""

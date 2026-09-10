@@ -53,6 +53,16 @@ class ProactiveEngine:
         self._lock = threading.Lock()
         self._rules: List[Callable[[], List[ProactiveEvent]]] = []
 
+        # Cada cuánto puede correr cada regla cara, en segundos.
+        self._RITMO = {
+            "_check_updates": 6 * 3600,     # winget tarda ~0,7 s
+            "_check_thermal": 900,          # PowerShell/WMI, ~0,4 s
+            "_check_disk_space": 1800,
+            "_check_security": 600,
+            "_check_network": 600,
+        }
+        self._ultima_regla = {}
+
         # Registrar reglas built-in
         self._register_builtin_rules()
 
@@ -90,6 +100,16 @@ class ProactiveEngine:
             try:
                 new_events = []
                 for rule in self._rules:
+                    # Las reglas caras (winget, PowerShell, WMI) tardan casi un
+                    # segundo cada una y se lanzaban en CADA pasada. Ahora cada
+                    # una tiene su propio ritmo: lo barato sigue cada vuelta,
+                    # lo caro cada media hora o cada seis.
+                    espera = self._RITMO.get(rule.__name__, 0)
+                    if espera:
+                        ultima = self._ultima_regla.get(rule.__name__, 0)
+                        if time.time() - ultima < espera:
+                            continue
+                        self._ultima_regla[rule.__name__] = time.time()
                     try:
                         events = rule()
                         if events:
@@ -120,6 +140,16 @@ class ProactiveEngine:
 
     def _notify(self, event: ProactiveEvent):
         """Notifica evento via callback del core (TTS, web, etc)."""
+        # Persistir siempre: un aviso que solo se dice en voz alta se pierde si
+        # el señor no estaba delante. En el almacén queda consultable después.
+        try:
+            from storage import get_storage
+            get_storage(log=self.log).registrar_evento(
+                tipo=f"proactivo:{event.category}", titulo=event.title,
+                detalle=event.message, gravedad=event.priority.name.lower(),
+                agente=getattr(self.core, "nombre_agente", "JARVIS"))
+        except Exception:
+            pass
         try:
             # Callback TTS si está disponible
             if hasattr(self.core, 'tts_queue') and event.priority.value >= ProactivePriority.MEDIUM.value:

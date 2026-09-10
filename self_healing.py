@@ -308,11 +308,11 @@ UI actual (truncado):
 {ui_truncated}
 
 Propon hasta 3 selectores alternativos que SÍ funcionen.
-Formato JSON: [{{"type": "resource_id|text|class|description|xpath", "value": "selector", "reason": "por qué"}]]"""
+Formato JSON: [{{"type": "resource_id|text|class|description|xpath", "value": "selector", "reason": "por qué"}}]"""
 
             # Llamar LLM (adaptar a tu cliente OpenAI/Ollama)
             response = await self.llm.chat.completions.create(
-                model=os.getenv("QWEN_MODEL", "qwen3:4b-instruct"),
+                model=os.getenv("QWEN_MODEL", "qwen3:8b"),
                 messages=[
                     {"role": "system", "content": "Eres experto en UIAutomator/Android. Propones selectores robustos."},
                     {"role": "user", "content": prompt}

@@ -1,59 +1,69 @@
-# Dependencias para Jarvis - Asistente Omnimodal
-# Instalar con: pip install -r requirements.txt
+# Dependencias de JARVIS + ULTRON
+#
+#   pip install -r requirements.txt
+#
+# Aqui solo va lo que JARVIS necesita de verdad para funcionar entero: chat,
+# interfaz web, movil, QR de emparejamiento, control del PC, voz y Google
+# Calendar. Todo son paquetes con rueda precompilada, asi que la instalacion
+# no compila nada ni tarda media hora.
+#
+# Lo pesado y opcional (Whisper local, Mem0, pipecat, Piper) esta en
+# requirements-extra.txt, aparte y a proposito: antes iba todo mezclado en
+# este fichero y una sola linea rota tumbaba la instalacion COMPLETA, porque
+# pip resuelve todo el fichero antes de instalar nada. Ese era el motivo de
+# que faltaran qrcode, Pillow y compania, y de que el QR no se generara.
 
-# Framework principal
-pipecat[all]>=0.1.0
-
-# Servicios ElevenLabs (incluido en pipecat[all] pero explicitado)
-elevenlabs>=1.0.0
-
-# Servicios Qwen para Pipecat
-pipecat-ai[qwen]>=0.1.0
-
-# Opcional: Para modelo local Qwen via Ollama/vLLM
-# ollama>=0.1.0
-
-# Para transportes WebRTC
-aiortc>=1.0.0
-aiohttp>=3.8.0
-
-# Utilidades de entorno
+# ── Nucleo: chat con el modelo local (Ollama) y configuracion ──────────────
+openai>=1.12.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 psutil>=5.9.0
-customtkinter>=5.2.0
 
-# Dependencias para Jarvis Core local (UI Funcional)
-openai>=1.12.0
-SpeechRecognition>=3.10.0
-
-# Audio processing (paralingüística, STT local)
-librosa>=0.10.0
-numpy>=1.24.0
-
-# TTS Local (Piper)
-piper-tts>=1.2.0
-
-# NOTA: Si solo quieres chatear con Qwen local, ejecuta:
-#   pip install -r requirements-min.txt
-# Esto evita ~300 MB de pipecat/aiortc que no se usan en Fase 1.
-
-# Dependencias opcionales del generador (jarvis_generator.py):
-# numpy, matplotlib, numpy-stl, openpyxl, python-pptx, python-docx, reportlab
-# Se cargan perezosamente: si faltan, el generador reporta error especifico.
-
-# Interfaz web Flask (solo si vas a usar web_interface/):
+# ── Servidor web y movil ───────────────────────────────────────────────────
 flask>=2.3.0
 flask-socketio>=5.3.0
 
-# MCP Servers
-aiohttp>=3.8.0
+# ── Emparejamiento del telefono ────────────────────────────────────────────
+# Sin esto /qr devolvia un error y la pagina de emparejar salia sin codigo.
+# (jarvis_qr.py sabe generarlo solo si faltara, pero con qrcode sale en PNG.)
+qrcode>=7.4
+Pillow>=10.0.0
+
+# ── Control del PC desde el movil ──────────────────────────────────────────
+# Pillow ya cubre las capturas y la pantalla en vivo (PIL.ImageGrab).
+pyautogui>=0.9.54
+pynput>=1.7.6
+pyperclip>=1.8.2
+
+# ── Voz ────────────────────────────────────────────────────────────────────
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+# PyAudio no se instala aqui: en Windows suele fallar al compilar. JARVIS
+# detecta que falta y sigue funcionando por texto. Si quieres microfono
+# local:  pip install pipwin && pipwin install pyaudio
+
+# ── Interfaz de escritorio (HUD) ───────────────────────────────────────────
+customtkinter>=5.2.0
+
+# ── Google Calendar ────────────────────────────────────────────────────────
 google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.1.0
 
-# Mem0 (memoria tripartita)
-mem0ai>=0.1.0
+# ── Servidores MCP (Calendar, Home Assistant, Android) ────────────────────
+# Sin aiohttp los tres arrancan y mueren al instante, y el calendario nunca
+# llega a responder aunque la cuenta de Google este autorizada.
+aiohttp>=3.9.0
 
-# Headroom (compresión contexto)
-headroom @ file:///_external/headroom
+# ── Habilidades: web, video, camara, documentos ────────────────────────────
+beautifulsoup4>=4.12.0
+numpy>=1.24.0
+yt-dlp>=2024.1.1
+ddgs>=9.0.0
+opencv-python>=4.8.0
+openpyxl>=3.1.0
+python-docx>=1.1.0
+python-pptx>=0.6.23
+reportlab>=4.0.0
+numpy-stl>=3.0.0
+matplotlib>=3.8.0

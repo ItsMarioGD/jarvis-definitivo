@@ -138,6 +138,9 @@ ACCIONES = {
     "movil", "tv", "chromecast", "duplicados", "libera espacio", "cofre",
     "portapapeles", "historial", "ejercicio", "rutina", "reunion", "presets",
     "despertador", "perfil", "animo", "dictado", "informe matutino",
+    # Estado del equipo. Sin estas, «sube el volumen y dime cuanta RAM usas»
+    # no se partia en dos ordenes y JARVIS solo atendia la primera mitad.
+    "ram", "memoria", "cpu", "disco", "espacio", "rendimiento", "recursos",
 }
 
 
@@ -187,7 +190,7 @@ class JarvisCore:
         self.voice_id       = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
         self.base_url       = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1")
         self.api_key        = os.getenv("QWEN_API_KEY", "ollama")
-        self.model          = os.getenv("QWEN_MODEL", "qwen3:4b-instruct")
+        self.model          = os.getenv("QWEN_MODEL", "qwen3:8b")
         self.tts_fallback   = os.getenv("JARVIS_TTS_FALLBACK", "windows").strip().lower()
         # Silencio de la voz local de Windows. Se puede alternar en caliente
         # ("silencia la voz de Windows") y sobrevive al reinicio, porque con
@@ -237,6 +240,11 @@ class JarvisCore:
             "Responde SIEMPRE en espanol. "
             "Respuestas concisas (máx 3 oraciones) salvo que pidan más detalle. "
             "Sin Markdown. Sin asteriscos. Sin listas con guiones. "
+            # Qwen3 razona antes de contestar y, si no se le dice nada, vuelca
+            # el desarrollo entero (con LaTeX incluido) en la respuesta hablada.
+            "No muestres el desarrollo de tus cálculos ni tu razonamiento: "
+            "da el resultado y, como mucho, una frase de justificación. "
+            "Nada de fórmulas escritas ni notación matemática. "
             "Si el usuario pide abrir una aplicación, incluye exactamente [OPEN:nombre_app] en tu respuesta. "
             f"Sistema: {sys_info}. "
             f"Fecha/hora: {time.strftime('%A %d de %B de %Y, %H:%M')}."
@@ -370,10 +378,96 @@ class JarvisCore:
 
         # Contexto rodante (isair transcript buffer): últimas 3 interacciones
         self._contexto = []
+        # Estado del señor inferido de su propia voz. El SignalProcessor ya
+        # calculaba estrés y fatiga en cada frase y el resultado se tiraba a la
+        # basura (había un TODO en listen()). Ahora gobierna el ritmo de la voz,
+        # la estabilidad del TTS y las sugerencias de descanso.
+        self._estado_animo = {"estres": 0.0, "fatiga": 0.0, "arousal": 0.0,
+                              "valencia": 0.0, "confianza": 0.0, "ts": 0.0}
+        # Motor de dictado local: None = sin probar, False = no disponible.
+        self._stt_local = None
+        self._tts_rate = 0             # velocidad de la voz de Windows (-10..10)
+        self._tts_estabilidad = 0.5    # estabilidad de ElevenLabs
+        self._ultimo_consejo_descanso = 0.0
         # Historial TTS para el detector de eco (isair echo_detection)
         self._tts_hist = []
-        # Calentar el modelo local para respuestas rápidas (isair warm_up)
+        # Calentar el modelo local para respuestas rápidas (isair warm_up) y
+        # mantenerlo cargado: Ollama lo descarga a los 5 minutos y la primera
+        # pregunta tras una pausa pagaba 2,2 s de recarga.
         threading.Thread(target=self._warmup_ollama, daemon=True).start()
+        threading.Thread(target=self._mantener_caliente, daemon=True).start()
+        # Y el dictado: cargarlo aquí evita 6,3 s en la primera frase hablada.
+        threading.Thread(target=self._precargar_dictado, daemon=True).start()
+
+        # Motor proactivo (jarvis_proactive.py): estaba escrito entero y no lo
+        # instanciaba nadie, así que JARVIS solo reaccionaba. Vigila batería,
+        # temperatura, disco, red, calendario, seguridad y actualizaciones.
+        # Se apaga con la preferencia «avisos_proactivos» o JARVIS_PROACTIVO=0.
+        self.proactivo = None
+        try:
+            if os.getenv("JARVIS_PROACTIVO", "1") != "0" and                     (self.get_pref("avisos_proactivos") or "1") != "0":
+                from jarvis_proactive import ProactiveEngine
+                intervalo = int(os.getenv("JARVIS_PROACTIVO_INTERVALO", "120"))
+                self.proactivo = ProactiveEngine(self, log=self.log, interval=intervalo)
+                self.proactivo.start()
+            else:
+                self.log("[PROACTIVE] Desactivado por preferencia del señor.")
+        except Exception as e:
+            self.log(f"Motor proactivo desactivado: {e}")
+
+        # Escucha continua con palabra de activación (jarvis_escucha.py).
+        # Es opt-in: necesita micrófono libre, así que solo arranca si el señor
+        # lo pidió («activa la escucha continua») o con JARVIS_ESCUCHA=1.
+        self.escucha = None
+        try:
+            from jarvis_escucha import EscuchaContinua
+            palabras = (os.getenv("JARVIS_PALABRA_ACTIVACION", "").strip() or
+                        ("ultron,jarvis" if getattr(self, "nombre_agente", "JARVIS") == "ULTRON"
+                         else "jarvis")).split(",")
+            self.escucha = EscuchaContinua(self, log=self.log,
+                                           palabras=[p.strip() for p in palabras if p.strip()])
+            if os.getenv("JARVIS_ESCUCHA", "").strip() == "1" or \
+                    (self.get_pref("escucha_continua") or "0") == "1":
+                ok, motivo = self.escucha.start()
+                if not ok:
+                    self.log(f"[ESCUCHA] No pude activarla: {motivo}")
+        except Exception as e:
+            self.log(f"Escucha continua no disponible: {e}")
+
+        # Mantenimiento de memoria: sin esto las bases solo crecían.
+        threading.Thread(target=self._mantenimiento_periodico, daemon=True).start()
+
+        # Enjambre de especialistas y turno de noche: ambos opt-in, porque uno
+        # habla solo y el otro trabaja de madrugada.
+        self.enjambre = None
+        self.nocturno = None
+        try:
+            if (self.get_pref("enjambre") or "0") == "1":
+                from enjambre import Enjambre
+                self.enjambre = Enjambre(self, log=self.log)
+                self.enjambre.start()
+        except Exception as e:
+            self.log(f"Enjambre no disponible: {e}")
+        try:
+            from modo_nocturno import ModoNocturno
+            self.nocturno = ModoNocturno(self, log=self.log)
+            hora = (self.get_pref("modo_nocturno_hora") or "").strip()
+            if hora:
+                self.nocturno.programar(hora)
+        except Exception as e:
+            self.log(f"Turno de noche no disponible: {e}")
+
+        # Perro guardián del propio asistente (vigilante.py): vigila que sigan
+        # vivos el hilo de voz, el motor proactivo, la escucha y el cerebro.
+        # Hasta ahora nadie vigilaba al vigilante de la casa.
+        self.vigilante = None
+        try:
+            if os.getenv("JARVIS_VIGILANTE", "1") != "0":
+                from vigilante import Vigilante
+                self.vigilante = Vigilante(self, log=self.log)
+                self.vigilante.start()
+        except Exception as e:
+            self.log(f"Vigilante no disponible: {e}")
 
         self.hotkey_proc = None
         if os.path.exists("jarvis_hotkey.exe"):
@@ -510,6 +604,28 @@ class JarvisCore:
                 self.tts_queue.task_done()
 
     def shutdown(self):
+        try:
+            if getattr(self, "enjambre", None) is not None:
+                self.enjambre.stop()
+            if getattr(self, "nocturno", None) is not None:
+                self.nocturno.cancelar()
+        except Exception as e:
+            self.log(f"No pude detener el enjambre: {e}")
+        try:
+            if getattr(self, "vigilante", None) is not None:
+                self.vigilante.stop()
+        except Exception as e:
+            self.log(f"No pude detener el vigilante: {e}")
+        try:
+            if getattr(self, "escucha", None) is not None:
+                self.escucha.stop()
+        except Exception as e:
+            self.log(f"No pude detener la escucha continua: {e}")
+        try:
+            if getattr(self, "proactivo", None) is not None:
+                self.proactivo.stop()
+        except Exception as e:
+            self.log(f"No pude detener el motor proactivo: {e}")
         if self.pc is not None:
             try:
                 self.pc.shutdown()
@@ -803,6 +919,25 @@ class JarvisCore:
                 pass
         return d
 
+    def _cliente_llm(self, url: str, clave: str):
+        """Cliente reutilizado por proveedor.
+
+        Antes se construía un OpenAI() nuevo en cada mensaje, y con él una
+        sesión HTTP nueva: unos cuantos milisegundos por frase que no hacían
+        falta, más presión sobre los sockets.
+        """
+        if not hasattr(self, "_clientes_llm"):
+            self._clientes_llm = {}
+        pareja = (url, clave)
+        cliente = self._clientes_llm.get(pareja)
+        if cliente is None:
+            kwargs = {"base_url": url, "api_key": clave}
+            if HAS_HTTPX:
+                kwargs["timeout"] = Timeout(60.0, connect=5.0)
+            cliente = OpenAI(**kwargs)
+            self._clientes_llm[pareja] = cliente
+        return cliente
+
     def _proveedores(self) -> list:
         """[(nombre, base_url, modelo, clave), ...] orden de preferencia."""
         proveedores = []
@@ -817,8 +952,57 @@ class JarvisCore:
             proveedores = [("ollama", self.base_url.rstrip("/"), self.model, self.api_key)]
         return proveedores
 
+    # Qwen3 razona antes de responder. Pensando acierta la aritmética y las
+    # decisiones, pero tarda unos 20 segundos; sin pensar contesta en uno y
+    # falla en cuanto hay que echar cuentas. Ni una cosa ni la otra siempre:
+    # se mira la pregunta y se decide, que es lo que haría un mayordomo.
+    _PIDE_PENSAR = re.compile(
+        r"(cu[aá]nt|calcul|suma|resta|multiplic|divid|porcentaje|promedio|"
+        r"compar|decide|conviene|merece la pena|analiz|razon|deduc|plan|"
+        r"estrategia|diferencia entre|por qu[eé]|c[oó]mo funciona|explica por|"
+        r"script|c[oó]digo|comando|programa|algoritmo|error|falla|depura)",
+        re.IGNORECASE)
+
+    def _esfuerzo_razonamiento(self, texto: str) -> str:
+        """'none' para lo cotidiano, 'low' cuando hay que pensar de verdad."""
+        modo = (os.getenv("JARVIS_RAZONAR", "auto") or "auto").lower()
+        if modo in ("nunca", "no", "off"):
+            return "none"
+        if modo in ("siempre", "si", "on"):
+            return "low"
+        t = (texto or "").strip()
+        if self._PIDE_PENSAR.search(t):
+            return "low"
+        # dos números y un signo suelen ser una cuenta disfrazada de frase
+        if len(re.findall(r"\d+", t)) >= 2:
+            return "low"
+        if len(t) > 160:
+            return "low"
+        return "none"
+
+    def _solo_cerebro_local(self) -> bool:
+        """¿Todos los proveedores son locales? Entonces no hay cuota que cuidar."""
+        try:
+            for _n, url, _m, _c in self._proveedores():
+                if "localhost" not in url and "127.0.0.1" not in url:
+                    return False
+            return True
+        except Exception:
+            return False
+
     def _rate_limit_ok(self) -> bool:
-        """Intervalo mínimo entre llamadas + tope por hora (cuotas gratuitas)."""
+        """Intervalo mínimo entre llamadas + tope por hora (cuotas gratuitas).
+
+        Esto existe para las cuentas gratuitas de proveedores en la nube, que
+        cortan si les hablas muy seguido. Con el modelo LOCAL no hay cuota ni
+        coste: aplicarlo aquí solo añadía hasta DOS SEGUNDOS de espera a cada
+        respuesta seguida, y además hacía que JARVIS se negara a contestar tras
+        cuarenta frases en una hora. Medido en el perfilador: 0,6 s de sueño
+        puro en una respuesta cualquiera.
+        """
+        if self._solo_cerebro_local():
+            return True
+
         cfg = self._cerebro
         min_seg = float(cfg.get("min_segundos") or 2)
         max_hora = int(cfg.get("max_por_hora") or 40)
@@ -888,10 +1072,1219 @@ class JarvisCore:
         if len(self._contexto) > 3:
             self._contexto = self._contexto[-3:]
 
+    # ── MANTENIMIENTO DE MEMORIA ───────────────────────────────────────────
+    def _mantenimiento_periodico(self):
+        """Una pasada de olvido al arrancar y otra cada 24 horas.
+
+        Recorta el grafo de conocimiento, poda el historial de interacciones y
+        purga los registros antiguos de auditoría. Todo con margen amplio: la
+        idea es que la memoria no crezca sin límite, no borrar lo reciente.
+        """
+        time.sleep(120)   # dejar que el arranque respire
+        while True:
+            try:
+                self.mantenimiento_memoria()
+            except Exception as e:
+                self.log(f"[MANTENIMIENTO] {e}")
+            time.sleep(86400)
+
+    def mantenimiento_memoria(self) -> str:
+        """Poda memoria y registros. Devuelve el resumen para decirlo en voz alta."""
+        partes = []
+        try:
+            dias = int(os.getenv("JARVIS_OLVIDO_DIAS", "45"))
+            r = jarvis_grafo.olvidar(dias=dias)
+            if r.get("nodos_borrados") or r.get("debilitados"):
+                partes.append(f"grafo: {r['nodos_borrados']} conceptos olvidados, "
+                              f"{r['debilitados']} debilitados")
+        except Exception as e:
+            self.log(f"[MANTENIMIENTO] grafo: {e}")
+
+        # Historial de conversación: conservar las últimas N interacciones.
+        try:
+            tope = int(os.getenv("JARVIS_HISTORIAL_MAX", "5000"))
+            with self._db_lock:
+                self.cursor.execute(
+                    "DELETE FROM interactions WHERE id NOT IN "
+                    "(SELECT id FROM interactions ORDER BY id DESC LIMIT ?)", (tope,))
+                borradas = self.cursor.rowcount or 0
+                self.conn.commit()
+            if borradas > 0:
+                partes.append(f"historial: {borradas} interacciones antiguas retiradas")
+        except Exception as e:
+            self.log(f"[MANTENIMIENTO] historial: {e}")
+
+        try:
+            from storage import get_storage
+            purgadas = get_storage(log=self.log).purgar(
+                dias=int(os.getenv("JARVIS_AUDITORIA_DIAS", "90")))
+            if purgadas:
+                partes.append(f"registros: {purgadas} entradas purgadas")
+        except Exception as e:
+            self.log(f"[MANTENIMIENTO] registros: {e}")
+
+        resumen = "; ".join(partes) or "no hacía falta olvidar nada"
+        self.log(f"[MANTENIMIENTO] {resumen}")
+        return resumen
+
+    # ── VERIFICACIÓN PREVIA ────────────────────────────────────────────────
+    def _revisar_antes_de_actuar(self, texto: str):
+        """Devuelve el aviso si hay que frenar, o None para seguir.
+
+        Solo entra en acciones destructivas: lo demás no paga ni un milisegundo.
+        Si el señor insiste («hazlo igual»), se ejecuta lo que quedó pendiente.
+        """
+        import verificador
+
+        # Reejecución ya aprobada por el señor: no volver a frenarla.
+        if getattr(self, "_saltar_freno", False):
+            return None
+
+        # ¿Está insistiendo sobre algo que frené hace un momento?
+        pendiente = getattr(self, "_plan_frenado", None)
+        if pendiente and verificador.insiste(texto):
+            self._plan_frenado = None
+            self.log(f"[VERIFICADOR] El señor insiste: ejecuto «{pendiente[:60]}»")
+            return None if pendiente == texto else self._procesar_sin_freno(pendiente)
+
+        t = (texto or "").lower()
+        destructiva = re.search(
+            r"\b(borra|borrar|elimina|eliminar|formatea|formatear|desinstala|"
+            r"desinstalar|vacia|vacía|vaciar|mata|matar|purga|purgar|"
+            r"sobrescribe|sobreescribe)\b", t)
+        if not destructiva:
+            return None
+
+        veredicto = verificador.verificar(self, texto, con_modelo=True, log=self.log)
+        if not verificador.hay_que_parar(veredicto):
+            return None
+        self._plan_frenado = texto
+        return veredicto["frase"]
+
+    def _procesar_sin_freno(self, texto: str) -> str:
+        """Ejecuta un plan ya revisado y aprobado a mano por el señor.
+
+        El interruptor evita el bucle evidente: sin él, la reejecución volvía a
+        pasar por el verificador y se frenaba a sí misma para siempre.
+        """
+        self._plan_frenado = None
+        self._saltar_freno = True
+        try:
+            return self._procesar(texto, speak_server=False)
+        finally:
+            self._saltar_freno = False
+
+    # ── ÓRDENES SOBRE EL PROPIO ASISTENTE ──────────────────────────────────
+    def _ordenes_meta(self, texto: str):
+        # Señal de vida para el protocolo de relevo: cualquier frase del señor
+        # reinicia el contador de inactividad.
+        try:
+            import relevo
+            relevo.latido(log=self.log)
+        except Exception:
+            pass
+        """Preguntas del señor sobre lo que Jarvis ha hecho, sabe o siente.
+
+        Vive en el núcleo y no en jarvis_skills porque necesita el almacén de
+        acciones, el hub cognitivo y el estado paralingüístico, que son cosas
+        del núcleo. Antes no existía ninguna forma de preguntar «¿qué has
+        ejecutado?» y comprobar si una orden se cumplió de verdad.
+        """
+        if not texto:
+            return None
+        t = texto.lower().strip()
+
+        def _almacen():
+            from storage import get_storage
+            return get_storage(log=self.log)
+
+        agente = getattr(self, "nombre_agente", "JARVIS")
+        trato = "señor. " if agente == "JARVIS" else ""
+
+        if re.search(r"que (has|habias) (ejecutado|hecho)( hoy)?|registro de acciones|"
+                     r"ultimas acciones|últimas acciones|que ordenes ejecutaste", t):
+            filas = _almacen().acciones_recientes(6)
+            if not filas:
+                return f"No he ejecutado nada todavía, {trato}".strip()
+            detalle = "; ".join(
+                f"{f['orden'][:38] or f['comando'][:38]} ({'bien' if f['ok'] else 'falló'})"
+                for f in filas)
+            resumen = _almacen().resumen(24)
+            return (f"En las últimas 24 horas he ejecutado {resumen['acciones']} órdenes, "
+                    f"{resumen['fallos']} con error. Las más recientes: {detalle}.")
+
+        if re.search(r"que (te )?ha fallado|fallos recientes|que salio mal|errores recientes", t):
+            filas = _almacen().acciones_recientes(6, solo_fallos=True)
+            if not filas:
+                return f"Ninguna orden ha fallado últimamente, {trato}".strip()
+            detalle = "; ".join(f"{f['orden'][:34] or f['comando'][:34]}: {f['detalle'][:60]}"
+                                for f in filas)
+            return f"Estas órdenes fallaron: {detalle}."
+
+        if re.search(r"que ha pasado|eventos recientes|hubo intrusos|quien entro|quién entró|"
+                     r"registro de seguridad", t):
+            filas = _almacen().eventos_recientes(8)
+            if not filas:
+                return f"No hay eventos registrados, {trato}".strip()
+            detalle = "; ".join(f"{f['ts'][5:16]} {f['titulo'][:50]}" for f in filas)
+            return f"Últimos eventos: {detalle}."
+
+        if re.search(r"estado (de tus|de los) motores|estado cognitivo|que motores tienes", t):
+            if getattr(self, "cognition", None) is None:
+                return "La capa cognitiva no está disponible en este arranque."
+            estado = self.cognition.estado()
+            activos = ", ".join(estado["activos"]) or "ninguno cargado aún"
+            fallidos = "; ".join(f"{k}: {v[:40]}" for k, v in estado["fallidos"].items())
+            return (f"Motores activos: {activos}."
+                    + (f" Fallaron: {fallidos}." if fallidos else ""))
+
+        if re.search(r"entrena tu clasificador|aprende de mis ordenes|aprende de mis órdenes|"
+                     r"reentrena tus intenciones", t):
+            return self.entrenar_intenciones()
+
+        if re.search(r"(silencia|desactiva|calla|quita)( los| tus)? avisos( proactivos)?|"
+                     r"deja de avisarme|no me avises", t):
+            self.set_pref("avisos_proactivos", "0")
+            if getattr(self, "proactivo", None) is not None:
+                self.proactivo.stop()
+                self.proactivo = None
+            return f"Avisos proactivos silenciados, {trato}Seguiré vigilando sin interrumpir.".strip()
+
+        if re.search(r"(?<!des)(activa|enciende|reactiva)( los| tus)? avisos( proactivos)?|"
+                     r"vuelve a avisarme|avisame de todo", t):
+            self.set_pref("avisos_proactivos", "1")
+            try:
+                if getattr(self, "proactivo", None) is None:
+                    from jarvis_proactive import ProactiveEngine
+                    self.proactivo = ProactiveEngine(self, log=self.log,
+                                                     interval=int(os.getenv("JARVIS_PROACTIVO_INTERVALO", "120")))
+                self.proactivo.start()
+            except Exception as e:
+                return f"No pude arrancar el motor proactivo: {e}"
+            return f"Avisos proactivos activos, {trato}Le avisaré de lo importante.".strip()
+
+        if re.search(r"(transcribe|dicta|escucha) (en|con) local|dictado local|"
+                     r"no mandes mi voz|deja de usar google para (oirme|oírme)", t):
+            self.set_pref("stt_local", "1")
+            return f"Dictado local activado, {trato}Su voz ya no sale del equipo.".strip()
+
+        if re.search(r"(transcribe|dicta|escucha) en la nube|dictado en la nube|"
+                     r"usa google para (oirme|oírme)", t):
+            self.set_pref("stt_local", "0")
+            return f"Dictado en la nube activado, {trato}".strip()
+
+        if re.search(r"(?<!des)(activa|enciende|arranca)( la)? escucha( continua)?|"
+                     r"escuchame siempre|escúchame siempre|modo manos libres", t):
+            if getattr(self, "escucha", None) is None:
+                return "No tengo el módulo de escucha continua disponible."
+            ok, motivo = self.escucha.start()
+            if not ok:
+                return f"No pude activar la escucha continua: {motivo}."
+            self.set_pref("escucha_continua", "1")
+            nombres = ", ".join(self.escucha.palabras)
+            return (f"Escucha continua activa, {trato}Llámeme por mi nombre ({nombres}) "
+                    "y respondo. Puede interrumpirme cuando quiera.").strip()
+
+        if re.search(r"(desactiva|apaga|para|deten)( la)? escucha( continua)?|"
+                     r"deja de escuchar|no me escuches", t):
+            self.set_pref("escucha_continua", "0")
+            if getattr(self, "escucha", None) is not None:
+                self.escucha.stop()
+            return f"Escucha continua desactivada, {trato}".strip()
+
+        if re.search(r"(haz|hazme)? ?(una )?limpieza de memoria|olvida lo viejo|"
+                     r"poda tu memoria|libera memoria antigua", t):
+            return f"Hecho, {trato}".strip() + " " + self.mantenimiento_memoria() + "."
+
+        if re.search(r"cuanta memoria tienes|tamaño de tu memoria|"
+                     r"cuanto sabes|estado de tu memoria", t):
+            g = jarvis_grafo.estadisticas()
+            try:
+                from storage import get_storage
+                r = get_storage(log=self.log).resumen(24)
+            except Exception:
+                r = {"acciones": 0, "fallos": 0}
+            return (f"Mi grafo tiene {g['nodos']} conceptos y {g['aristas']} relaciones. "
+                    f"En 24 horas he ejecutado {r['acciones']} órdenes con {r['fallos']} fallos.")
+
+        if re.search(r"^(deshaz|deshacer|desaz|revierte|anula) (eso|lo ultimo|lo último|"
+                     r"lo que hiciste|el ultimo cambio|el último cambio)|^deshaz$|"
+                     r"vuelve atras|vuelve atrás|marcha atras|marcha atrás", t):
+            import deshacer
+            cuantas = 1
+            m = re.search(r"(?:las |los )?(?:ultim[ao]s? )?(\d{1,2})\b", t)
+            if m and re.search(r"ultim|últim|acciones|cambios", t):
+                cuantas = max(1, min(int(m.group(1)), 20))
+            return deshacer.deshacer_ultimo(
+                cuantas, log=self.log, set_pref=self.set_pref,
+                agente=getattr(self, "nombre_agente", "JARVIS"))
+
+        if re.search(r"que puedes deshacer|que se puede deshacer|"
+                     r"que es reversible|historial de deshacer", t):
+            import deshacer
+            return deshacer.listar(limite=5, log=self.log)
+
+        if re.search(r"(como|cómo) (estas|estás) de salud|estado de salud|"
+                     r"te has caido|te has caído|salud del sistema|"
+                     r"estas bien|estás bien", t):
+            if getattr(self, "vigilante", None) is None:
+                return "El vigilante está apagado en este arranque."
+            return self.vigilante.resumen()
+
+        if re.search(r"(desactiva|quita|apaga)( el)? modo privado|"
+                     r"vuelve a usar la nube", t):
+            import privacidad
+            return privacidad.desactivar(self)
+
+        if re.search(r"(?<!des)(activa|enciende|pon)( el)? modo privado|"
+                     r"modo (privado|sin nube|offline)|no mandes nada fuera|"
+                     r"corta (la nube|las conexiones externas)", t):
+            import privacidad
+            return privacidad.activar(self)
+
+        if re.search(r"que sale de (mi|este) (pc|equipo|ordenador)|"
+                     r"que informacion sale|auditoria de privacidad|"
+                     r"por donde sale mi (voz|informacion)|estoy siendo privado", t):
+            import privacidad
+            return privacidad.informe(self)
+
+        if re.search(r"(haz|crea|exporta)( una)? copia (de seguridad )?(de tu (cerebro|memoria))?|"
+                     r"exporta tu cerebro|respalda tu memoria|copia tu cerebro", t):
+            import cerebro_backup
+            try:
+                ruta = cerebro_backup.exportar(log=self.log)
+            except Exception as e:
+                return f"No pude crear la copia, señor: {e}"
+            return (f"Copia de mi cerebro guardada, señor, en {ruta}. "
+                    "No incluye credenciales; si las quiere, hay que pedirlo aparte.")
+
+        if re.search(r"que herramientas tienes|de que eres capaz|"
+                     r"que puedes ejecutar|lista de herramientas", t):
+            try:
+                from herramientas_llm import Herramientas
+                caja = Herramientas(self, log=self.log)
+                nombres = [d["function"]["name"] for d in caja.definiciones()]
+            except Exception as e:
+                return f"No pude leer mis herramientas: {e}"
+            return (f"Tengo {len(nombres)} herramientas que el cerebro puede usar solo: "
+                    + ", ".join(nombres[:12]) + "… y las habilidades de siempre.")
+
+        if re.search(r"(mira|lee|analiza|interpreta|revisa) (mi |la )?pantalla|"
+                     r"que (ves|hay) en (mi |la )?pantalla|que error (me )?(da|sale)|"
+                     r"que dice (esta|la) (pantalla|ventana|imagen)|"
+                     r"que estoy (viendo|mirando)", t):
+            import vision
+            pregunta = texto.strip()
+            return vision.mirar_pantalla(pregunta, log=self.log)
+
+        if re.search(r"tienes ojos|puedes ver|estado de (tu )?vision|estado de tus ojos", t):
+            import vision
+            e = vision.estado(log=self.log)
+            if e["listo"]:
+                return f"Veo con el modelo {e['modelo']}, señor. Todo local."
+            return vision.instrucciones_instalacion()
+
+        # ── Piloto: usar el PC como lo haría un humano ──────────────────
+        m_pilo = re.search(r"(?:pilota|toma el control|hazlo tu mismo|hazlo tú mismo|"
+                           r"usa el raton|usa el ratón|encargate de)\s*(?:y\s+)?(.*)$", t)
+        if m_pilo and len(m_pilo.group(1).strip()) > 3:
+            objetivo = m_pilo.group(1).strip()
+            from piloto import Piloto
+            if getattr(self, "piloto", None) is None:
+                self.piloto = Piloto(self, log=self.log)
+            # Ensayo primero: un clic no se puede deshacer, así que el señor ve
+            # el primer paso antes de que nada se mueva.
+            if not re.search(r"\bsin ensayo|hazlo ya|adelante\b", t):
+                previo = self.piloto.ejecutar(objetivo, seco=True)
+                return (previo + " Si le parece bien, dígame «hazlo ya» y sigo "
+                        "hasta el final.")
+            return self.piloto.ejecutar(objetivo)
+
+        if re.search(r"(que harias si|ensaya|simula|prueba en seco|que pasaria si)\s+(.+)", t):
+            import sandbox
+            m_ens = re.search(r"(?:que harias si|ensaya|simula|prueba en seco|que pasaria si)\s+(.+)", t)
+            return sandbox.informe_impacto(m_ens.group(1).strip(), log=self.log)
+
+        if re.search(r"puedes ensayar|como ensayas|modos de ensayo|tienes sandbox", t):
+            import sandbox
+            return sandbox.resumen()
+
+        # ── Señuelos anti-ransomware ────────────────────────────────────────
+        if re.search(r"(despliega|pon|coloca)( los)? (señuelos|senuelos|canarios)|"
+                     r"protegeme del ransomware|proteccion anti ?ransomware", t):
+            import canarios
+            texto_despliegue = canarios.desplegar(log=self.log)
+            if getattr(self, "canarios", None) is None:
+                self.canarios = canarios.Canarios(self, log=self.log)
+            return texto_despliegue + " " + self.canarios.start()
+
+        if re.search(r"(retira|quita)( los)? (señuelos|senuelos|canarios)", t):
+            import canarios
+            if getattr(self, "canarios", None) is not None:
+                self.canarios.stop()
+            return canarios.retirar(log=self.log)
+
+        if re.search(r"estado de los (señuelos|senuelos|canarios)|"
+                     r"como va la proteccion anti ?ransomware", t):
+            if getattr(self, "canarios", None) is None:
+                return "Los señuelos no están desplegados, señor."
+            e = self.canarios.estado()
+            return (f"{e['desplegados']} señuelos desplegados, "
+                    f"{'vigilando' if e['vigilando'] else 'sin vigilar'}, "
+                    f"revisión cada {e['intervalo_s']} segundos.")
+
+        if re.search(r"restaura la red|devuelve la red|vuelve a abrir la red", t):
+            import canarios
+            return canarios.restaurar_red(log=self.log)
+
+        # ── Turno de noche ──────────────────────────────────────────────────
+        m_noche = re.search(r"(?:turno de noche|modo nocturno|trabaja de noche)"
+                            r"(?:.*?(\d{1,2})[:.](\d{2}))?", t)
+        if m_noche and re.search(r"turno de noche|modo nocturno|trabaja de noche", t):
+            if getattr(self, "nocturno", None) is None:
+                return "El turno de noche no está disponible en este arranque."
+            if re.search(r"cancela|desactiva|quita|para", t):
+                return self.nocturno.cancelar()
+            if re.search(r"que hiciste|informe|parte de (la )?noche|resumen de la noche", t):
+                return self.nocturno.informe_ultimo()
+            if re.search(r"ahora|ya|ejecuta", t):
+                try:
+                    import orquestador
+                    tareas = orquestador.tareas_segun_agenda(self, log=self.log)
+                except Exception:
+                    tareas = None
+                return self.nocturno.ejecutar(claves=tareas)
+            hora = f"{m_noche.group(1)}:{m_noche.group(2)}" if m_noche.group(1) else "03:30"
+            return self.nocturno.programar(hora)
+
+        if re.search(r"que hiciste (anoche|esta noche)|parte de la noche|"
+                     r"informe nocturno", t):
+            if getattr(self, "nocturno", None) is None:
+                return "No tengo turno de noche configurado, señor."
+            return self.nocturno.informe_ultimo()
+
+        # ── Enjambre de especialistas ───────────────────────────────────────
+        if re.search(r"(?<!des)(activa|enciende|despliega)( el)? enjambre|"
+                     r"(?<!des)activa (los|tus) (especialistas|agentes)", t):
+            try:
+                from enjambre import Enjambre
+                if getattr(self, "enjambre", None) is None:
+                    self.enjambre = Enjambre(self, log=self.log)
+                self.set_pref("enjambre", "1")
+                return self.enjambre.start()
+            except Exception as e:
+                return f"No pude activar el enjambre, señor: {e}"
+
+        if re.search(r"(desactiva|apaga|para)( el)? enjambre|calla (a )?(los|tus) (especialistas|agentes)", t):
+            self.set_pref("enjambre", "0")
+            if getattr(self, "enjambre", None) is not None:
+                self.enjambre.stop()
+            return "Enjambre detenido, señor."
+
+        if re.search(r"que dicen (los|tus) (especialistas|agentes)|"
+                     r"resumen del enjambre|que han visto tus agentes", t):
+            if getattr(self, "enjambre", None) is None:
+                return "El enjambre está apagado, señor."
+            return self.enjambre.resumen()
+
+        # ── Consejo adversario (JARVIS contra ULTRON) ───────────────────────
+        m_consejo = re.search(r"(?:consulta al consejo|que opinan los dos|"
+                              r"delibera(?:d)?|debate|pregunta a ultron y a jarvis|"
+                              r"consejo sobre)\s+(?:sobre\s+)?(.+)", t)
+        if m_consejo:
+            import consejo
+            return consejo.deliberar(self, m_consejo.group(1).strip(), log=self.log)
+
+        # ── Hábitos y anticipación ──────────────────────────────────────────
+        if re.search(r"que suelo (hacer|pedir)|conoces mis habitos|mis costumbres|"
+                     r"que hago normalmente", t):
+            import prediccion
+            return prediccion.informe(log=self.log)
+
+        if re.search(r"(anticipate|adelantate|prepara lo de siempre|"
+                     r"lo de costumbre|lo habitual)", t):
+            import prediccion
+            frase = prediccion.frase_sugerencia(log=self.log)
+            return frase or "Aún no sé qué suele pedirme a esta hora, señor."
+
+        # ── Buscar dentro de los documentos (RAG local) ─────────────────────
+        m_doc = re.search(r"(?:busca|buscame|que decia|qué decía|encuentra|segun|"
+                          r"según)\s+(?:en\s+)?(?:mis\s+)?(?:documentos|apuntes|"
+                          r"archivos|papeles|notas)\s+(?:sobre\s+|lo de\s+|acerca de\s+)?(.+)", t)
+        if m_doc:
+            import indice_documentos
+            return indice_documentos.responder(self, m_doc.group(1).strip(), log=self.log)
+
+        m_conv = re.search(r"(?:que me dijiste|que hablamos|que dijimos|"
+                           r"de que hablamos|cuando hablamos)\s+(?:sobre |de |del |"
+                           r"acerca de )?(.+)", t)
+        if m_conv:
+            import indice_documentos
+            return indice_documentos.buscar_conversacion(m_conv.group(1).strip(),
+                                                         log=self.log)
+
+        if re.search(r"indexa (nuestras )?conversaciones|"
+                     r"indexa (nuestro |el )?historial", t):
+            import indice_documentos
+            return indice_documentos.indexar_conversaciones(log=self.log)
+
+        if re.search(r"indexa (mis )?(documentos|archivos|carpetas)|"
+                     r"lee mis documentos|actualiza el indice", t):
+            import indice_documentos
+            return indice_documentos.indexar(log=self.log)
+
+        if re.search(r"estado del indice|cuantos documentos (tienes|has leido)", t):
+            import indice_documentos
+            e = indice_documentos.estado(log=self.log)
+            motor = "por significado" if e["embeddings"] else "por texto completo"
+            return (f"Tengo {e['archivos']} documentos indexados en {e['trozos']} "
+                    f"fragmentos, señor, con búsqueda {motor}.")
+
+        # ── Identidad por voz ───────────────────────────────────────────────
+        if re.search(r"(registra|aprende|memoriza) mi voz|reconoce mi voz", t):
+            return ("Para registrar su voz necesito varias frases grabadas, señor. "
+                    "Dígamelo desde la interfaz web, donde puedo capturar el audio: "
+                    "allí grabaré tres frases y me quedaré con su huella.")
+
+        if re.search(r"reconoces mi voz|estado de (tu )?(identidad|huella) de voz", t):
+            import voz_identidad
+            e = voz_identidad.estado()
+            if not e["registrada"]:
+                return "Todavía no tengo registrada su voz, señor."
+            return (f"Su voz está registrada, señor ({e['dimensiones']} rasgos, "
+                    f"motor {e['motor']}). Umbral de parecido: {e['umbral']}.")
+
+        if re.search(r"(exige|pide|requiere) mi voz|solo obedeceme a mi|"
+                     r"solo obedéceme a mí", t):
+            self.set_pref("exigir_voz", "1")
+            return ("De acuerdo, señor: las órdenes destructivas solo las obedeceré "
+                    "si reconozco su voz.")
+
+        if re.search(r"obedece a cualquiera|quita la exigencia de voz", t):
+            self.set_pref("exigir_voz", "0")
+            return "Obedeceré a cualquier voz, señor."
+
+        # ── Memoria episódica (grabar la pantalla) ──────────────────────────
+        if re.search(r"(empieza|comienza|ponte) a grabar (mi )?(pantalla|escritorio)|"
+                     r"activa el rebobinado|graba lo que hago", t):
+            from rebobinar import Rebobinador
+            if getattr(self, "rebobinador", None) is None:
+                self.rebobinador = Rebobinador(self, log=self.log)
+            return self.rebobinador.start()
+
+        if re.search(r"(deja|para) de grabar|desactiva el rebobinado", t):
+            if getattr(self, "rebobinador", None) is None:
+                return "No estaba grabando, señor."
+            return self.rebobinador.stop()
+
+        if re.search(r"borra (la|lo de la) ultima hora|olvida la ultima hora|"
+                     r"borra lo que grabaste", t):
+            if getattr(self, "rebobinador", None) is None:
+                return "No hay nada grabado, señor."
+            return self.rebobinador.borrar_rango(1)
+
+        m_reb = re.search(r"(?:que estaba (?:haciendo|viendo)|donde vi|dónde vi|"
+                          r"rebobina|recuerda cuando)\s+(.+)", t)
+        if m_reb:
+            if getattr(self, "rebobinador", None) is None:
+                from rebobinar import Rebobinador
+                self.rebobinador = Rebobinador(self, log=self.log)
+            return self.rebobinador.relato(m_reb.group(1).strip())
+
+        # ── Habilidades que se escribe él solo ──────────────────────────────
+        m_auto = re.search(r"(?:escribete|escríbete|crea|programa) (?:una )?"
+                           r"habilidad (?:para |que )?(.+)", t)
+        if m_auto:
+            import autoskills
+            resultado = autoskills.proponer(self, m_auto.group(1).strip(), log=self.log)
+            return autoskills.resumen_propuesta(resultado)
+
+        if re.search(r"que habilidades? (tienes )?pendientes|habilidades en cuarentena", t):
+            import autoskills
+            pend = autoskills.pendientes()
+            return ("Tengo pendientes de aprobación: " + ", ".join(pend) + "."
+                    if pend else "No tengo habilidades pendientes, señor.")
+
+        m_aprob = re.search(r"(?:aprueba|instala) (?:la habilidad )?([\w.]+)", t)
+        if m_aprob and "habilidad" in t:
+            import autoskills
+            return autoskills.aprobar(m_aprob.group(1), log=self.log)
+
+        m_ver = re.search(r"(?:muestrame|muéstrame|ensename|enséñame) la habilidad ([\w.]+)", t)
+        if m_ver:
+            import autoskills
+            return autoskills.ver(m_ver.group(1))[:1500]
+
+        # ── Colisiones entre habilidades ────────────────────────────────────
+        if re.search(r"(colisiones|habilidades que se pisan|conflictos de habilidades)", t):
+            import colisiones
+            return colisiones.informe(log=self.log)[:1800]
+
+        m_quien = re.search(r"quien atiende (?:la orden )?«?(.+?)»?$", t)
+        if m_quien:
+            import colisiones
+            return colisiones.quien_atiende(m_quien.group(1).strip(), log=self.log)
+
+        # ── Recados ─────────────────────────────────────────────────────────
+        if re.search(r"tengo recados|hay recados|quien me ha escrito|"
+                     r"resumen de mensajes", t):
+            import recados
+            return recados.resumen()
+
+        # ── Protocolo de relevo ─────────────────────────────────────────────
+        if re.search(r"(activa|configura)( el)? (protocolo de )?relevo|"
+                     r"si me pasa algo|protocolo de inactividad", t):
+            import relevo
+            return relevo.activar(log=self.log)
+
+        if re.search(r"(desactiva|cancela)( el)? (protocolo de )?relevo", t):
+            import relevo
+            return relevo.desactivar(log=self.log)
+
+        if re.search(r"estado del relevo|como va el protocolo de relevo", t):
+            import relevo
+            return relevo.resumen()
+
+        # ── Enlace entre equipos ────────────────────────────────────────────
+        if re.search(r"(estado de(l)? (los )?(enlace|equipos|nodos))|"
+                     r"que equipos tienes|otros ordenadores", t):
+            from cluster import Cluster
+            if getattr(self, "cluster", None) is None:
+                self.cluster = Cluster(self, log=self.log)
+            return self.cluster.resumen()
+
+        if re.search(r"(activa|enciende)( el)? enlace( entre equipos)?", t):
+            from cluster import Cluster
+            if getattr(self, "cluster", None) is None:
+                self.cluster = Cluster(self, log=self.log)
+            return self.cluster.start()
+
+        # ── Ajuste fino del modelo ──────────────────────────────────────────
+        if re.search(r"puedes afinar(te)?|ajuste fino|entrenar (tu|el) modelo|lora|"
+                     r"estado del afinado|cuanto has aprendido de mi|"
+                     r"cuánto has aprendido de mí", t):
+            import afinar
+            resumen_afinado = afinar.resumen(log=self.log)
+            info = afinar.comprobar(log=lambda *a: None)
+            if info.get("gpu"):
+                resumen_afinado += f" GPU: {info['gpu']} con {info['vram_gb']} GB."
+            return resumen_afinado
+
+        if re.search(r"exporta (tu|el) (historial|dataset)|prepara el entrenamiento|"
+                     r"af[ií]nate|aprende de m[ií]|entr[eé]nate conmigo", t):
+            import afinar
+            datos = afinar.estado(log=lambda *a: None)
+            ruta = afinar.exportar(log=self.log)
+            guion = afinar.guion(ruta, log=self.log)
+            aviso = ""
+            if not datos["suficiente"]:
+                aviso = (f" Aún somos pocos datos ({datos['conversaciones']} de "
+                         f"{datos['minimo']}): el resultado sería flojo.")
+            return (f"Dataset y guion listos, señor: {os.path.basename(ruta)} y "
+                    f"{os.path.basename(guion)}, en la carpeta Afinado. "
+                    f"{datos['equipo']['recomendacion']}{aviso}")
+
+        # ── Perfiles de contexto ────────────────────────────────────────────
+        m_perfil = re.search(r"(?:modo|perfil) (trabajo|juego|noche|invitado|normal)|"
+                             r"(?:ponte|pon) en modo (trabajo|juego|noche|invitado|normal)", t)
+        if m_perfil:
+            import perfiles
+            nombre = m_perfil.group(1) or m_perfil.group(2)
+            if nombre == "normal":
+                return perfiles.restaurar(self, log=self.log)
+            return perfiles.activar(self, nombre, log=self.log)
+
+        if re.search(r"que perfil (tienes|esta activo|está activo)|en que modo estas", t):
+            import perfiles
+            e = perfiles.estado()
+            return (f"Perfil {e['perfil']}, señor: {e['descripcion']}. "
+                    f"Puedo cambiar a: {', '.join(x for x in e['disponibles'] if x != e['perfil'])}.")
+
+        # ── Valoraciones y aprendizaje ──────────────────────────────────────
+        if re.search(r"como lo estoy haciendo|que tal lo haces|"
+                     r"informe de valoraciones|acierto", t):
+            import feedback
+            return feedback.informe(log=self.log)
+
+        # ── Micrófonos y altavoces ──────────────────────────────────────────
+        if re.search(r"que microfonos tienes|lista de microfonos|"
+                     r"que dispositivos de audio", t):
+            import audio_dispositivos
+            return audio_dispositivos.frase_microfonos(self, log=self.log)
+
+        m_mic = re.search(r"usa el microfono (\d+)", t)
+        if m_mic:
+            import audio_dispositivos
+            return audio_dispositivos.elegir(self, int(m_mic.group(1)), log=self.log)
+
+        if re.search(r"prueba el microfono|me oyes bien|comprueba el microfono", t):
+            import audio_dispositivos
+            return audio_dispositivos.probar(self, log=self.log)
+
+        # ── Rendimiento ─────────────────────────────────────────────────────
+        if re.search(r"por que tardas|cuanto tardas|rendimiento|"
+                     r"donde se va el tiempo|latencia", t):
+            import metricas
+            return metricas.informe()
+
+        if re.search(r"cuanto (has )?gastado|coste de la voz|gasto de elevenlabs", t):
+            import metricas
+            datos = metricas.resumen()
+            return (f"Llevo {datos['caracteres_elevenlabs']} caracteres de voz en la "
+                    f"nube, señor: unos {datos['coste_voz_estimado_usd']:.2f} dólares "
+                    "estimados. La voz local no cuesta nada.")
+
+        # ── Inventario de habilidades autogeneradas ─────────────────────────
+        if re.search(r"que habilidades (has )?escrito|habilidades autogeneradas|"
+                     r"quien escribio tus habilidades", t):
+            import autoskills
+            return autoskills.inventario()
+
+        # ── Parte del día y preparación anticipada ──────────────────────────
+        if re.search(r"parte del dia|parte de la mañana|resumen del dia|"
+                     r"ponme al dia|que tal va todo|buenos dias jarvis", t):
+            import orquestador
+            return orquestador.parte_de_manana(self, log=self.log)
+
+        if re.search(r"preparame lo de|prepara lo que viene|"
+                     r"que viene ahora|preparate para", t):
+            import orquestador
+            return orquestador.preparar_para(self, log=self.log)
+
+        if re.search(r"^(si|sí|hazlo|adelante|preparalo|prepáralo)$", t.strip()):
+            # Respuesta corta a una oferta de preparación: solo actúa si la
+            # última frase mía fue justo esa oferta.
+            ultima = (self._contexto[-1][1] if self._contexto else "")
+            if "suele pedirme" in ultima:
+                import orquestador
+                return orquestador.ejecutar_preparacion(self, log=self.log)
+
+        # ── Actualización con vuelta atrás ──────────────────────────────────
+        if re.search(r"hay actualizaciones tuyas|tienes version nueva|"
+                     r"busca actualizaciones de ti", t):
+            import actualizar
+            datos = actualizar.hay_novedades(log=self.log)
+            if not datos.get("hay"):
+                return f"Estoy al día, señor: {datos.get('motivo', '')}."
+            return (f"Hay {datos['commits']} cambios nuevos, señor. Dígame "
+                    "«actualízate» y los aplico; si algo falla vuelvo atrás solo.")
+
+        if re.search(r"actualizate|actualízate|instala tu actualizacion", t):
+            import actualizar
+            return actualizar.actualizar(log=self.log)
+
+        if re.search(r"vuelve a la version anterior|deshaz la actualizacion", t):
+            import actualizar
+            return actualizar.volver(log=self.log)
+
+        # ── Arranque automático ─────────────────────────────────────────────
+        if re.search(r"instalate como servicio|arranca (siempre )?con el (pc|equipo)|"
+                     r"quiero que arranques solo", t):
+            import servicio
+            return servicio.instalar(al_arrancar_equipo="equipo" in t, log=self.log)
+
+        if re.search(r"como arrancas|estado del (servicio|arranque)", t):
+            import servicio
+            return servicio.resumen(log=self.log)
+
+        if re.search(r"no arranques solo|quita el arranque automatico", t):
+            import servicio
+            return servicio.quitar(log=self.log)
+
+        # ── Analista: escribe un programa, lo ejecuta y corrige sus errores ──
+        m_anal = re.search(r"(?:analiza|calcula con codigo|calcula con código|"
+                           r"escribe un programa (?:que|para)|resuelvelo con codigo|"
+                           r"hazme un analisis de|haz un analisis de)\s+(.+)", t)
+        if m_anal:
+            import analista
+            peticion = texto.strip()
+            resultado = analista.resolver(self, peticion, log=self.log)
+            return analista.frase(resultado)
+
+        if re.search(r"que analisis has hecho|ultimos analisis|últimos análisis", t):
+            import analista
+            return analista.historial()
+
+        # ── Misiones: objetivos grandes que se trabajan solos ───────────────
+        m_mision = re.search(r"(?:mision|misión|encargate de|encárgate de|"
+                             r"ocupate de|ocúpate de|proyecto:)\s+(.+)", t)
+        if m_mision:
+            import mision
+            objetivo = m_mision.group(1).strip()
+            if getattr(self, "mision_piloto", None) is None:
+                self.mision_piloto = mision.Piloto(self, log=self.log)
+            if self.mision_piloto.en_curso():
+                return "Ya tengo una misión en marcha, señor. Dígame «para la misión» si quiere cambiarla."
+            pasos = mision.planificar(self, objetivo, log=self.log)
+            if not pasos:
+                return "No he sabido dividir eso en pasos, señor. ¿Me lo concreta un poco más?"
+            m = mision.Mision(objetivo, pasos)
+            self.mision_actual = m
+            self.mision_piloto.lanzar(m)
+            return ("Me pongo con ello, señor: " + f"{len(pasos)} pasos — "
+                    + "; ".join(p[:40] for p in pasos[:4])
+                    + ". Le aviso al terminar; puede pedirme el parte cuando quiera.")
+
+        if re.search(r"(?:como va|qué tal va|que tal va)( la)? mision|"
+                     r"parte de la mision|parte de la misión", t):
+            import mision
+            m = getattr(self, "mision_actual", None)
+            if m is None:
+                return "No tengo ninguna misión en marcha, señor."
+            return mision.parte(m)
+
+        if re.search(r"para la mision|detén la misión|deten la mision|cancela la mision", t):
+            if getattr(self, "mision_piloto", None) is None:
+                return "No hay ninguna misión que detener, señor."
+            return self.mision_piloto.detener()
+
+        if re.search(r"que misiones has hecho|historial de misiones", t):
+            import mision
+            return mision.historial()
+
+        # ── Aprender viendo: grabar una rutina y repetirla luego ────────────
+        if re.search(r"(?:aprende esto|mira lo que hago|fijate en lo que hago|"
+                     r"aprende viendome|graba lo que hago)", t):
+            import demostracion
+            if getattr(self, "grabadora", None) is None:
+                self.grabadora = demostracion.Grabadora(log=self.log)
+            return self.grabadora.empezar()
+
+        if re.search(r"^(?:ya esta|ya está|listo|hasta aqui|hasta aquí|"
+                     r"deja de mirar|termina de aprender)$", t.strip()):
+            import demostracion
+            grabadora = getattr(self, "grabadora", None)
+            if grabadora is None or not grabadora.grabando:
+                return None       # no estaba aprendiendo: que siga el flujo normal
+            pasos = grabadora.terminar()
+            if not pasos:
+                return "No he visto ningún paso que aprender, señor."
+            self._rutina_pendiente = pasos
+            return (f"He aprendido {len(pasos)} pasos, señor. ¿Cómo la llamo? "
+                    "Dígame «llámala ...» y la guardo.")
+
+        m_nombre = re.search(r"(?:llamala|llámala|guardala como|guárdala como|"
+                             r"se llama)\s+(.+)", t)
+        if m_nombre and getattr(self, "_rutina_pendiente", None):
+            import demostracion
+            nombre = m_nombre.group(1).strip().strip('«»."')
+            demostracion.guardar(nombre, self._rutina_pendiente, log=self.log)
+            pasos = len(self._rutina_pendiente)
+            self._rutina_pendiente = None
+            return (f"Guardada como «{nombre}», señor: {pasos} pasos. "
+                    f"Dígame «haz {nombre}» cuando quiera que la repita.")
+
+        m_rutina = re.search(r"(?:haz|repite|ejecuta) (?:la rutina |lo de )?(.+)", t)
+        if m_rutina:
+            import demostracion
+            nombre = m_rutina.group(1).strip()
+            if any(nombre.lower() in r["nombre"].lower() or
+                   set(nombre.lower().split()) & set(r["nombre"].lower().split())
+                   for r in demostracion.listar()):
+                return demostracion.repetir(nombre, log=self.log)
+
+        if re.search(r"que rutinas (sabes|conoces|tienes)|que has aprendido viendome", t):
+            import demostracion
+            return demostracion.resumen()
+
+        # -- Ojos permanentes: mirar la pantalla y ofrecerse si hay atasco ---
+        if re.search(r"vigila mi pantalla|mira mi pantalla siempre|"
+                     r"quedate pendiente|qu[eé]date pendiente|"
+                     r"est[ae] pendiente de (?:mi )?pantalla", t):
+            import observador
+            if getattr(self, "observador", None) is None:
+                self.observador = observador.Observador(self, log=self.log)
+            return self.observador.start()
+
+        if re.search(r"deja de (?:vigilar|mirar) (?:mi )?pantalla|"
+                     r"no mires mi pantalla|deja de estar pendiente", t):
+            if getattr(self, "observador", None) is None:
+                return "No estaba mirando su pantalla, señor."
+            return self.observador.stop()
+
+        if re.search(r"que ves(?: ahora)?(?: en mi pantalla)?$|"
+                     r"mira (?:ahora )?la pantalla|revisa mi pantalla ahora", t):
+            import observador
+            if getattr(self, "observador", None) is None:
+                self.observador = observador.Observador(self, log=self.log)
+            ok, motivo = self.observador.disponible()
+            if not ok:
+                return f"No puedo mirar, señor: {motivo}."
+            aviso = self.observador.mirar()
+            return aviso or "No veo ningún error en su pantalla ahora mismo, señor."
+
+        if re.search(r"estas vigilando|est[aá]s vigilando|estado de la vigilancia", t):
+            obs = getattr(self, "observador", None)
+            if obs is None or not obs.estado()["activo"]:
+                return ("No estoy mirando su pantalla, señor. Dígame «vigila mi "
+                        "pantalla» y estaré pendiente sin molestarle.")
+            e = obs.estado()
+            return (f"Pendiente de su pantalla, señor: {e['miradas']} revisiones y "
+                    f"{e['ofrecimientos']} avisos. Ahora está en «{e['ventana_actual']}».")
+
+        # -- Voz propia: neuronal, local y distinta por personalidad ---------
+        if re.search(r"instala tu voz|instala la voz|descarga tu voz|"
+                     r"quiero (?:que tengas )?(?:una )?voz (?:propia|de verdad|mejor)", t):
+            import voz_propia
+            m_voz = re.search(r"voz ([a-z]{2}_[A-Z]{2}-[\w-]+)", texto or "")
+            objetivo = m_voz.group(1) if m_voz else voz_propia.voz_de(
+                getattr(self, "nombre_agente", "jarvis").lower(), self)
+            return voz_propia.instalar(objetivo, log=self.log)
+
+        m_usa_voz = re.search(r"(?:usa|ponte|cambia a) la voz ([\w.\- ]+)", t)
+        if m_usa_voz:
+            import voz_propia
+            pedida = m_usa_voz.group(1).strip().strip('.«»"')
+            agente = getattr(self, "nombre_agente", "JARVIS").lower()
+            # «usa la voz de ultron» cambia la de esa personalidad, no la mia.
+            m_quien = re.search(r"\bde (jarvis|ultron)\b", pedida)
+            if m_quien:
+                agente = m_quien.group(1)
+                pedida = pedida.replace(m_quien.group(0), "").strip()
+            candidatas = [v for v in voz_propia.CATALOGO
+                          if pedida.lower() in v.lower()] or [pedida]
+            return voz_propia.elegir(self, agente, candidatas[0], log=self.log)
+
+        if re.search(r"que voces tienes|qu[eé] voces tienes|estado de (?:tu |la )?voz|"
+                     r"con que voz hablas|qu[eé] voz usas", t):
+            import voz_propia
+            return voz_propia.resumen(self)
+
+        m_clonar = re.search(r"clona (?:mi |la )?voz(?: de)? (.+\.wav)", t)
+        if m_clonar:
+            import voz_propia
+            return voz_propia.clonar(m_clonar.group(1).strip(), log=self.log)
+
+        # -- Entrar desde fuera de casa --------------------------------------
+        if re.search(r"act[ií]vate en remoto|acceso remoto|"
+                     r"quiero (?:poder )?(?:entrar|conectarme|hablarte) desde fuera|"
+                     r"que pueda (?:entrar|conectarme) desde (?:fuera|la calle|el trabajo)|"
+                     r"publica(?:te)? en la red privada", t):
+            import remoto
+            if re.search(r"quita|desactiva|apaga|deja de", t):
+                return remoto.desactivar(log=self.log)
+            return remoto.activar(log=self.log)
+
+        if re.search(r"quita el acceso remoto|desactiva el acceso remoto|"
+                     r"deja de estar (?:en remoto|publicado)", t):
+            import remoto
+            return remoto.desactivar(log=self.log)
+
+        if re.search(r"(?:puedo|podria|podría) (?:entrar|conectarme) desde fuera|"
+                     r"estas en remoto|estás en remoto|estado del acceso remoto|"
+                     r"(?:que|qué) aparatos tengo (?:en la red privada|en tailscale)|"
+                     r"como te alcanzo desde fuera", t):
+            import remoto
+            return remoto.resumen()
+
+        if re.search(r"public[aá](?:lo|te)? en internet|abre(?:te)? a internet|"
+                     r"que se pueda entrar desde internet", t):
+            import remoto
+            confirmado = bool(re.search(r"confirmo|s[eé] lo que hago|adelante", t))
+            return remoto.publicar_en_internet(confirmado=confirmado, log=self.log)
+
+        # -- Emparejar el telefono con la interfaz web -----------------------
+        if re.search(r"(?:por que|por qué|porque) no (?:se )?conecta (?:mi |el )?"
+                     r"(?:movil|móvil|telefono|teléfono)|"
+                     r"no (?:me )?carga (?:la interfaz|la pagina|la página|el chat) "
+                     r"(?:en |d)el (?:movil|móvil|telefono|teléfono)|"
+                     r"no puedo emparejar (?:el |mi )?(?:movil|móvil|telefono|teléfono)", t):
+            import red_movil
+            motivos = red_movil.diagnostico()
+            cabeza = red_movil.resumen()
+            if not motivos:
+                return (cabeza + " Si aún así no entra, compruebe que el teléfono "
+                        "está en ese mismo WiFi.")
+            return cabeza + " " + " ".join(f"{m['que']} {m['hacer']}" for m in motivos[:2])
+
+        if re.search(r"abre el puerto (?:del|para el) (?:movil|móvil|telefono|teléfono)|"
+                     r"abre el cortafuegos|abre el firewall", t):
+            import red_movil
+            return red_movil.abrir_firewall(log=self.log)
+
+        if re.search(r"(?:cual|cuál) es (?:tu|mi) (?:ip|direccion|dirección)|"
+                     r"(?:donde|dónde) me encuentra el (?:movil|móvil|telefono|teléfono)|"
+                     r"como me conecto desde el (?:movil|móvil|telefono|teléfono)|"
+                     r"(?:enseñame|ensename|dame) el (?:qr|codigo qr|código qr)", t):
+            import red_movil
+            return red_movil.resumen()
+
+        # -- El movil como una extension mas ---------------------------------
+        _movil = r"(?:mi |el )?(?:movil|móvil|telefono|teléfono|celular)"
+
+        if re.search(r"(?:como esta|cómo está|estado de|que tal esta) " + _movil
+                     + r"|bateria de(?:l)? " + _movil
+                     + r"|que bateria tiene " + _movil
+                     + r"|qué batería tiene " + _movil, t):
+            import movil
+            return movil.resumen()
+
+        if re.search(r"(?:que|qué) notificaciones (?:tengo|hay)(?: en " + _movil + r")?", t):
+            import movil
+            hay, motivo = movil.disponible()
+            if not hay:
+                return f"No tengo el teléfono a mano, señor: {motivo}."
+            avisos = movil.notificaciones()
+            if not avisos:
+                return "Ninguna notificación en el teléfono, señor."
+            return "En el teléfono, señor: " + "; ".join(
+                f"{a['app']}, {a['titulo']}: {a['texto'][:70]}" for a in avisos[:5]) + "."
+
+        if re.search(r"(?:donde|dónde) (?:esta|está) " + _movil
+                     + r"|haz sonar " + _movil + r"|encuentra " + _movil, t):
+            import movil
+            sonando = movil.encontrar()
+            sitio = movil.ubicacion()
+            if sitio:
+                sonando += (f" La última posición que tenía es {sitio['lat']:.4f}, "
+                            f"{sitio['lon']:.4f}.")
+            return sonando
+
+        m_app_movil = re.search(r"abre (?:la app |la aplicacion |la aplicación )?"
+                                r"([\w .\-]+?) en " + _movil, t)
+        if m_app_movil:
+            import movil
+            return movil.abrir_app(m_app_movil.group(1).strip())
+
+        if re.search(r"conecta " + _movil + r" por wifi|empareja " + _movil, t):
+            import movil
+            return movil.emparejar_wifi(log=self.log)
+
+        if re.search(r"(?:como|cómo) conecto " + _movil + r"|configura " + _movil, t):
+            import movil
+            return movil.instrucciones()
+
+        m_wa = re.search(r"(?:mandale|mándale|envia|envía|escribe)(?:le)? un "
+                         r"(?:whatsapp|wasap|mensaje) a ([^:,]+)[:,] *(.+)", t)
+        if m_wa:
+            import movil
+            preparado = movil.preparar_whatsapp(m_wa.group(1).strip(),
+                                                m_wa.group(2).strip())
+            if preparado["ok"]:
+                self._whatsapp_pendiente = preparado
+            return preparado["frase"]
+
+        if re.search(r"^(?:envialo|envíalo|mandalo|mándalo|dale a enviar)$", t.strip()):
+            pendiente = getattr(self, "_whatsapp_pendiente", None)
+            if not pendiente:
+                return "No tengo ningún mensaje preparado, señor."
+            import movil
+            self._whatsapp_pendiente = None
+            return movil.enviar_preparado()
+
+        m_regla = re.search(r"(?:avisame|avísame|dime) cuando (?:me )?(?:escriba|"
+                            r"llegue algo de|me llame|escriban de) ([^,]+)"
+                            r"(?:, *(?:y )?(.+))?$", t)
+        if m_regla:
+            import movil
+            if getattr(self, "puente_movil", None) is None:
+                self.puente_movil = movil.Puente(self, log=self.log)
+            respuesta = self.puente_movil.añadir(m_regla.group(1).strip(),
+                                                 (m_regla.group(2) or "").strip())
+            if not self.puente_movil.estado()["activo"]:
+                arranque = self.puente_movil.start()
+                if "Pendiente" not in arranque:
+                    respuesta += " " + arranque
+            return respuesta
+
+        if re.search(r"vigila " + _movil + r"|est[ae] pendiente de(?:l)? " + _movil, t):
+            import movil
+            if getattr(self, "puente_movil", None) is None:
+                self.puente_movil = movil.Puente(self, log=self.log)
+            return self.puente_movil.start()
+
+        if re.search(r"deja de (?:vigilar|mirar) " + _movil, t):
+            if getattr(self, "puente_movil", None) is None:
+                return "No estaba mirando el teléfono, señor."
+            return self.puente_movil.stop()
+
+        if re.search(r"(?:que|qué) avisos (?:tengo|hay) del " + _movil
+                     + r"|reglas del " + _movil, t):
+            import movil
+            puente = getattr(self, "puente_movil", None)
+            if puente is None:
+                puente = self.puente_movil = movil.Puente(self, log=self.log)
+                puente.cargar()
+            reglas = puente.estado()["reglas"]
+            if not reglas:
+                return ("No tengo ningún aviso del teléfono, señor. Dígame "
+                        "«avísame cuando me escriba el banco».")
+            return "Del teléfono le aviso de: " + "; ".join(
+                r["filtro"] + (f" (y {r['accion']})" if r.get("accion") else "")
+                for r in reglas) + "."
+
+        if re.search(r"que avisos tienes|avisos pendientes|que has detectado", t):
+            if getattr(self, "proactivo", None) is None:
+                return "El motor proactivo está apagado ahora mismo."
+            eventos = self.proactivo.get_events(unack_only=True)
+            if not eventos:
+                return f"Nada que reportar, {trato}Todo en orden.".strip()
+            return "Tengo estos avisos: " + "; ".join(
+                f"{e.title}: {e.message[:70]}" for e in eventos[:5]) + "."
+
+        if re.search(r"como me (ves|notas)|cómo me (ves|notas)|como me escuchas|que tal me oyes", t):
+            e = self._estado_animo
+            if not e.get("ts"):
+                return "Aún no he analizado su voz en esta sesión."
+            return (f"Le noto tensión {e['estres']:.0%} y fatiga {e['fatiga']:.0%}, "
+                    f"con confianza {e['confianza']:.0%} en la medida.")
+        return None
+
+    # ── CLASIFICADOR DE INTENCIONES (aprende de órdenes reales) ─────────────
+    def _aprender_intencion(self, texto: str):
+        """Guarda (frase, habilidad que la atendió) como ejemplo de entrenamiento.
+
+        El clasificador venía con una lista de ejemplos escritos a mano. Estos
+        son órdenes reales del señor, con sus muletillas y su forma de hablar,
+        que es justo lo que hace útil al modelo.
+        """
+        try:
+            habilidad = getattr(self.skills, "ultima_habilidad", "") if self.skills else ""
+            if not habilidad or not texto:
+                return
+            from storage import get_storage
+            get_storage(log=self.log).registrar_evento(
+                "intencion", habilidad, texto[:200], gravedad="dato",
+                agente=getattr(self, "nombre_agente", "JARVIS"))
+        except Exception:
+            pass
+
+    def entrenar_intenciones(self) -> str:
+        """Reentrena el clasificador local con las órdenes ya ejecutadas."""
+        if getattr(self, "cognition", None) is None or self.cognition.ml is None:
+            return ("No tengo el motor de intenciones disponible. "
+                    "Requiere scikit-learn instalado.")
+        try:
+            from storage import get_storage
+            filas = get_storage(log=self.log).eventos_recientes(2000, tipo="intencion")
+        except Exception as e:
+            return f"No pude leer el historial de órdenes: {e}"
+        ejemplos = [(f["detalle"], f["titulo"]) for f in filas
+                    if f.get("detalle") and f.get("titulo")]
+        if len(ejemplos) < 20:
+            return (f"Solo tengo {len(ejemplos)} órdenes registradas. "
+                    "Con al menos veinte podré entrenar algo que sirva.")
+        clases = len({e[1] for e in ejemplos})
+        if clases < 2:
+            return "Todas las órdenes registradas son del mismo tipo; no hay nada que distinguir."
+        ok = self.cognition.ml.entrenar(ejemplos)
+        if ok:
+            return (f"Clasificador reentrenado con {len(ejemplos)} órdenes suyas "
+                    f"y {clases} tipos distintos.")
+        return "El entrenamiento no salió bien; lo he registrado en el log."
+
+    def _pista_intencion(self, texto: str) -> str:
+        """Sugerencia del clasificador para el cerebro cuando nada la reconoció."""
+        try:
+            if getattr(self, "cognition", None) is None:
+                return ""
+            ml = self.cognition.ml
+            if ml is None:
+                return ""
+            r = ml.clasificar(texto)
+            if not r or r.get("confianza", 0) < 0.5:
+                return ""
+            return (f"[Intención probable según el clasificador local: {r['intencion']} "
+                    f"(confianza {r['confianza']}). Si procede, ofrécela como acción.]")
+        except Exception:
+            return ""
+
+    # ── PARALINGÜÍSTICA: la voz del señor manda sobre la de Jarvis ──────────
+    def _aplicar_paralinguistica(self, resultado):
+        """Traduce estrés/fatiga detectados en la voz a comportamiento real.
+
+        Sin esto el análisis era decorativo: se registraba en el log y nada
+        cambiaba. Ahora un señor cansado recibe una voz más lenta y estable, y
+        una sugerencia de descanso (como mucho una cada veinte minutos, para
+        que la atención no se vuelva insistencia).
+        """
+        if resultado is None:
+            return
+        try:
+            estres = float(getattr(resultado, "stress_level", 0.0) or 0.0)
+            fatiga = float(getattr(resultado, "fatigue_level", 0.0) or 0.0)
+            arousal = float(getattr(resultado, "arousal", 0.0) or 0.0)
+            valencia = float(getattr(resultado, "valence", 0.0) or 0.0)
+            confianza = float(getattr(resultado, "confidence", 0.0) or 0.0)
+        except Exception as e:
+            self.log(f"Paralingüística ilegible: {e}")
+            return
+
+        self._estado_animo = {"estres": round(estres, 2), "fatiga": round(fatiga, 2),
+                              "arousal": round(arousal, 2), "valencia": round(valencia, 2),
+                              "confianza": round(confianza, 2), "ts": time.time()}
+
+        # Ritmo de la voz: más lento con fatiga o tensión, algo más vivo si el
+        # señor viene acelerado y contento.
+        if fatiga > 0.6:
+            self._tts_rate = -2
+        elif estres > 0.6:
+            self._tts_rate = -1
+        elif arousal > 0.75 and valencia >= 0:
+            self._tts_rate = 1
+        else:
+            self._tts_rate = 0
+        # Voz más estable (menos expresiva, menos invasiva) cuando hay tensión.
+        self._tts_estabilidad = 0.78 if (estres > 0.6 or fatiga > 0.6) else 0.5
+
+        if estres > 0.7 or fatiga > 0.7:
+            try:
+                from storage import get_storage
+                get_storage().registrar_evento(
+                    "estado_animo",
+                    "Tensión o fatiga altas en la voz del señor",
+                    f"estres={estres:.2f} fatiga={fatiga:.2f} confianza={confianza:.2f}",
+                    gravedad="aviso", agente=getattr(self, "nombre_agente", "JARVIS"))
+            except Exception:
+                pass
+
+        ahora = time.time()
+        if fatiga > 0.7 and (ahora - self._ultimo_consejo_descanso) > 1200:
+            self._ultimo_consejo_descanso = ahora
+            self.tts_queue.put("Señor, le noto cansado. Si quiere, hacemos una pausa.")
+            self._atenuar_entorno()
+
+    def _atenuar_entorno(self):
+        """Baja las luces si el señor lo autorizó (preferencia, nunca por sorpresa)."""
+        try:
+            if (self.get_pref("paralinguistica_luces") or "").strip() != "1":
+                return
+            if self.skills and hasattr(self.skills, "_prender_apagar_habitacion"):
+                self.skills._prender_apagar_habitacion(False)
+                self.log("[PARALING] Luces atenuadas por fatiga detectada.")
+        except Exception as e:
+            self.log(f"[PARALING] No pude atenuar el entorno: {e}")
+
+    def _contexto_estado(self) -> str:
+        """Aviso para el cerebro cuando el estado del señor debe cambiar el tono."""
+        e = self._estado_animo
+        if not e.get("ts") or (time.time() - e["ts"]) > 600:
+            return ""
+        partes = []
+        if e["fatiga"] > 0.6:
+            partes.append("cansado: sé breve y no propongas tareas largas")
+        if e["estres"] > 0.6:
+            partes.append("tenso: ve al grano y evita el humor")
+        if e["arousal"] > 0.75 and e["valencia"] > 0.2:
+            partes.append("animado: puedes ser algo más expresivo")
+        if not partes:
+            return ""
+        return "[Estado del señor por su voz: " + "; ".join(partes) + "]"
+
     @staticmethod
     def _norm_eco(s: str) -> str:
         s = (s or "").lower()
         return "".join(c for c in s if c.isalnum() or c == " ")
+
+    # Órdenes de sistema que el señor repite tal cual. JARVIS las cita en sus
+    # propias respuestas («dígame cancela el apagado»), así que el detector de
+    # eco las tomaba por su propia voz y las tiraba: la orden repetida no
+    # llegaba nunca a ejecutarse.
+    _ORDENES_DIRECTAS = frozenset((
+        "apaga", "apagar", "apagate", "apágate", "apagado", "reinicia",
+        "reiniciar", "reinicio", "cancela", "cancelar", "bloquea", "bloquear",
+        "suspende", "suspender", "hiberna", "hibernar", "duerme",
+    ))
 
     def _es_eco(self, texto: str) -> bool:
         """Detector de eco (isair echo_detection): si lo que «of» suena como mi
@@ -901,12 +2294,25 @@ class JarvisCore:
         t = self._norm_eco(texto)
         if not t:
             return False
+        if self._ORDENES_DIRECTAS & set(t.split()):
+            return False
         from difflib import SequenceMatcher
         for prev in self._tts_hist:
             p = self._norm_eco(prev)
             if not p:
                 continue
-            if t in p or p in t:
+            # Coincidencia por inclusión: cuenta como eco si el fragmento es
+            # largo (cuatro palabras o más: nadie da órdenes citando media
+            # frase mía) o si ocupa buena parte de lo dicho. Antes bastaba con
+            # que la frase del señor apareciera en cualquier punto de un
+            # párrafo mío, así que órdenes cortas que yo había nombrado de
+            # pasada desaparecían sin dejar rastro.
+            def _es_fragmento(corto, largo):
+                return len(corto.split()) >= 4 or len(corto) >= 0.45 * len(largo)
+
+            if t in p and _es_fragmento(t, p):
+                return True
+            if p in t and _es_fragmento(p, t):
                 return True
             if SequenceMatcher(None, t, p).ratio() > 0.62:
                 return True
@@ -1022,6 +2428,117 @@ class JarvisCore:
         except Exception as e:
             self.log(f"Warm-up omitido: {e}")
 
+    def _mantener_caliente(self):
+        """Ping periódico a Ollama para que no descargue el modelo.
+
+        Ollama libera el modelo a los cinco minutos de inactividad. Como el
+        señor no habla cada cinco minutos, casi toda pregunta pagaba la
+        recarga. Un ping de dos tokens cada cuatro minutos la evita.
+        """
+        import urllib.request
+        base = self.base_url.replace("/v1", "")
+        minutos = float(os.getenv("JARVIS_CALIENTE_MINUTOS", "4"))
+        if minutos <= 0:
+            return
+        time.sleep(90)
+        while True:
+            try:
+                cuerpo = json.dumps({
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": "ok"}],
+                    "stream": False, "keep_alive": "30m",
+                    "options": {"num_predict": 1},
+                }).encode("utf-8")
+                peticion = urllib.request.Request(
+                    f"{base}/api/chat", data=cuerpo,
+                    headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(peticion, timeout=30).read()
+            except Exception:
+                pass          # sin cerebro no pasa nada: se reintenta luego
+            time.sleep(minutos * 60)
+
+    def _precargar_dictado(self):
+        """Carga el modelo de dictado en segundo plano, no en la primera frase."""
+        if (self.get_pref("stt_local") or "1") == "0":
+            return
+        time.sleep(12)
+        try:
+            import wave as _wave
+            import tempfile as _tmp
+            with _tmp.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                ruta = f.name
+            with _wave.open(ruta, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+                w.writeframes(b"\x00\x00" * 8000)     # medio segundo de silencio
+            with open(ruta, "rb") as f:
+                self._reconocer_local(f.read())
+            os.unlink(ruta)
+            self.log("[STT] Modelo de dictado precargado.")
+        except Exception as e:
+            self.log(f"[STT] No pude precargar el dictado: {e}")
+
+    def _reconocer_local(self, wav_bytes) -> str | None:
+        """Transcribe sin salir del equipo (faster-whisper o whisper.cpp).
+
+        Hasta ahora la voz del señor viajaba SIEMPRE a Google
+        (recognize_google): sin internet no había dictado, y cada frase salía
+        del PC. Con esto el dictado funciona offline y es más fiel con el
+        acento; si no hay ningún motor local instalado, devuelve None y la
+        cadena sigue como antes.
+        """
+        if self._stt_local is False:
+            return None
+        try:
+            if self._stt_local is None:
+                from faster_whisper import WhisperModel
+                tam = os.getenv("JARVIS_WHISPER_MODELO", "base")
+                # Por defecto usaba 4 hilos y búsqueda por haz de 5. Medido en
+                # este equipo (12 núcleos): 7,9 s por frase. Con todos los
+                # hilos y haz 1 baja a 4,1 s, y el filtro de voz recorta los
+                # silencios, que es donde se va la mitad del tiempo.
+                hilos = int(os.getenv("JARVIS_WHISPER_HILOS", "0")) or (os.cpu_count() or 4)
+                self.log(f"[STT] Cargando modelo local «{tam}» con {hilos} hilos...")
+                self._stt_local = WhisperModel(tam, device="cpu", compute_type="int8",
+                                               cpu_threads=hilos, num_workers=1)
+            import tempfile as _tmp
+            ruta = None
+            try:
+                with _tmp.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                    f.write(wav_bytes)
+                    ruta = f.name
+                segmentos, _info = self._stt_local.transcribe(
+                    ruta, language="es", beam_size=1, vad_filter=True,
+                    condition_on_previous_text=False,
+                    vad_parameters={"min_silence_duration_ms": 350})
+                texto = " ".join(seg.text for seg in segmentos).strip()
+                if texto:
+                    self.log(f"[STT] Local: {texto[:60]}")
+                return texto or None
+            finally:
+                if ruta:
+                    try:
+                        os.unlink(ruta)
+                    except Exception:
+                        pass
+        except ImportError:
+            # Segundo intento: whisper.cpp compilado (jarvis_whisper.py)
+            try:
+                from jarvis_whisper import get_whisper_stt
+                motor = get_whisper_stt(log=self.log)
+                if motor.is_ready():
+                    texto = motor.transcribe(wav_bytes)
+                    if texto:
+                        return texto
+            except Exception as e:
+                self.log(f"[STT] whisper.cpp no utilizable: {e}")
+            self._stt_local = False
+            self.log("[STT] Sin motor local (pip install faster-whisper). Uso la nube.")
+            return None
+        except Exception as e:
+            self._stt_local = False
+            self.log(f"[STT] Motor local desactivado tras fallar: {e}")
+            return None
+
     def _reconocer_nim(self, wav_bytes) -> str | None:
         """ASR español gratis vía NVIDIA NIM (canary-1b) si hay clave NIM configurada."""
         try:
@@ -1096,6 +2613,23 @@ class JarvisCore:
 
         return self._procesar(text, state_callback=state_callback, speak_server=speak_server)
 
+    @staticmethod
+    def _parece_orden(texto: str) -> bool:
+        """¿Esto pide una acción, o es conversación?
+
+        Sirve para no pagar una llamada extra al modelo en cada «buenos días».
+        Basta con que aparezca uno de los verbos de acción que el proyecto ya
+        tenía catalogados (ACCIONES) o una petición explícita de hacer algo.
+        """
+        t = (texto or "").lower()
+        if len(t) < 4:
+            return False
+        if any(palabra in t for palabra in ACCIONES):
+            return True
+        return bool(re.search(r"\b(hazme|haz|puedes|podrias|podrías|necesito que|"
+                              r"quiero que|ponme|prepara|programa|organiza|"
+                              r"encargate|encárgate)\b", t))
+
     def _partir_consulta(self, texto: str) -> list:
         """Divide «haz X y haz Y» solo si ambas partes parecen órdenes reales."""
         if " y " not in texto.lower():
@@ -1120,6 +2654,51 @@ class JarvisCore:
             self.history.append({"role": "assistant", "content": _r_voz})
             return _r_voz
 
+        # ── Ventana de arrepentimiento: «no» justo después de actuar ────────
+        try:
+            import arrepentimiento
+            if arrepentimiento.es_arrepentimiento(text):
+                respuesta = arrepentimiento.atender(self, log=self.log)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": respuesta})
+                if speak_server:
+                    self.tts_queue.put(respuesta)
+                return respuesta
+        except Exception as e:
+            self.log(f"[JARVIS] Ventana de arrepentimiento falló: {e}")
+
+        # ── Valoración del señor sobre lo último que hice ───────────────────
+        try:
+            import feedback
+            signo, correccion = feedback.clasificar_frase(text)
+            if signo:
+                ultima_orden, ultima_respuesta = (self._contexto[-1]
+                                                  if self._contexto else ("", ""))
+                respuesta = feedback.anotar(signo, ultima_orden, ultima_respuesta,
+                                            correccion,
+                                            agente=getattr(self, "nombre_agente", "JARVIS"),
+                                            log=self.log)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": respuesta})
+                if speak_server:
+                    self.tts_queue.put(respuesta)
+                return respuesta
+        except Exception as e:
+            self.log(f"[JARVIS] Valoración falló: {e}")
+
+        # ── Órdenes sobre el propio asistente (registro, motores, estado) ──
+        try:
+            _r_meta = self._ordenes_meta(text)
+        except Exception as e:
+            self.log(f"[JARVIS] órdenes meta fallaron: {e}")
+            _r_meta = None
+        if _r_meta:
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": _r_meta})
+            if speak_server:
+                self.tts_queue.put(_r_meta)
+            return _r_meta
+
         # ── Agencia de especialistas: prioridad máxima (frases inequívocas) ──
         if getattr(self, "agentes_ia", None) is not None:
             try:
@@ -1141,6 +2720,22 @@ class JarvisCore:
                 jarvis_grafo.aprender(text)
                 return _r_ag
 
+        # ── Segundo par de ojos antes de lo irreversible ────────────────────
+        # Con el analista escribiendo programas y el piloto moviendo el ratón,
+        # ya no todo pasa por una regex revisada a mano. Esto frena lo que no
+        # tiene vuelta atrás y deja que el señor insista si sabe lo que hace.
+        try:
+            respuesta_freno = self._revisar_antes_de_actuar(text)
+        except Exception as e:
+            self.log(f"[JARVIS] El verificador falló: {e}")
+            respuesta_freno = None
+        if respuesta_freno:
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": respuesta_freno})
+            if speak_server:
+                self.tts_queue.put(respuesta_freno)
+            return respuesta_freno
+
         # Habilidades del sistema (Sprint 2): si es un comando ejecutable,
         # responder al instante sin consumir el LLM.
         if skip_skills:
@@ -1154,6 +2749,7 @@ class JarvisCore:
             # explicitas (calendario, cita, reunion, evento), y si no fueran
             # antes, la agenda local de jarvis_skills se comeria la orden y el
             # evento nunca llegaria a Google Calendar.
+            import metricas
             for nombre, despachador in (("conectores", getattr(self, "conectores", None)),
                                         ("habilidades", self.skills),
                                         ("control del PC", self.pc),
@@ -1161,7 +2757,8 @@ class JarvisCore:
                 if skill_reply or despachador is None:
                     continue
                 try:
-                    skill_reply = despachador.handle(text)
+                    with metricas.medir("habilidades", despachador=nombre):
+                        skill_reply = despachador.handle(text)
                 except Exception as e:
                     self.log(f"[JARVIS] El despachador de {nombre} fallo con "
                              f"«{text[:60]}»: {type(e).__name__}: {e}")
@@ -1175,9 +2772,21 @@ class JarvisCore:
             # Las habilidades también hablan (colas asíncronas, sin bloquear)
             if speak_server:
                 self.tts_queue.put(skill_reply)
+            # Acción reversible y grande: en vez de haber preguntado antes,
+            # se abre una ventana corta para arrepentirse.
+            try:
+                import arrepentimiento
+                if arrepentimiento.merece_ventana(text):
+                    skill_reply = arrepentimiento.envolver(
+                        skill_reply, skill_reply, log=self.log)
+            except Exception as e:
+                self.log(f"[JARVIS] No pude abrir la ventana: {e}")
             self._registrar_cognicion(text, skill_reply)
+            self._aprender_intencion(text)
+            # El grafo escribe en disco; hacerlo aquí retrasaba la respuesta.
+            threading.Thread(target=jarvis_grafo.aprender, args=(text,),
+                             daemon=True).start()
             self._contexto_append(text, skill_reply)
-            jarvis_grafo.aprender(text)
             return skill_reply
 
         # Memoria de preferencias (Sprint 2): aprender "recuerda que...",
@@ -1191,6 +2800,36 @@ class JarvisCore:
             self._contexto_append(text, learned)
             jarvis_grafo.aprender(text)
             return learned
+
+        # ── El cerebro con manos: tool-calling ──────────────────────────────
+        # Si la frase suena a orden y ninguna habilidad la reconoció, dejamos
+        # que el modelo use herramientas reales en vez de limitarse a describir
+        # lo que haría. Solo entra aquí la cola larga: lo que cubren las regex
+        # ya se resolvió arriba sin gastar un token.
+        if os.getenv("JARVIS_TOOLS", "1") != "0" and self._parece_orden(text):
+            try:
+                import metricas
+                from herramientas_llm import pensar_con_herramientas
+                with metricas.medir("herramientas"):
+                    resultado = pensar_con_herramientas(self, text, self.history, log=self.log)
+            except Exception as e:
+                self.log(f"[HERRAMIENTAS] No pude usarlas: {e}")
+                resultado = None
+            if resultado:
+                respuesta, usadas = resultado
+                respuesta = respuesta or ("Hecho, señor: " + ", ".join(usadas) + ".")
+                self.history.append({"role": "user", "content": text})
+                self.save_to_memory("user", text)
+                self.history.append({"role": "assistant", "content": respuesta})
+                self.save_to_memory("assistant", respuesta)
+                if len(self.history) > 17:
+                    self.history = [self.history[0]] + self.history[-16:]
+                if speak_server:
+                    self.tts_queue.put(respuesta)
+                self._contexto_append(text, respuesta)
+                jarvis_grafo.aprender(text)
+                self.log(f"[HERRAMIENTAS] Orden resuelta con: {', '.join(usadas)}")
+                return respuesta
 
         # Comandos del cerebro (Admin UI / FCC): «prueba tu cerebro» y «limpia tu memoria»
         if re.search(r"prueba tu cerebro|prueba tus proveedores|probar cerebro|probar la ia|prueba la ia", text, re.IGNORECASE):
@@ -1258,6 +2897,27 @@ class JarvisCore:
                 if gctx:
                     msgs = msgs + [{"role": "system", "content": "[Memoria-grafo: " + gctx[:900] + "]"}]
 
+            # El perfil activo manda sobre el tono y la longitud.
+            try:
+                import perfiles
+                _instruccion = perfiles.instruccion_prompt(self)
+                if _instruccion:
+                    msgs = msgs + [{"role": "system", "content": _instruccion}]
+            except Exception:
+                pass
+
+            # Estado del señor leído en su voz: cambia el tono, no el contenido.
+            _ctx_estado = self._contexto_estado()
+            if _ctx_estado:
+                msgs = msgs + [{"role": "system", "content": _ctx_estado}]
+
+            # Pista del clasificador local: si el señor pidió algo que suena a
+            # orden conocida pero ninguna habilidad la reconoció, el cerebro al
+            # menos sabe por dónde iba. No decide nada: solo informa.
+            _pista = self._pista_intencion(text)
+            if _pista:
+                msgs = msgs + [{"role": "system", "content": _pista}]
+
             # Mem0: búsqueda semántica en memoria tripartita
             if self.mem0:
                 try:
@@ -1268,17 +2928,33 @@ class JarvisCore:
                 except Exception as e:
                     self.log(f"Mem0 search error: {e}")
 
+            import metricas
+            _cronometro = metricas.medir("cerebro", modelo=self.model)
+            _cronometro.__enter__()
             for nombre, b_url, modelo, clave in self._proveedores():
                 try:
-                    cliente = OpenAI(base_url=b_url, api_key=clave)
-                    self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url}")
-                    resp = cliente.chat.completions.create(
-                        model=modelo,
-                        messages=msgs,
-                        temperature=0.72,
-                        max_tokens=350,
-                        stream=True
-                    )
+                    cliente = self._cliente_llm(b_url, clave)
+                    esfuerzo = self._esfuerzo_razonamiento(text)
+                    self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url} "
+                             f"(razonamiento: {esfuerzo})")
+                    # El presupuesto de tokens lo comparten el razonamiento y
+                    # la respuesta. Con 200 tokens un modelo que piensa se
+                    # quedaba SIN respuesta: pensaba y se acababa el turno.
+                    tope = int(os.getenv("JARVIS_MAX_TOKENS", "700"))
+                    comun = dict(model=modelo, messages=msgs,
+                                 temperature=float(os.getenv("JARVIS_TEMPERATURA", "0.5")),
+                                 max_tokens=tope, stream=True)
+                    try:
+                        resp = cliente.chat.completions.create(
+                            **comun, extra_body={"reasoning_effort": esfuerzo})
+                    except TypeError:
+                        # SDK antiguo sin extra_body
+                        resp = cliente.chat.completions.create(**comun)
+                    except Exception as e_raz:
+                        # Un proveedor que no entienda el parámetro no debe
+                        # dejar al señor sin respuesta.
+                        self.log(f"Sin control de razonamiento en {nombre}: {e_raz}")
+                        resp = cliente.chat.completions.create(**comun)
                     self._cerebro_activo = nombre
                     break
                 except Exception as e:
@@ -1289,6 +2965,11 @@ class JarvisCore:
                 return ("Señor, todos mis proveedores de cerebro fallaron. "
                         + (f"({str(ultimo_error)[:100]})" if ultimo_error else ""))
             
+            try:
+                _cronometro.__exit__(None, None, None)
+            except Exception:
+                pass
+            _t_generacion = time.time()
             full_reply = ""
             buffer = ""
             think_done = False
@@ -1334,18 +3015,25 @@ class JarvisCore:
                             if first_reply_sentence:
                                 sentence = self._address_user_as_butler(sentence)
                                 first_reply_sentence = False
-                            full_reply += sentence + " "
-                            if first_speech and state_callback:
-                                state_callback("speaking")
-                                first_speech = False
-                            
-                            # Procesar tags especiales como OPEN:app antes de hablar
+
+                            # El tag se procesa y se quita ANTES de acumular la
+                            # respuesta. Antes se acumulaba primero y solo se
+                            # limpiaba la copia que iba a la voz, asi que en el
+                            # movil y en el chat se leia literalmente
+                            # «[OPEN:Bloc de notas]» en vez de una frase.
                             open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
                             if open_match:
                                 app_name = open_match.group(1).strip().lower()
                                 sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
                                 self._open_app(app_name)
-                                
+                                sentence = self._frase_al_abrir(
+                                    sentence, open_match.group(1).strip())
+
+                            full_reply += sentence + " "
+                            if first_speech and state_callback:
+                                state_callback("speaking")
+                                first_speech = False
+
                             if sentence:
                                 if speak_server:
                                     self.tts_queue.put(sentence)
@@ -1355,16 +3043,24 @@ class JarvisCore:
                 sentence = buffer.strip()
                 if first_reply_sentence:
                     sentence = self._address_user_as_butler(sentence)
-                full_reply += sentence
+                # Igual que arriba: limpiar el tag antes de acumular, no despues.
                 open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
                 if open_match:
                     app_name = open_match.group(1).strip().lower()
                     sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
                     self._open_app(app_name)
+                    sentence = self._frase_al_abrir(sentence, open_match.group(1).strip())
+                full_reply += sentence
                 if sentence:
                     if speak_server:
                         self.tts_queue.put(sentence)
 
+            try:
+                import metricas
+                metricas.anotar("generacion", (time.time() - _t_generacion) * 1000,
+                                caracteres=len(full_reply))
+            except Exception:
+                pass
             reply_clean = self._recortar_respuesta(full_reply.strip())
             self._marcar_uso()
             self.history.append({"role": "assistant", "content": reply_clean})
@@ -1377,6 +3073,22 @@ class JarvisCore:
         except Exception as e:
             self.log(f"Error LLM: {e}")
             return "Señor, tengo un problema de conexión con mi núcleo cognitivo. Verifica que Ollama esté activo."
+
+    @staticmethod
+    def _frase_al_abrir(resto: str, app: str) -> str:
+        """Frase con la que confirmar que se ha abierto una aplicacion.
+
+        Al quitar el tag [OPEN:...] lo que suele quedar no es una frase sino
+        un resto sin contenido («Señor,»), porque el modelo responde con el
+        tag y poco mas. Devolver eso dejaba al usuario sin confirmacion, asi
+        que si no queda una frase de verdad se construye una.
+        """
+        limpio = re.sub(r"^\s*se[ñn]or\s*[,.:;!¡¿?-]*\s*", "", resto,
+                        flags=re.IGNORECASE)
+        limpio = limpio.strip(" ,.;:-¡!¿?")
+        if len(limpio) < 3:
+            return f"Abriendo {app}, señor."
+        return resto
 
     @staticmethod
     def _address_user_as_butler(text: str) -> str:
@@ -1409,11 +3121,18 @@ class JarvisCore:
             pass
 
     def _open_app(self, name: str):
-        """Intenta abrir una aplicación por nombre."""
+        """Intenta abrir una aplicación por nombre.
+
+        Pasa por el ejecutor común: si la aplicación no existe, el proceso
+        muere al instante y queda registrado en vez de dar por buena la orden.
+        """
         cmd = APP_MAP.get(name, name)
         try:
-            subprocess.Popen(cmd, shell=True)
-            self.log(f"Abriendo: {cmd}")
+            import ejecutor
+            ok, error, _ = ejecutor.lanzar(cmd, origen="abrir_app", orden=name,
+                                           verificar_ms=400, log=self.log,
+                                           agente=getattr(self, "nombre_agente", "JARVIS"))
+            self.log(f"Abriendo: {cmd}" if ok else f"No pude abrir {cmd}: {error}")
         except Exception as e:
             self.log(f"No pude abrir {cmd}: {e}")
 
@@ -1442,8 +3161,14 @@ class JarvisCore:
                     except Exception:
                         pass
 
-                text = self._reconocer_nim(wav_data) or \
-                    self.rec.recognize_google(audio, language="es-ES")
+                # Orden: NIM (si está configurado) -> local (offline) -> Google.
+                # Lo local va antes que la nube por privacidad y porque
+                # funciona sin conexión; «stt_local=0» invierte la preferencia.
+                text = self._reconocer_nim(wav_data)
+                if not text and (self.get_pref("stt_local") or "1") != "0":
+                    text = self._reconocer_local(wav_data)
+                if not text:
+                    text = self.rec.recognize_google(audio, language="es-ES")
 
                 if self._es_eco(text):
                     self.log(f"Eco descartado: «{text[:40]}» era mi propia voz.")
@@ -1455,7 +3180,7 @@ class JarvisCore:
                         result = self.signal_processor.analyze_paralinguistic(tmp_audio)
                         self.log(f"[PARALING] stress={result.stress_level:.2f} fatigue={result.fatigue_level:.2f} "
                                  f"arousal={result.arousal:.2f} valence={result.valence:.2f}")
-                        # TODO: Ajustar TTS/HA según resultado
+                        self._aplicar_paralinguistica(result)
                     except Exception as e:
                         self.log(f"Paralingüística error: {e}")
                     finally:
@@ -1493,7 +3218,17 @@ class JarvisCore:
         if self._voz_piper_activa():
             try:
                 import jarvis_piper
-                if jarvis_piper.hablar(text):
+                # Cada personalidad con su voz: JARVIS y ULTRON no pueden sonar
+                # igual. voz_propia decide cuál según la preferencia guardada.
+                try:
+                    import voz_propia
+                    voz = voz_propia.voz_de(
+                        getattr(self, "nombre_agente", "jarvis").lower(), self)
+                except Exception:
+                    voz = jarvis_piper.DEFAULT_VOICE
+                if not jarvis_piper.disponible(voz):
+                    voz = jarvis_piper.DEFAULT_VOICE
+                if jarvis_piper.hablar(text, voice_id=voz):
                     return True
                 self.log("Piper no disponible; continúo con la cadena normal.")
             except Exception as e:
@@ -1516,7 +3251,8 @@ class JarvisCore:
         payload = {
             "text": text,
             "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.8},
+            "voice_settings": {"stability": float(getattr(self, "_tts_estabilidad", 0.5)),
+                               "similarity_boost": 0.8},
         }
         tmp = None
         try:
@@ -1570,7 +3306,11 @@ class JarvisCore:
         # Para errores de cuenta/configuración evitamos repetir una petición fallida
         # por cada oración. La próxima comprobación se hace dentro de cinco minutos.
         if status_code in {401, 402, 403, 404, 429}:
-            self._elevenlabs_disabled_until = time.monotonic() + 300
+            # 429 es pasajero (límite por minuto); 401/402/403/404 son de
+            # cuenta y no se arreglan solos: reintentarlos cada cinco minutos
+            # solo añade un viaje de red fallido a una de cada pocas frases.
+            espera = 300 if status_code == 429 else 6 * 3600
+            self._elevenlabs_disabled_until = time.monotonic() + espera
             # Vaciar la cola de frases pendientes: todas se sintetizarán con la
             # voz local de Windows. Evita una cola de 5+ frases esperando a
             # una API que sabemos caída.
@@ -1593,9 +3333,32 @@ class JarvisCore:
         if dropped:
             self.log(f"Cola TTS vaciada: {dropped} frases descartadas para evitar latencia acumulada.")
 
+    def esta_hablando(self) -> bool:
+        """True si hay voz sonando o frases en cola.
+
+        La escucha continua lo consulta para saber si una frase del señor es
+        una interrupción (y hay que callar) o una orden normal.
+        """
+        try:
+            if not self.tts_queue.empty():
+                return True
+        except Exception:
+            pass
+        if HAS_PYGAME:
+            try:
+                return bool(pygame.mixer.music.get_busy())
+            except Exception:
+                return False
+        return False
+
     def stop_speaking(self):
         """Interrupción (Sprint 2): detiene la voz y descarta frases pendientes."""
         self._flush_tts_queue()
+        try:
+            import voz_rapida
+            voz_rapida.callar()
+        except Exception:
+            pass
         if HAS_PYGAME:
             try:
                 pygame.mixer.music.stop()
@@ -1604,7 +3367,12 @@ class JarvisCore:
         self.log("Voz interrumpida por el señor.")
 
     def _speak_with_windows(self, text: str) -> bool:
-        """Respaldo sin dependencias externas mediante Windows Speech API."""
+        """Voz local de Windows, con el motor cargado en este mismo proceso.
+
+        Antes esto lanzaba un PowerShell nuevo por cada frase. Medido: 1,9
+        segundos de arranque antes de que sonara nada, por frase. Con el motor
+        SAPI en proceso la primera sílaba sale en 3 milisegundos.
+        """
         if self.voz_windows_silenciada:
             self.log("Voz de Windows silenciada; la respuesta permanece en texto.")
             return False
@@ -1617,6 +3385,20 @@ class JarvisCore:
 
         # json.dumps inserta el texto como literal seguro en PowerShell. Se codifica
         # el comando completo para evitar problemas con tildes, comillas o símbolos.
+        rate = max(-10, min(10, int(getattr(self, "_tts_rate", 0) or 0)))
+
+        # Camino rápido: motor en proceso (pywin32/pyttsx3). Solo si falla se
+        # usa el PowerShell de siempre, que sigue debajo intacto.
+        try:
+            import metricas
+            import voz_rapida
+            with metricas.medir("voz", motor=voz_rapida.estado().get("motor", "?")):
+                if voz_rapida.hablar(text, velocidad=rate, log=self.log):
+                    metricas.caracteres_hablados(text, proveedor="local")
+                    return True
+        except Exception as e:
+            self.log(f"Voz rápida no disponible ({e}); uso PowerShell.")
+
         script = f"""
 Add-Type -AssemblyName System.Speech
 $speaker = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -1630,7 +3412,7 @@ if (-not $maleVoice) {{
         Select-Object -First 1
 }}
 if ($maleVoice) {{ $speaker.SelectVoice($maleVoice.VoiceInfo.Name) }}
-$speaker.Rate = 0
+$speaker.Rate = {rate}
 $speaker.Speak({json.dumps(text, ensure_ascii=False)})
 """
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")

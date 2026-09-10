@@ -92,7 +92,10 @@ def test_skills():
         # NO debe matchear (conversación normal → LLM)
         ("hola jarvis, ¿cómo estás?", None),
         ("genera una imagen de un gato", None),
-        ("cuéntame un chiste", None),
+        # Desde que existe la habilidad _chiste, esta frase SI la atiende una
+        # habilidad. La expectativa antigua (mandarla al LLM) llevaba meses
+        # marcando un fallo que no lo era.
+        ("cuéntame un chiste", "chiste"),
         ("escribe un poema de amor", None),
     ]
     print("\n== 1. HABILIDADES (variantes de lenguaje) ==")

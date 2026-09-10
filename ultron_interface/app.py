@@ -40,6 +40,18 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+try:
+    from calendar_engine import calendar_engine
+except Exception as _ce_err:
+    print(f"[ULTRON-WEB] Aviso: calendar_engine no disponible: {_ce_err}")
+    calendar_engine = None
+
+try:
+    import herramientas.pc_tactical as pc_tactical
+except Exception as _pt_err:
+    print(f"[ULTRON-WEB] Aviso: pc_tactical no disponible: {_pt_err}")
+    pc_tactical = None
+
 # Forzar ULTRON_MODE antes de cargar nada
 os.environ.setdefault("ULTRON_MODE", "1")
 os.environ.setdefault("JARVIS_TTS_FALLBACK", "windows")
@@ -71,30 +83,59 @@ except Exception as e:
 # ── Configuración Ultron ─────────────────────────────────────────────────────
 PORT = int(os.getenv("ULTRON_PORT", "8766"))
 HOST = os.getenv("ULTRON_HOST", "0.0.0.0")
-ULTRON_MODEL = os.getenv("ULTRON_MODEL", "") or os.getenv("QWEN_MODEL", "qwen3:4b-instruct")
+ULTRON_MODEL = os.getenv("ULTRON_MODEL", "") or os.getenv("QWEN_MODEL", "qwen3:8b")
 os.environ["QWEN_MODEL"] = ULTRON_MODEL
 
 # Auth token independiente (no compartir con Jarvis)
 _AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".ultron_auth")
 
 
-def _get_token() -> str:
-    try:
-        t = open(_AUTH_FILE, "r", encoding="utf-8").read().strip()
-        if t and len(t) >= 4:
-            return t
-    except Exception:
-        pass
-    t = f"{secrets.randbelow(1000000):06d}"
+# El PIN de ULTRON abre control total del equipo. Caduca como el de JARVIS.
+PIN_DIAS = int(os.getenv("ULTRON_PIN_DIAS", os.getenv("JARVIS_PIN_DIAS", "30")))
+
+
+def _guardar_token(t: str) -> str:
     try:
         with open(_AUTH_FILE, "w", encoding="utf-8") as f:
-            f.write(t)
+            json.dump({"token": t, "creado": time.time()}, f)
     except Exception:
         pass
     return t
 
 
+def _nuevo_token() -> str:
+    return _guardar_token(f"{secrets.randbelow(1000000):06d}")
+
+
+def _get_token() -> str:
+    try:
+        bruto = open(_AUTH_FILE, "r", encoding="utf-8").read().strip()
+        if bruto.startswith("{"):
+            datos = json.loads(bruto)
+            t, creado = str(datos.get("token", "")), float(datos.get("creado", 0))
+        else:
+            t, creado = bruto, 0.0
+        if t and len(t) >= 4:
+            if PIN_DIAS <= 0:
+                return t if creado else _guardar_token(t)
+            if creado and (time.time() - creado) < PIN_DIAS * 86400:
+                return t
+            if not creado:
+                return _guardar_token(t)   # migracion del formato antiguo
+            print(f"[ULTRON] PIN caducado tras {PIN_DIAS} dias: genero uno nuevo.")
+    except Exception:
+        pass
+    return _nuevo_token()
+
+
 AUTH_TOKEN = _get_token()
+
+
+def rotar_token_ultron() -> str:
+    """PIN nuevo al instante (QR filtrado, captura compartida, etc.)."""
+    global AUTH_TOKEN
+    AUTH_TOKEN = _nuevo_token()
+    return AUTH_TOKEN
 
 
 def _local_ip() -> str:
@@ -261,14 +302,12 @@ def pair():
 @app.route("/qr")
 def qr():
     try:
-        import qrcode
-        from io import BytesIO
+        from jarvis_qr import qr_response_data
         url = f"http://{_local_ip()}:{PORT}/mobile?token={AUTH_TOKEN}"
-        img = qrcode.make(url)
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return send_file(buf, mimetype="image/png")
+        datos, mimetype = qr_response_data(url)
+        resp = Response(datos, mimetype=mimetype)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -411,6 +450,156 @@ def purge():
         return jsonify({"ok": True, "mensaje": msg})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── API REST: CALENDARIO TÁCTICO ─────────────────────────────────────────────
+@app.route("/api/calendar/status", methods=["GET"])
+def api_calendar_status():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    return jsonify(calendar_engine.get_status())
+
+
+@app.route("/api/calendar/events", methods=["GET"])
+def api_calendar_events():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    t_min = request.args.get("time_min")
+    t_max = request.args.get("time_max")
+    q = request.args.get("q")
+    days = int(request.args.get("days", 14))
+    if not t_min:
+        now_dt = datetime.now()
+        t_min = now_dt.strftime("%Y-%m-%dT00:00:00")
+        t_max = (now_dt + timedelta(days=days)).strftime("%Y-%m-%dT23:59:59")
+    events = calendar_engine.list_events(time_min=t_min, time_max=t_max, query=q)
+    return jsonify({"events": events, "count": len(events)})
+
+
+@app.route("/api/calendar/today", methods=["GET"])
+def api_calendar_today():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    events = calendar_engine.get_today_events()
+    return jsonify({"events": events, "count": len(events)})
+
+
+@app.route("/api/calendar/events", methods=["POST"])
+def api_calendar_create():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    data = request.get_json(silent=True) or {}
+    summary = (data.get("summary") or data.get("titulo") or "").strip()
+    start = (data.get("start") or data.get("inicio") or "").strip()
+    end = (data.get("end") or data.get("fin") or "").strip() or None
+    description = (data.get("description") or data.get("descripcion") or "").strip()
+    location = (data.get("location") or data.get("ubicacion") or "").strip()
+    if not summary or not start:
+        return jsonify({"error": "summary y start son obligatorios"}), 400
+    ev = calendar_engine.create_event(summary, start, end, description=description, location=location)
+    return jsonify({"ok": True, "event": ev})
+
+
+@app.route("/api/calendar/events/<event_id>", methods=["DELETE"])
+def api_calendar_delete(event_id):
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    ok = calendar_engine.delete_event(event_id)
+    return jsonify({"ok": ok, "deleted_id": event_id})
+
+
+@app.route("/api/calendar/reschedule", methods=["POST"])
+def api_calendar_reschedule():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    data = request.get_json(silent=True) or {}
+    event_id = data.get("event_id")
+    new_start = data.get("new_start")
+    new_end = data.get("new_end")
+    if not event_id or not new_start:
+        return jsonify({"error": "event_id y new_start son obligatorios"}), 400
+    ev = calendar_engine.reschedule_event(event_id, new_start, new_end)
+    return jsonify({"ok": ev is not None, "event": ev})
+
+
+# ── API REST: ARSENAL TÁCTICO DEL SISTEMA ────────────────────────────────────
+@app.route("/api/system/processes", methods=["GET"])
+def api_system_processes():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    limit = int(request.args.get("limit", 15))
+    sort_by = request.args.get("sort", "cpu")
+    procs = pc_tactical.list_top_processes(limit=limit, sort_by=sort_by)
+    return jsonify({"processes": procs, "count": len(procs)})
+
+
+@app.route("/api/system/kill", methods=["POST"])
+def api_system_kill():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    data = request.get_json(silent=True) or {}
+    target = data.get("target") or data.get("pid") or data.get("name")
+    if not target:
+        return jsonify({"error": "target no especificado"}), 400
+    res = pc_tactical.kill_process(target)
+    return jsonify(res)
+
+
+@app.route("/api/system/clean_ram", methods=["POST"])
+def api_system_clean_ram():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    res = pc_tactical.clean_ram()
+    return jsonify(res)
+
+
+@app.route("/api/system/lockdown", methods=["POST"])
+def api_system_lockdown():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    res = pc_tactical.lockdown_station()
+    return jsonify(res)
+
+
+@app.route("/api/system/network_radar", methods=["GET"])
+def api_system_network_radar():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    conns = pc_tactical.scan_network_connections(limit=25)
+    return jsonify({"connections": conns, "count": len(conns)})
+
+
+@app.route("/api/system/block_ip", methods=["POST"])
+def api_system_block_ip():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"error": "ip no especificada"}), 400
+    res = pc_tactical.block_ip_firewall(ip)
+    return jsonify(res)
+
+
+# ── API REST: PROTOCOLO INTER-AGENTES ────────────────────────────────────────
+@app.route("/api/agent/peer_status", methods=["GET"])
+def api_agent_peer_status():
+    if not pc_tactical:
+        return jsonify({"online": False, "error": "pc_tactical no disponible"}), 503
+    st = pc_tactical.get_peer_status("jarvis")
+    return jsonify(st)
+
+
+@app.route("/api/agent/delegate", methods=["POST"])
+def api_agent_delegate():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    data = request.get_json(silent=True) or {}
+    msg = data.get("message") or data.get("text")
+    if not msg:
+        return jsonify({"error": "message requerido"}), 400
+    res = pc_tactical.delegate_to_peer("jarvis", msg)
+    return jsonify(res)
 
 
 # ── Voz (STT + TTS) ──────────────────────────────────────────────────────────
