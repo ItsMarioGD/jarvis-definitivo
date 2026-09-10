@@ -2071,6 +2071,46 @@ def companion_voice():
                 pass
 
 
+@app.route('/api/modelado3d/estado')
+def api_modelado3d_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import modelado3d
+        return jsonify({
+            'blender': modelado3d.disponible(),
+            'blender_exe': modelado3d._blender(),
+            'backends': modelado3d.backends(),
+            'resumen': modelado3d.estado_backends(),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/cerebro/estado')
+def api_cerebro_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    out = {}
+    for nombre, fn in (
+        ('memoria', lambda: __import__('memoria_grafo').estado()),
+        ('presupuesto', lambda: __import__('presupuesto').estado()),
+        ('salud_proveedores', lambda: __import__('cerebro_salud').estado()),
+        ('router', lambda: __import__('router_modelo').estado()),
+        ('automejora', lambda: {'activo': __import__('auto_mejora').activo()}),
+    ):
+        try:
+            out[nombre] = fn()
+        except Exception as e:
+            out[nombre] = {'error': str(e)[:120]}
+    try:
+        import permisos
+        out['agente_modo'] = permisos.modo()
+    except Exception:
+        pass
+    return jsonify(out)
+
+
 @app.route('/cmd', methods=['POST'])
 def companion_cmd():
     if not _auth_ok(_req_token()):

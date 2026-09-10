@@ -463,6 +463,67 @@ const MODULOS = {
             </div>`)}
         </div>`;
     }
+  },
+
+  modelado3d:{
+    titulo:'Modelado 3D', icono:'<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 2v20M3 7l9 5 9-5"/>',
+    async cargar(){
+      const e = await API.get('/api/modelado3d/estado').catch(()=>({}));
+      const bk = (e.backends||[]);
+      return `<div class="mrejilla">
+        ${caja('Motor', `<div class="pista">Blender: <b>${e.blender ? 'sí' : 'no'}</b></div>
+          <div class="pista" style="word-break:break-all">${esc(e.blender_exe||'—')}</div>
+          <div class="pista">Reconstructores locales: <b>${bk.length ? esc(bk.join(', ')) : 'ninguno (uso la «imaginación» del cerebro)'}</b></div>`)}
+        ${caja('Notas', `<div class="pista">${esc(e.resumen||'')}</div>
+          <div class="pista">Configura rutas en Prefs/modelado3d.json (ver setup_modelado3d.md).</div>`)}
+      </div>
+      <h4 style="margin:16px 0 8px;color:var(--p1);font-size:10.5px;letter-spacing:.18em">MODELAR</h4>
+      <div class="mfila">
+        <input id="m3d-entrada" class="mcampo" style="flex:1"
+          placeholder="descripción, o ruta a foto / vídeo / .blend / .obj / .fbx …">
+      </div>
+      <div class="mfila" style="margin-top:8px">
+        <label class="pista"><input type="checkbox" id="m3d-tpose"> T-pose (personajes)</label>
+      </div>
+      <div class="mfila" style="margin-top:8px">
+        <button class="mbtn" data-accion="m3d-modelar">Modelar</button>
+        <button class="mbtn" data-accion="m3d-holograma">Holograma del último</button>
+        <button class="mbtn" data-accion="m3d-abrir">Abrir carpeta de modelos</button>
+      </div>
+      <div id="mod-salida"></div>
+      <p class="pista" style="margin-top:10px">Tarda 1–3 min. Al acabar te abre el visor
+        holográfico. Para pirámide de acrílico: «holograma pirámide».</p>`;
+    }
+  },
+
+  cerebro:{
+    titulo:'Cerebro', icono:'<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8A3 3 0 0 0 8 17a3 3 0 0 0 4 2 3 3 0 0 0 4-2 3 3 0 0 0 3-5.2A3 3 0 0 0 18 6a3 3 0 0 0-3-3 3 3 0 0 0-3 1.5A3 3 0 0 0 9 3z"/>',
+    async cargar(){
+      const e = await API.get('/api/cerebro/estado').catch(()=>({}));
+      const mem = e.memoria||{}, pre = e.presupuesto||{}, sal = e.salud_proveedores||{},
+            rt = e.router||{}, am = e.automejora||{};
+      const filasSalud = Object.entries(sal).map(([k,v]) =>
+        [esc(k), (v.fallos||0)+' fallos', (v.cuarentena_s||0)+' s']);
+      return `<div class="mrejilla">
+        ${caja('Memoria unificada', `<div class="grande">${mem.hechos ?? '—'}</div>
+          <div class="pista">${mem.entidades ?? 0} entidades · FTS ${mem.fts ? 'sí' : 'no'}</div>`)}
+        ${caja('Gasto del día', `<div class="grande">${pre.usd != null ? '$'+Number(pre.usd).toFixed(3) : '—'}</div>
+          <div class="pista">tope $${pre.tope_usd ?? '?'} · ${pre.tokens ?? 0} tokens
+            ${pre.excedido ? '· <b style="color:#ff8080">TOPE</b>' : ''}</div>`)}
+        ${caja('Router por modelo', `<div class="grande">${rt.activo ? 'ON' : 'off'}</div>
+          <div class="pista">${rt.en_cache ?? 0} frases en caché</div>`)}
+        ${caja('Auto-mejora', `<div class="grande">${am.activo ? 'ON' : 'off'}</div>
+          <div class="pista">modo agente: ${esc(e.agente_modo||'normal')}</div>`)}
+      </div>
+      <h4 style="margin:16px 0 8px;color:var(--p1);font-size:10.5px;letter-spacing:.18em">PROVEEDORES</h4>
+      ${filasSalud.length ? tabla(['Proveedor','Fallos','Cuarentena'], filasSalud)
+                          : '<p class="pista">Todos sanos.</p>'}
+      <div class="mfila" style="margin-top:12px">
+        <input id="cbr-q" class="mcampo" style="flex:1" placeholder="buscar en la memoria (o «qué hice el martes»)">
+        <button class="mbtn" data-accion="cbr-buscar">Buscar</button>
+      </div>
+      <div id="mod-salida"></div>`;
+    }
   }
 };
 
@@ -685,6 +746,35 @@ document.getElementById('mod-contenido').addEventListener('click', async e => {
         if (r.pin){ localStorage.setItem('jarvis_pin', r.pin);
           brindis('PIN nuevo: ' + r.pin + '. Recargue con el QR nuevo.'); }
         else brindis(r.error || 'No se pudo cambiar.');
+        break;
+      }
+      case 'm3d-modelar': {
+        const ent = val('m3d-entrada');
+        if (!ent){ brindis('Escribe una descripción o una ruta.'); break; }
+        const tp = document.getElementById('m3d-tpose')?.checked;
+        salida('<p class="pista">Modelando en 3D… 1–3 min. Te abriré el visor al acabar.</p>');
+        const r = await API.post('/cmd', {texto:
+          (tp ? 'modélame en 3D en T-pose: ' : 'modélame en 3D: ') + ent});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || JSON.stringify(r).slice(0,600)) + '</pre>');
+        break;
+      }
+      case 'm3d-holograma': {
+        salida('<p class="pista">Renderizando holograma…</p>');
+        const r = await API.post('/cmd', {texto:'muéstrame el holograma de eso'});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || '') + '</pre>');
+        break;
+      }
+      case 'm3d-abrir':
+        await API.post('/cmd', {texto:'abre la carpeta Descargas/JARVIS/Modelos3D'});
+        brindis('Abriendo la carpeta de modelos.'); break;
+      case 'cbr-buscar': {
+        const q = val('cbr-q');
+        if (!q){ brindis('Escribe qué buscar.'); break; }
+        const r = await API.post('/cmd', {texto:'busca en tu memoria ' + q});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || '') + '</pre>');
         break;
       }
       default: brindis('Acción desconocida: ' + a);

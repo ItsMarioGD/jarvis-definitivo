@@ -2999,6 +2999,16 @@ class JarvisCore:
                             f"hechos y {e.get('entidades', 0)} entidades.")
                 except Exception:
                     pass
+            _m_bm = re.search(r"busca en (tu |la )?memoria[:,]?\s+(.+)", text, re.IGNORECASE)
+            if _m_bm:
+                try:
+                    import memoria_grafo
+                    hs = (memoria_grafo.recall(_m_bm.group(2), log=self.log))
+                    if not hs:
+                        return "No tengo nada en memoria sobre eso, señor."
+                    return "Señor: " + " · ".join(h["texto"][:120] for h in hs[:6])
+                except Exception as e:
+                    return f"No pude buscar, señor: {str(e)[:80]}"
         if re.search(r"nivel de (nuestra )?relaci[oó]n|qu[eé] tan bien nos "
                      r"(conocemos|llevamos)|cu[aá]nto (tiempo )?llevamos", text, re.IGNORECASE):
             try:
