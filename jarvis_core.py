@@ -2923,6 +2923,19 @@ class JarvisCore:
                 return relacion.resumen(self)
             except Exception as e:
                 return f"Señor, no pude calcularlo: {str(e)[:80]}"
+        _m_img = re.search(r"(mira|analiza|describe|qu[eé] (dice|hay en|ves en))\s+"
+                           r"(esta\s+|este\s+|el\s+|la\s+)?(imagen|foto|captura|"
+                           r"pdf|documento)[:,]?\s*(.+\.(png|jpe?g|webp|gif|pdf|txt|md))",
+                           text, re.IGNORECASE)
+        if _m_img:
+            try:
+                import multimodal
+                ruta = _m_img.group(6).strip()
+                if ruta.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                    return multimodal.analizar_imagen(self, ruta, "", log=self.log)
+                return multimodal.analizar_documento(self, ruta, "", log=self.log)
+            except Exception as e:
+                return f"Señor, no pude analizarlo: {str(e)[:100]}"
         _m_reu = re.search(r"(resume|procesa|transcribe)\s+(esta\s+|la\s+)?reuni[oó]n"
                            r"[:,]?\s*(.+\.(wav|mp3|m4a|ogg|flac))", text, re.IGNORECASE)
         if _m_reu:

@@ -165,6 +165,12 @@ class Herramientas:
                             "completa o número) y lo revisa. Solo lectura.",
               {"objetivo": texto}, ["objetivo"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
+            h("analizar_imagen", "Mira una imagen del disco y responde una "
+                                 "pregunta sobre ella (errores, gráficos, fotos).",
+              {"ruta": texto, "pregunta": texto}, ["ruta"]),
+            h("analizar_documento", "Lee un PDF (o texto) y responde una pregunta "
+                                    "o lo resume.",
+              {"ruta": texto, "pregunta": texto}, ["ruta"]),
             h("procesar_reunion", "Transcribe un audio de reunión y saca resumen, "
                                   "acuerdos y tareas; mete las tareas como "
                                   "recordatorios.",
@@ -442,6 +448,16 @@ class Herramientas:
         import deshacer
         return deshacer.deshacer_ultimo(1, log=self.log,
                                         set_pref=getattr(self.core, "set_pref", None))
+
+    def _t_analizar_imagen(self, a):
+        import multimodal
+        return multimodal.analizar_imagen(self.core, a.get("ruta", ""),
+                                          a.get("pregunta", ""), log=self.log)
+
+    def _t_analizar_documento(self, a):
+        import multimodal
+        return multimodal.analizar_documento(self.core, a.get("ruta", ""),
+                                             a.get("pregunta", ""), log=self.log)
 
     def _t_procesar_reunion(self, a):
         import reunion
