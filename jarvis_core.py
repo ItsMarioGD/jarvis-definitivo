@@ -263,6 +263,18 @@ class JarvisCore:
             pass
         self.init_memory()
 
+        # Memoria unificada (drástico #3): un solo almacén con tiempo. Por
+        # defecto se llena y se lee; JARVIS_MEMORIA_UNICA=0 lo desactiva.
+        self._mem_unica = os.getenv("JARVIS_MEMORIA_UNICA", "1") != "0"
+        if self._mem_unica:
+            def _migrar_memoria():
+                try:
+                    import memoria_ingesta
+                    memoria_ingesta.migrar(self, log=self.log)
+                except Exception as e:
+                    self.log(f"[MEMORIA] ingesta falló: {e}")
+            threading.Thread(target=_migrar_memoria, daemon=True).start()
+
         # Lock para serializar todas las escrituras a SQLite. Sin lock, los
         # hilos UDP, TTS y LLM pueden colisionar al cerrar el cursor.
         self._db_lock = threading.RLock()
@@ -746,6 +758,17 @@ class JarvisCore:
                               metadata={"timestamp": ts, "source": "conversation"})
             except Exception as e:
                 self.log(f"Mem0 save error: {e}")
+
+        # Memoria unificada: solo lo del señor entra como hecho conversacional
+        # (las respuestas de JARVIS son ruido salvo que él las valide).
+        if getattr(self, "_mem_unica", False) and role == "user" and content:
+            try:
+                import memoria_grafo
+                memoria_grafo.recordar(content[:400], tipo="conversacion",
+                                       sujeto="señor", fuente="chat",
+                                       peso=0.6, caduca_dias=180, log=self.log)
+            except Exception:
+                pass
 
     def save_media_history(self, media_type: str, prompt: str, path: str):
         """Registra un medio generado (imagen, 3D, video) en su tabla dedicada."""
@@ -2866,6 +2889,14 @@ class JarvisCore:
             self.save_to_memory("assistant", learned)
             self._contexto_append(text, learned)
             jarvis_grafo.aprender(text)
+            if getattr(self, "_mem_unica", False):
+                try:
+                    import memoria_grafo
+                    memoria_grafo.recordar(text[:300], tipo="preferencia",
+                                           sujeto="señor", fuente="aprendido",
+                                           peso=2.5, log=self.log)
+                except Exception:
+                    pass
             return learned
 
         # ── El cerebro con manos: tool-calling ──────────────────────────────
@@ -2923,6 +2954,31 @@ class JarvisCore:
                 return cerebro_salud.informe()
             except Exception as e:
                 return f"Señor, no pude consultarlo: {str(e)[:80]}"
+        if getattr(self, "_mem_unica", False):
+            _m_epi = re.search(r"qu[eé] (hice|hac[ií]a|estuve haciendo|pas[oó])\s+"
+                               r"(el\s+|la\s+)?(ayer|anteayer|antier|lunes|martes|"
+                               r"mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|"
+                               r"semana pasada|hace \d+ d[ií]as)", text, re.IGNORECASE)
+            if _m_epi:
+                try:
+                    import memoria_grafo
+                    hs = memoria_grafo.episodico(text, k=10, log=self.log)
+                    if not hs:
+                        return "No tengo nada anotado de ese momento, señor."
+                    return "Señor, ese día: " + " · ".join(
+                        f"{time.strftime('%H:%M', time.localtime(h['ts']))} {h['texto'][:90]}"
+                        for h in hs)
+                except Exception as e:
+                    return f"No pude recuperarlo, señor: {str(e)[:80]}"
+            if re.search(r"(estado|cu[aá]nto[s]?) (de )?(tu |tus )?(memoria|recuerdos)",
+                         text, re.IGNORECASE):
+                try:
+                    import memoria_grafo
+                    e = memoria_grafo.estado()
+                    return (f"Señor, mi memoria unificada tiene {e.get('hechos', 0)} "
+                            f"hechos y {e.get('entidades', 0)} entidades.")
+                except Exception:
+                    pass
         if re.search(r"nivel de (nuestra )?relaci[oó]n|qu[eé] tan bien nos "
                      r"(conocemos|llevamos)|cu[aá]nto (tiempo )?llevamos", text, re.IGNORECASE):
             try:
@@ -3057,6 +3113,16 @@ class JarvisCore:
                     msgs = msgs + [{"role": "system", "content": _mp}]
             except Exception:
                 pass
+
+            # Memoria unificada (drástico #3): recall temático + episódico.
+            if getattr(self, "_mem_unica", False):
+                try:
+                    import memoria_grafo
+                    _mu = memoria_grafo.contexto(text, log=self.log)
+                    if _mu:
+                        msgs = msgs + [{"role": "system", "content": _mu}]
+                except Exception as e:
+                    self.log(f"[MEMORIA] contexto falló: {e}")
 
             # Estado del señor leído en su voz: cambia el tono, no el contenido.
             _ctx_estado = self._contexto_estado()

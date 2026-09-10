@@ -196,6 +196,16 @@ class Herramientas:
                                   "acuerdos y tareas; mete las tareas como "
                                   "recordatorios.",
               {"ruta_audio": texto}, ["ruta_audio"]),
+            h("buscar_en_memoria", "Busca en la memoria unificada del señor: "
+                                   "hechos, preferencias, eventos y episodios. "
+                                   "Acepta «qué hice el martes».",
+              {"consulta": texto}, ["consulta"]),
+            h("recordar_hecho", "Guarda un hecho en la memoria unificada (con "
+                                "fecha). Para lo que conviene recordar pero no es "
+                                "una convención permanente.",
+              {"texto": texto,
+               "tipo": {"type": "string", "description": "nota, evento, preferencia..."}},
+              ["texto"]),
             h("recordar_permanente", "Apunta un hecho o convención en la memoria "
                                      "permanente (JARVIS.md), que se carga en "
                                      "cada conversación. Solo para lo que SIEMPRE "
@@ -483,6 +493,25 @@ class Herramientas:
     def _t_procesar_reunion(self, a):
         import reunion
         return reunion.procesar(self.core, a.get("ruta_audio", ""), log=self.log)
+
+    def _t_buscar_en_memoria(self, a):
+        import memoria_grafo, re as _re
+        q = a.get("consulta", "")
+        if _re.search(r"\b(ayer|anteayer|el (lunes|martes|mi[eé]rcoles|jueves|"
+                      r"viernes|s[aá]bado|domingo)|semana pasada|hace \d+ d[ií]as)\b",
+                      q.lower()):
+            hs = memoria_grafo.episodico(q, log=self.log)
+        else:
+            hs = memoria_grafo.recall(q, log=self.log)
+        if not hs:
+            return "No tengo nada en memoria sobre eso, señor."
+        return "\n".join(f"- {h['texto'][:160]}" for h in hs)
+
+    def _t_recordar_hecho(self, a):
+        import memoria_grafo
+        n = memoria_grafo.recordar(a.get("texto", ""), tipo=a.get("tipo", "nota"),
+                                   fuente="agente", log=self.log)
+        return "Anotado en memoria, señor." if n else "No pude anotarlo."
 
     def _t_recordar_permanente(self, a):
         import memoria_proyecto

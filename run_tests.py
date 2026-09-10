@@ -335,6 +335,37 @@ def test_modulos_nuevos():
     except Exception as e:
         ok("correo: módulo", False, str(e)[:80])
 
+    # memoria_grafo: recall, episódico, entidad
+    try:
+        import memoria_grafo as MG
+        MG._DB = os.path.join(tempfile.gettempdir(), "mem_unica_test.db")
+        try: os.remove(MG._DB)
+        except OSError: pass
+        MG._conn = None
+        MG.recordar("al señor le gusta el café solo", tipo="preferencia",
+                    sujeto="señor", entidades=["café"])
+        MG.recordar("ayer estuve con el bug de audio", tipo="nota",
+                    ts=time.time() - 86400)
+        ok("memoria: recall temático",
+           any("café" in h["texto"] for h in MG.recall("café mañana")))
+        ok("memoria: episódico de ayer",
+           any("audio" in h["texto"] for h in MG.episodico("ayer")))
+        ok("memoria: entidad", MG.entidad("café").get("entidad", {}).get("nombre") == "café")
+        ok("memoria: contexto no vacío", bool(MG.contexto("qué hice ayer con el audio")))
+        MG._conn.close(); MG._conn = None
+        try: os.remove(MG._DB)
+        except OSError: pass
+    except Exception as e:
+        ok("memoria: módulo", False, str(e)[:80])
+
+    # permisos incluye las tools de los slices drásticos
+    try:
+        import permisos
+        ok("permisos: buscar_en_memoria es lectura",
+           permisos.evaluar("buscar_en_memoria") == "directo")
+    except Exception as e:
+        ok("permisos drásticos: módulo", False, str(e)[:80])
+
 
 def main():
     t0 = time.time()

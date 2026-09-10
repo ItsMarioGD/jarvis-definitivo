@@ -32,7 +32,7 @@ _LECTURA = {
     "buscar_archivos", "buscar_web", "recados_pendientes", "buscar_en_documentos",
     "mirar_pantalla", "ensayar_orden", "ensayar_orden_movil", "leer_archivo",
     "listar_dir", "buscar_en_archivos", "git_estado", "git_diff", "revisar_pr",
-    "revisar_correo", "analizar_imagen", "analizar_documento",
+    "revisar_correo", "analizar_imagen", "analizar_documento", "buscar_en_memoria",
 }
 
 # Efecto real: se paran y piden confirmación en modo normal.
