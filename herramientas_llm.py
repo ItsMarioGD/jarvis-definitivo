@@ -165,6 +165,14 @@ class Herramientas:
                             "completa o número) y lo revisa. Solo lectura.",
               {"objetivo": texto}, ["objetivo"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
+            h("delegar_subtarea", "Lanza un sub-agente aparte que resuelve una "
+                                  "subtarea con sus propias herramientas y te "
+                                  "avisa al terminar. Úsala para trabajo que "
+                                  "puede correr mientras sigues con el señor.",
+              {"tarea": texto,
+               "en_segundo_plano": {"type": "boolean",
+                                    "description": "true (def) = no esperar; false = esperar el resumen"}},
+              ["tarea"]),
             h("orden_libre", "Ejecuta cualquier otra orden en el lenguaje de siempre. "
                              "Úsala solo si ninguna herramienta encaja.",
               {"orden": texto}, ["orden"]),
@@ -422,6 +430,11 @@ class Herramientas:
         import deshacer
         return deshacer.deshacer_ultimo(1, log=self.log,
                                         set_pref=getattr(self.core, "set_pref", None))
+
+    def _t_delegar_subtarea(self, a):
+        import subagente
+        return subagente.delegar(self.core, a.get("tarea", ""),
+                                 a.get("en_segundo_plano", True), log=self.log)
 
     def _t_orden_libre(self, a):
         return self._frase(a.get("orden", ""))
