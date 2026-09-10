@@ -2999,6 +2999,16 @@ class JarvisCore:
                 return multimodal.analizar_documento(self, ruta, "", log=self.log)
             except Exception as e:
                 return f"Señor, no pude analizarlo: {str(e)[:100]}"
+        _m_am = re.search(r"(mej[oó]rate|mejora tu c[oó]digo|modif[ií]cate|"
+                          r"aut[oó]?\s*-?\s*mej[oó]rate)(\s+para)?[:,]?\s+(.+)",
+                          text, re.IGNORECASE)
+        if _m_am:
+            try:
+                import auto_mejora
+                return auto_mejora.proponer(self, _m_am.group(3), abrir_pr=False,
+                                            log=self.log)
+            except Exception as e:
+                return f"Señor, la auto-mejora falló: {str(e)[:100]}"
         _m_reu = re.search(r"(resume|procesa|transcribe)\s+(esta\s+|la\s+)?reuni[oó]n"
                            r"[:,]?\s*(.+\.(wav|mp3|m4a|ogg|flac))", text, re.IGNORECASE)
         if _m_reu:

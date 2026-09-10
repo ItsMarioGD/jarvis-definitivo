@@ -214,6 +214,13 @@ class Herramientas:
                "seccion": {"type": "string",
                            "description": "Preferencias fijas, Convenciones, Proyectos en curso o Notas"}},
               ["nota"]),
+            h("automejorar", "JARVIS edita su PROPIO código en una rama nueva, "
+                             "corre los tests y deja el resultado para que el "
+                             "señor lo revise y mergee. Nunca toca main ni "
+                             "mergea. Requiere JARVIS_AUTOMEJORA=1.",
+              {"objetivo": texto,
+               "abrir_pr": {"type": "boolean", "description": "abrir Pull Request (necesita gh)"}},
+              ["objetivo"]),
             h("delegar_subtarea", "Lanza un sub-agente aparte que resuelve una "
                                   "subtarea con sus propias herramientas y te "
                                   "avisa al terminar. Úsala para trabajo que "
@@ -517,6 +524,11 @@ class Herramientas:
         import memoria_proyecto
         return memoria_proyecto.anadir(a.get("nota", ""),
                                        a.get("seccion", "Notas"), log=self.log)
+
+    def _t_automejorar(self, a):
+        import auto_mejora
+        return auto_mejora.proponer(self.core, a.get("objetivo", ""),
+                                    bool(a.get("abrir_pr")), log=self.log)
 
     def _t_delegar_subtarea(self, a):
         import subagente
