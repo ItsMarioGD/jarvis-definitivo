@@ -2711,6 +2711,51 @@ class JarvisCore:
             return [texto]
         return partes[:3]
 
+    def _orden_modelado3d(self, text: str):
+        """«modélame en 3D: X» / «holograma de X». Devuelve texto o None."""
+        t = text.strip()
+        low = t.lower()
+
+        def _limpiar(obj: str) -> str:
+            obj = (obj or "").strip()
+            for _ in range(5):
+                nuevo = re.sub(
+                    r"^(esto|eso|un[ao]?|el|la|de|del|en|para|un\s+modelo\s+de|"
+                    r"que\s+se\s+ve\s+en|t[\s-]?pose|cuerpo\s+completo|completo)"
+                    r"\b\s*[:,]?\s*", "", obj, flags=re.I)
+                if nuevo == obj:
+                    break
+                obj = nuevo
+            obj = obj.strip(" :,.-¿¡")
+            if obj and obj.lower() in low:               # recuperar mayúsculas (rutas)
+                obj = t[low.rfind(obj.lower()):].strip()
+            return obj
+
+        if re.search(r"\bholograma\b", low):
+            m_holo = re.search(
+                r"(?:haz(?:me)?|crea(?:me)?|gener[ae]|quiero|mu[eé]strame|"
+                r"ens[eé][ñn]ame|ponme|dame|proyecta|el\s+|un\s+)?\s*holograma"
+                r"(?:\s+(?:de|del|en|piramide|pir[aá]mide|completo|"
+                r"cuerpo\s+completo|t[\s-]?pose))*\s*[:,]?\s*(.*)", low)
+            objetivo = _limpiar(m_holo.group(1)) if m_holo else ""
+            modo = "t-pose" if re.search(r"\bt[\s-]?pose\b", low) else "completo"
+            import modelado3d
+            return modelado3d.holograma(self, objetivo, modo=modo, log=self.log)
+
+        m_3d = re.search(
+            r"(?:mod[eé]l[ae]\w*|esc[aá]ne[aá]\w*|convierte\s+a|pas[aá]\s+a|"
+            r"haz(?:me)?\s+un\s+modelo)\s+"
+            r"(?:esto\s+|eso\s+|un[ao]?\s+|el\s+|la\s+|de\s+esto\s+)?"
+            r"(?:en\s+)?3\s*-?\s*d\b[:,]?\s*(.+)", low)
+        if m_3d:
+            objetivo = _limpiar(m_3d.group(1) or "")
+            if not objetivo:
+                return None
+            tpose = bool(re.search(r"\bt[\s-]?pose\b|\ben\s+t\b", low))
+            import modelado3d
+            return modelado3d.modelar(self, objetivo, t_pose=tpose, log=self.log)
+        return None
+
     def _procesar(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
         # ── Mute de la voz local: lo primero, para que funcione siempre ──
         try:
@@ -2841,6 +2886,22 @@ class JarvisCore:
                     skip_skills = True
         except Exception as e:
             self.log(f"[ROUTER] omitido: {e}")
+
+        # ── Modelado 3D / holograma: órdenes específicas, ANTES de las
+        # habilidades y del bucle de herramientas (que las interceptaban). ──
+        try:
+            _r3d = self._orden_modelado3d(text)
+        except Exception as e:
+            self.log(f"[3D] orden falló: {e}")
+            _r3d = None
+        if _r3d:
+            self.history.append({"role": "user", "content": text})
+            self.save_to_memory("user", text)
+            self.history.append({"role": "assistant", "content": _r3d})
+            self.save_to_memory("assistant", _r3d)
+            if speak_server:
+                self.tts_queue.put(_r3d)
+            return _r3d
 
         # Habilidades del sistema (Sprint 2): si es un comando ejecutable,
         # responder al instante sin consumir el LLM.
@@ -3029,29 +3090,7 @@ class JarvisCore:
                 return multimodal.analizar_documento(self, ruta, "", log=self.log)
             except Exception as e:
                 return f"Señor, no pude analizarlo: {str(e)[:100]}"
-        _m_3d = re.search(r"(mod[eé]la(me)?|haz(me)?|crea(me)?|esc[aá]nea(me)?)\s+"
-                          r"(esto\s+|un[ao]?\s+)?(en\s+)?3\s*d\b[:,]?\s*(.+)",
-                          text, re.IGNORECASE)
-        if _m_3d and "holograma" not in text.lower():
-            try:
-                import modelado3d
-                tpose = bool(re.search(r"\bt[\s-]?pose\b|en\s+t\b", text, re.IGNORECASE))
-                return modelado3d.modelar(self, _m_3d.group(8).strip(),
-                                          t_pose=tpose, log=self.log)
-            except Exception as e:
-                return f"Señor, el modelado 3D falló: {str(e)[:100]}"
-        _m_holo = re.search(r"(haz(me)?|crea(me)?|gener[ae]|quiero|mu[eé]strame|"
-                            r"ens[eé][ñn]ame)\s+(el\s+|un\s+)?holograma"
-                            r"(\s+(de|piramide|pir[aá]mide))?[:,]?\s*(.*)",
-                            text, re.IGNORECASE)
-        if _m_holo:
-            try:
-                import modelado3d
-                modo = "t-pose" if re.search(r"\bt[\s-]?pose\b", text, re.IGNORECASE) else "completo"
-                return modelado3d.holograma(self, (_m_holo.group(7) or "").strip(),
-                                            modo=modo, log=self.log)
-            except Exception as e:
-                return f"Señor, el holograma falló: {str(e)[:100]}"
+        # (modelado 3D / holograma se atienden antes, en _orden_modelado3d)
         _m_am = re.search(r"(mej[oó]rate|mejora tu c[oó]digo|modif[ií]cate|"
                           r"aut[oó]?\s*-?\s*mej[oó]rate)(\s+para)?[:,]?\s+(.+)",
                           text, re.IGNORECASE)
