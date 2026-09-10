@@ -2923,6 +2923,14 @@ class JarvisCore:
                 return relacion.resumen(self)
             except Exception as e:
                 return f"Señor, no pude calcularlo: {str(e)[:80]}"
+        _m_reu = re.search(r"(resume|procesa|transcribe)\s+(esta\s+|la\s+)?reuni[oó]n"
+                           r"[:,]?\s*(.+\.(wav|mp3|m4a|ogg|flac))", text, re.IGNORECASE)
+        if _m_reu:
+            try:
+                import reunion
+                return reunion.procesar(self, _m_reu.group(3).strip(), log=self.log)
+            except Exception as e:
+                return f"Señor, no pude procesar la reunión: {str(e)[:100]}"
         _m_md = re.search(r"(apunta|anota|gu[aá]rda(te)?|recuerda) (esto )?en (tu )?"
                           r"memoria permanente(?: que)?[:,]?\s+(.+)", text, re.IGNORECASE)
         if _m_md:

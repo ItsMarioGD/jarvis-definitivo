@@ -42,6 +42,7 @@ _CONFIRMAR = {
     "bloquear_equipo", "ajustar_volumen", "enviar_telegram", "enviar_correo",
     "git_crear_rama", "git_commit", "correr_tests", "pilotar_pantalla",
     "reproducir_musica", "analizar_con_codigo", "delegar_subtarea",
+    "procesar_reunion",
 }
 
 # Todo lo demás (abrir_app, crear_nota, temporizador, recordatorio, captura,

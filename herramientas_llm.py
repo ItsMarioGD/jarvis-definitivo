@@ -165,6 +165,10 @@ class Herramientas:
                             "completa o número) y lo revisa. Solo lectura.",
               {"objetivo": texto}, ["objetivo"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
+            h("procesar_reunion", "Transcribe un audio de reunión y saca resumen, "
+                                  "acuerdos y tareas; mete las tareas como "
+                                  "recordatorios.",
+              {"ruta_audio": texto}, ["ruta_audio"]),
             h("recordar_permanente", "Apunta un hecho o convención en la memoria "
                                      "permanente (JARVIS.md), que se carga en "
                                      "cada conversación. Solo para lo que SIEMPRE "
@@ -438,6 +442,10 @@ class Herramientas:
         import deshacer
         return deshacer.deshacer_ultimo(1, log=self.log,
                                         set_pref=getattr(self.core, "set_pref", None))
+
+    def _t_procesar_reunion(self, a):
+        import reunion
+        return reunion.procesar(self.core, a.get("ruta_audio", ""), log=self.log)
 
     def _t_recordar_permanente(self, a):
         import memoria_proyecto
