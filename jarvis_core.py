@@ -389,6 +389,8 @@ class JarvisCore:
         # la estabilidad del TTS y las sugerencias de descanso.
         self._estado_animo = {"estres": 0.0, "fatiga": 0.0, "arousal": 0.0,
                               "valencia": 0.0, "confianza": 0.0, "ts": 0.0}
+        # Herramienta que espera un «confirma» del señor antes de ejecutarse.
+        self._tool_pendiente = None
         # Motor de dictado local: None = sin probar, False = no disponible.
         self._stt_local = None
         self._tts_rate = 0             # velocidad de la voz de Windows (-10..10)
@@ -2697,6 +2699,27 @@ class JarvisCore:
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": _r_voz})
             return _r_voz
+
+        # ── Confirmación de una herramienta que quedó a la espera ───────────
+        if getattr(self, "_tool_pendiente", None):
+            try:
+                import permisos
+                if permisos.es_afirmacion(text):
+                    import herramientas_llm
+                    respuesta = herramientas_llm.ejecutar_pendiente(self, log=self.log)
+                    if respuesta:
+                        self.history.append({"role": "user", "content": text})
+                        self.history.append({"role": "assistant", "content": respuesta})
+                        if speak_server:
+                            self.tts_queue.put(respuesta)
+                        return respuesta
+                else:
+                    # El señor dijo otra cosa: la acción pendiente se descarta.
+                    self._tool_pendiente = None
+                    self.log("[HERRAMIENTAS] acción pendiente descartada (sin confirmar)")
+            except Exception as e:
+                self.log(f"[HERRAMIENTAS] confirmación falló: {e}")
+                self._tool_pendiente = None
 
         # ── Ventana de arrepentimiento: «no» justo después de actuar ────────
         try:

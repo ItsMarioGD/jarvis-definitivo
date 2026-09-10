@@ -37,10 +37,12 @@ MAX_RONDAS = int(os.getenv("JARVIS_TOOLS_RONDAS", "4"))
 class Herramientas:
     """Puente entre las tool-calls del modelo y las habilidades reales."""
 
-    def __init__(self, core, log=print):
+    def __init__(self, core, log=print, confirmado=None):
         self.core = core
         self.log = log
         self.usadas = []          # historial de la conversación actual
+        self.pendiente = None     # {nombre, argumentos} a la espera de «confirma»
+        self._confirmado = set(confirmado or ())  # herramientas ya autorizadas
 
     # ── catálogo ────────────────────────────────────────────────────────────
     def definiciones(self) -> list:
@@ -182,23 +184,56 @@ class Herramientas:
     # ── ejecución ───────────────────────────────────────────────────────────
     def ejecutar(self, nombre: str, argumentos: dict) -> str:
         """Ejecuta una herramienta y devuelve el texto del resultado."""
+        import time as _t
+        # ── Filtro de permisos ──────────────────────────────────────────────
+        try:
+            import permisos
+            politica = permisos.evaluar(nombre)
+        except Exception:
+            politica = "directo"
+        if politica == "prohibido":
+            self._auditar(nombre, argumentos, "prohibido", ok=False)
+            return (f"Señor, no puedo ejecutar «{nombre}»: está prohibida en el "
+                    f"modo «{__import__('permisos').modo()}».")
+        if politica == "confirmar" and nombre not in self._confirmado:
+            self.pendiente = {"nombre": nombre, "argumentos": argumentos or {}}
+            resumen = ", ".join(f"{k}={str(v)[:40]}" for k, v in (argumentos or {}).items())
+            self._auditar(nombre, argumentos, "pendiente de confirmación", ok=False)
+            return (f"CONFIRMACIÓN REQUERIDA: iba a ejecutar {nombre}({resumen}). "
+                    "No lo he hecho. Dígame «confirma» para proceder.")
+
+        _inicio = _t.time()
         try:
             if nombre.startswith("mcp__"):
                 import mcp_generico
                 resultado = mcp_generico.llamar(nombre, argumentos or {}, log=self.log)
-                self.usadas.append(nombre)
-                self.log(f"[HERRAMIENTA] {nombre}({argumentos}) -> {str(resultado)[:80]}")
-                return str(resultado or "hecho")
-            metodo = getattr(self, f"_t_{nombre}", None)
-            if metodo is None:
-                return f"No tengo ninguna herramienta llamada {nombre}."
-            resultado = metodo(argumentos or {})
+            else:
+                metodo = getattr(self, f"_t_{nombre}", None)
+                if metodo is None:
+                    return f"No tengo ninguna herramienta llamada {nombre}."
+                resultado = metodo(argumentos or {})
             self.usadas.append(nombre)
             self.log(f"[HERRAMIENTA] {nombre}({argumentos}) -> {str(resultado)[:80]}")
+            self._auditar(nombre, argumentos, str(resultado)[:400], ok=True,
+                          ms=int((_t.time() - _inicio) * 1000))
             return str(resultado or "hecho")
         except Exception as e:
             self.log(f"[HERRAMIENTA] {nombre} falló: {e}")
+            self._auditar(nombre, argumentos, f"EXC {type(e).__name__}: {e}", ok=False,
+                          ms=int((_t.time() - _inicio) * 1000))
             return f"La herramienta {nombre} falló: {e}"
+
+    def _auditar(self, nombre, argumentos, detalle, ok=True, ms=0):
+        """Deja constancia de cada tool-call en storage.acciones."""
+        try:
+            import json as _j
+            from storage import get_storage
+            args = _j.dumps(argumentos or {}, ensure_ascii=False)[:400]
+            get_storage(log=self.log).registrar_accion(
+                "herramienta_llm", nombre, args, ok, detalle, ms,
+                agente=getattr(self.core, "nombre_agente", "JARVIS"))
+        except Exception:
+            pass
 
     def _frase(self, texto: str) -> str:
         """Manda una frase por los despachadores de siempre."""
@@ -477,8 +512,32 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
             resultado = caja.ejecutar(llamada.function.name, argumentos)
             conversacion.append({"role": "tool", "tool_call_id": llamada.id,
                                  "content": str(resultado)[:1500]})
+            # Una herramienta que necesita confirmación paró el bucle: se guarda
+            # la acción pendiente en el core y se le dice al señor. La ejecuta
+            # el siguiente turno si responde «confirma».
+            if caja.pendiente:
+                try:
+                    core._tool_pendiente = dict(caja.pendiente)
+                except Exception:
+                    pass
+                return (f"Señor, {resultado}", caja.usadas)
 
     # Se agotaron las rondas: contamos lo hecho en vez de callar.
     if caja.usadas:
         return ("He hecho lo que pude: " + ", ".join(caja.usadas) + ".", caja.usadas)
     return None
+
+
+def ejecutar_pendiente(core, log=print):
+    """Ejecuta la herramienta que quedó a la espera de «confirma». Devuelve
+    texto o None si no había nada pendiente."""
+    pend = getattr(core, "_tool_pendiente", None)
+    if not pend:
+        return None
+    try:
+        core._tool_pendiente = None
+    except Exception:
+        pass
+    caja = Herramientas(core, log=log, confirmado=[pend["nombre"]])
+    r = caja.ejecutar(pend["nombre"], pend.get("argumentos") or {})
+    return f"Confirmado, señor. {r}"
