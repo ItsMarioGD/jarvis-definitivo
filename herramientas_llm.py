@@ -341,6 +341,15 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
 
     try:
         nombre, url, modelo, clave = core._proveedores()[0]
+        _local = ("localhost" in url) or ("127.0.0.1" in url)
+        if not _local:
+            try:
+                import presupuesto
+                if not presupuesto.permite_nube():
+                    log("[HERRAMIENTAS] tope de gasto alcanzado; sin herramientas hoy")
+                    return None
+            except Exception:
+                pass
         cliente = OpenAI(base_url=url, api_key=clave)
     except Exception as e:
         log(f"[HERRAMIENTAS] Sin proveedor utilizable: {e}")
@@ -359,6 +368,17 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
             # El modelo no admite herramientas (o el servidor no las expone).
             log(f"[HERRAMIENTAS] {nombre} no las admite ({str(e)[:80]}); sigo sin ellas.")
             return None
+
+        try:
+            import presupuesto
+            _uso = getattr(resp, "usage", None)
+            if _uso:
+                presupuesto.registrar_uso(nombre, modelo,
+                                          getattr(_uso, "prompt_tokens", 0) or 0,
+                                          getattr(_uso, "completion_tokens", 0) or 0,
+                                          log=log)
+        except Exception:
+            pass
 
         mensaje = resp.choices[0].message
         llamadas = getattr(mensaje, "tool_calls", None) or []

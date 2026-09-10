@@ -191,6 +191,11 @@ class JarvisCore:
         self.base_url       = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1")
         self.api_key        = os.getenv("QWEN_API_KEY", "ollama")
         self.model          = os.getenv("QWEN_MODEL", "qwen3:8b")
+        # Cerebro principal en la nube: Kimi K3 (Moonshot). 1M de contexto,
+        # visión nativa, tool-calling. Deja la clave en la variable de entorno
+        # MOONSHOT_API_KEY (o pégala en Prefs/cerebro.json -> proveedores[0].clave).
+        # Sin clave, JARVIS cae solo al proveedor local (Ollama) y no se rompe.
+        self.moonshot_key   = os.getenv("sk-BlCBmliVMaAlmh3G9aWjVbY9vklGCbhCwaWjV03zijpCW5PV", "").strip()
         self.tts_fallback   = os.getenv("JARVIS_TTS_FALLBACK", "windows").strip().lower()
         # Silencio de la voz local de Windows. Se puede alternar en caliente
         # ("silencia la voz de Windows") y sobrevive al reinicio, porque con
@@ -905,12 +910,24 @@ class JarvisCore:
         except Exception:
             pass
         if not d.get("proveedores"):
-            d["proveedores"] = [{
-                "nombre": "ollama",
-                "url": self.base_url,
-                "modelo": self.model,
-                "clave": self.api_key,
-            }]
+            d["proveedores"] = [
+                {
+                    # Cerebro principal: Kimi K3 (Moonshot).
+                    # Clave: variable de entorno MOONSHOT_API_KEY, o pega el
+                    # valor literal aquí en "clave" reemplazando ${MOONSHOT_API_KEY}.
+                    "nombre": "kimi-k3",
+                    "url": "https://api.moonshot.ai/v1",
+                    "modelo": "kimi-k3",
+                    "clave": "${MOONSHOT_API_KEY}",
+                },
+                {
+                    # Reserva local: sin clave de Moonshot o si la nube falla.
+                    "nombre": "ollama",
+                    "url": self.base_url,
+                    "modelo": self.model,
+                    "clave": self.api_key,
+                },
+            ]
             try:
                 os.makedirs(os.path.dirname(self._cerebro_path), exist_ok=True)
                 with open(self._cerebro_path, "w", encoding="utf-8") as f:
@@ -946,7 +963,16 @@ class JarvisCore:
             modelo = (p.get("modelo") or "").strip()
             clave = (p.get("clave") or "").strip()
             nombre = (p.get("nombre") or url).strip() or "proveedor"
-            if url and modelo:
+            # Placeholder ${VAR}: se resuelve desde el entorno, así la clave
+            # puede vivir fuera del JSON.
+            m = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", clave)
+            if m:
+                clave = os.getenv(m.group(1), "").strip()
+            es_local = ("localhost" in url) or ("127.0.0.1" in url)
+            # Un proveedor de nube sin clave se descarta en silencio (p. ej.
+            # Kimi antes de que el señor ponga MOONSHOT_API_KEY): así el
+            # fallback local sigue respondiendo sin ruido de errores.
+            if url and modelo and (clave or es_local):
                 proveedores.append((nombre, url, modelo, clave or "ollama"))
         if not proveedores:
             proveedores = [("ollama", self.base_url.rstrip("/"), self.model, self.api_key)]
@@ -1039,12 +1065,15 @@ class JarvisCore:
             info = {"nombre": nombre, "modelo": modelo, "ok": False}
             try:
                 cliente = OpenAI(base_url=b_url, api_key=clave)
+                es_kimi = ("moonshot" in b_url) or modelo.startswith("kimi-k3")
+                extra = {"reasoning_effort": "low"} if es_kimi else {}
                 r = cliente.chat.completions.create(
                     model=modelo,
                     messages=[{"role": "user", "content": "Responde solo: ok"}],
-                    max_tokens=5,
+                    max_tokens=64 if es_kimi else 5,
                     temperature=0,
-                    timeout=15)
+                    timeout=20,
+                    extra_body=extra)
                 info["respuesta"] = (r.choices[0].message.content or "").strip()[:80]
                 info["ok"] = True
                 resultado["ok"] = True
@@ -2842,6 +2871,13 @@ class JarvisCore:
                 return f"Señor, no pude probar el cerebro: {str(e)[:80]}"
         if re.search(r"limpia tu memoria|borra tu memoria|limpia tu historial", text, re.IGNORECASE):
             return self.limpiar_memoria()
+        if re.search(r"cu[aá]nto (has |llevas )?gastad|gasto del cerebro|"
+                     r"presupuesto|cuota del cerebro|gasto de (la )?ia", text, re.IGNORECASE):
+            try:
+                import presupuesto
+                return presupuesto.informe()
+            except Exception as e:
+                return f"Señor, no pude consultar el gasto: {str(e)[:80]}"
 
         # Inyectar datos del sistema si el usuario pregunta por él
         stats_kw = ["cpu", "ram", "memoria", "sistema", "rendimiento",
@@ -2931,16 +2967,34 @@ class JarvisCore:
             import metricas
             _cronometro = metricas.medir("cerebro", modelo=self.model)
             _cronometro.__enter__()
+            _nube_cortada = False
             for nombre, b_url, modelo, clave in self._proveedores():
+                _local = ("localhost" in b_url) or ("127.0.0.1" in b_url)
+                if not _local:
+                    try:
+                        import presupuesto
+                        if not presupuesto.permite_nube():
+                            self.log(f"[PRESUPUESTO] salto «{nombre}»: tope de gasto del día alcanzado")
+                            _nube_cortada = True
+                            continue
+                    except Exception:
+                        pass
                 try:
                     cliente = self._cliente_llm(b_url, clave)
                     esfuerzo = self._esfuerzo_razonamiento(text)
+                    es_kimi = ("moonshot" in b_url) or modelo.startswith("kimi-k3")
+                    tope = int(os.getenv("JARVIS_MAX_TOKENS", "700"))
+                    if es_kimi:
+                        # Kimi K3 sólo acepta low/high/max (nunca "none"), y el
+                        # razonamiento gasta del mismo presupuesto: sube el tope
+                        # o piensa y se queda sin respuesta.
+                        esfuerzo = {"none": "low", "low": "high"}.get(esfuerzo, esfuerzo)
+                        tope = int(os.getenv("JARVIS_MAX_TOKENS_KIMI", "2048"))
                     self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url} "
                              f"(razonamiento: {esfuerzo})")
                     # El presupuesto de tokens lo comparten el razonamiento y
                     # la respuesta. Con 200 tokens un modelo que piensa se
                     # quedaba SIN respuesta: pensaba y se acababa el turno.
-                    tope = int(os.getenv("JARVIS_MAX_TOKENS", "700"))
                     comun = dict(model=modelo, messages=msgs,
                                  temperature=float(os.getenv("JARVIS_TEMPERATURA", "0.5")),
                                  max_tokens=tope, stream=True)
@@ -2962,6 +3016,12 @@ class JarvisCore:
                     self.log(f"Proveedor «{nombre}» falló: {e}")
                     resp = None
             if resp is None:
+                if _nube_cortada and ultimo_error is None:
+                    try:
+                        import presupuesto
+                        return presupuesto.aviso_corte()
+                    except Exception:
+                        pass
                 return ("Señor, todos mis proveedores de cerebro fallaron. "
                         + (f"({str(ultimo_error)[:100]})" if ultimo_error else ""))
             
@@ -3059,6 +3119,14 @@ class JarvisCore:
                 import metricas
                 metricas.anotar("generacion", (time.time() - _t_generacion) * 1000,
                                 caracteres=len(full_reply))
+            except Exception:
+                pass
+            try:
+                import presupuesto
+                _ctx_txt = " ".join(m.get("content", "") for m in msgs
+                                    if isinstance(m.get("content"), str))
+                presupuesto.registrar_uso_estimado(self._cerebro_activo, modelo,
+                                                   _ctx_txt, full_reply, log=self.log)
             except Exception:
                 pass
             reply_clean = self._recortar_respuesta(full_reply.strip())
