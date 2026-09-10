@@ -88,6 +88,25 @@ def _anota_deshacer(abs_ruta: str, respaldo: str | None, existia: bool, log=prin
         log(f"[FS] no pude anotar deshacer para {abs_ruta}: {e}")
 
 
+def _verificar(abs_ruta: str, log=print) -> str:
+    """Comprobación barata tras escribir código. '' si todo bien o no aplica."""
+    ext = os.path.splitext(abs_ruta)[1].lower()
+    try:
+        if ext == ".py":
+            import py_compile
+            py_compile.compile(abs_ruta, doraise=True)
+            return ""
+        if ext == ".json":
+            import json as _j
+            with open(abs_ruta, encoding="utf-8") as f:
+                _j.load(f)
+            return ""
+    except Exception as e:
+        msg = str(e).splitlines()[0] if str(e) else type(e).__name__
+        return f"  [!] AVISO: el archivo no compila/parsea ({msg[:160]}). Revísalo."
+    return ""
+
+
 def _respaldar(abs_ruta: str, log=print) -> str | None:
     if not os.path.exists(abs_ruta):
         return None
@@ -146,7 +165,8 @@ def escribir_archivo(ruta: str, contenido: str, log=print) -> str:
     _anota_deshacer(abs_ruta, respaldo, existia, log=log)
     n = len((contenido or "").splitlines())
     verbo = "Actualizado" if existia else "Creado"
-    return f"{verbo} {abs_ruta} ({n} lineas). Reversible con «deshaz eso»."
+    aviso = _verificar(abs_ruta, log=log)
+    return f"{verbo} {abs_ruta} ({n} lineas). Reversible con «deshaz eso».{aviso}"
 
 
 def editar_archivo(ruta: str, buscar: str, reemplazar: str, log=print) -> str:
@@ -181,7 +201,9 @@ def editar_archivo(ruta: str, buscar: str, reemplazar: str, log=print) -> str:
     _anota_deshacer(abs_ruta, respaldo, True, log=log)
     delta = len(nuevo.splitlines()) - len(original.splitlines())
     signo = f"+{delta}" if delta > 0 else str(delta)
-    return f"Editado {abs_ruta} (1 sustitucion, {signo} lineas). Reversible con «deshaz eso»."
+    aviso = _verificar(abs_ruta, log=log)
+    return (f"Editado {abs_ruta} (1 sustitucion, {signo} lineas). "
+            f"Reversible con «deshaz eso».{aviso}")
 
 
 def listar_dir(ruta: str = ".", log=print) -> str:
