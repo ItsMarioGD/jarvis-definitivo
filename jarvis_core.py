@@ -2826,6 +2826,22 @@ class JarvisCore:
                 self.tts_queue.put(respuesta_freno)
             return respuesta_freno
 
+        # Router por modelo (drástico #7): antes de la cascada de regex, el
+        # modelo decide. Con caché, la 2ª vez es gratis. Si no está seguro,
+        # todo sigue como siempre (las regex son la red).
+        _ruta = {"tipo": "?"}
+        _frase_router = text
+        try:
+            import router_modelo
+            if router_modelo.activo() and not skip_skills:
+                _ruta = router_modelo.enrutar(self, text, log=self.log)
+                if _ruta.get("tipo") == "skill" and _ruta.get("frase"):
+                    _frase_router = _ruta["frase"]
+                elif _ruta.get("tipo") == "conversacion":
+                    skip_skills = True
+        except Exception as e:
+            self.log(f"[ROUTER] omitido: {e}")
+
         # Habilidades del sistema (Sprint 2): si es un comando ejecutable,
         # responder al instante sin consumir el LLM.
         if skip_skills:
@@ -2848,7 +2864,10 @@ class JarvisCore:
                     continue
                 try:
                     with metricas.medir("habilidades", despachador=nombre):
-                        skill_reply = despachador.handle(text)
+                        skill_reply = despachador.handle(_frase_router)
+                        # Si el modelo reformuló y no coló, probamos el original.
+                        if not skill_reply and _frase_router != text:
+                            skill_reply = despachador.handle(text)
                 except Exception as e:
                     self.log(f"[JARVIS] El despachador de {nombre} fallo con "
                              f"«{text[:60]}»: {type(e).__name__}: {e}")
@@ -2904,7 +2923,8 @@ class JarvisCore:
         # que el modelo use herramientas reales en vez de limitarse a describir
         # lo que haría. Solo entra aquí la cola larga: lo que cubren las regex
         # ya se resolvió arriba sin gastar un token.
-        if os.getenv("JARVIS_TOOLS", "1") != "0" and self._parece_orden(text):
+        if os.getenv("JARVIS_TOOLS", "1") != "0" and (
+                self._parece_orden(text) or _ruta.get("tipo") == "herramienta"):
             try:
                 import metricas
                 from herramientas_llm import pensar_con_herramientas
