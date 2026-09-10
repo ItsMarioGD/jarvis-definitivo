@@ -2718,9 +2718,11 @@ class JarvisCore:
 
         def _limpiar(obj: str) -> str:
             obj = (obj or "").strip()
-            for _ in range(5):
+            for _ in range(6):
                 nuevo = re.sub(
-                    r"^(esto|eso|un[ao]?|el|la|de|del|en|para|un\s+modelo\s+de|"
+                    r"^(mod[eé]l[ae]\w*|esc[aá]ne[aá]\w*|haz(?:me)?|crea(?:me)?|"
+                    r"gener[ae]\w*|quiero|un\s+modelo\s+(?:3\s*-?\s*d\s+)?(?:de\s+)?|"
+                    r"esto|eso|un[ao]?|el|la|de|del|en|para|en\s+3\s*-?\s*d|3\s*-?\s*d|"
                     r"que\s+se\s+ve\s+en|t[\s-]?pose|cuerpo\s+completo|completo)"
                     r"\b\s*[:,]?\s*", "", obj, flags=re.I)
                 if nuevo == obj:

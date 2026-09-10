@@ -617,7 +617,13 @@ addEventListener('resize',()=>{{C.aspect=innerWidth/innerHeight;C.updateProjecti
 
 # ── abrir cosas (JARVIS tiene control del PC) ─────────────────────────
 def _abrir(ruta: str, log=print):
+    """Abre un archivo con la app adecuada. Los .html van SIEMPRE al navegador
+    (no a la asociación de archivos, que puede estar mal puesta -> Blender)."""
     try:
+        if ruta.lower().endswith((".html", ".htm")):
+            import webbrowser
+            if webbrowser.open("file:///" + os.path.abspath(ruta).replace("\\", "/")):
+                return True
         if hasattr(os, "startfile"):
             os.startfile(ruta)  # noqa: S606
             return True
@@ -717,15 +723,18 @@ def modelar(core, entrada: str, t_pose: bool = False, abrir: bool = True, log=pr
     _a_animacion(os.path.join(out, "giro"), os.path.join(out, "modelo_giro"), log=log)
     web = _holo_web(glb, os.path.join(out, "holograma.html"), nombre,
                     "t-pose" if t_pose else "completo")
+    blend = os.path.join(out, "modelo.blend")
+    tiene_blend = os.path.isfile(blend)
     if abrir:
-        _abrir(web, log=log)
-    tiene_blend = os.path.isfile(os.path.join(out, "modelo.blend"))
+        _abrir(web, log=log)                       # visor -> navegador
+        if tiene_blend:
+            abrir_blender_con(blend, log=log)      # y el .blend -> Blender
     return (f"Listo, señor. Modelé «{nombre}» por {metodo}"
-            + (" en T-pose" if t_pose else "") + f". En {out}: "
-            + ("modelo.blend (Blender), " if tiene_blend else "")
-            + "modelo.glb/.obj/.stl/.fbx, modelo_hero.png, el giro y el visor "
-            "holográfico (ya te lo abrí). Di «holograma pirámide de eso» para la "
-            "versión de acrílico.")
+            + (" en T-pose" if t_pose else "") + ". "
+            + (f"Blender: {blend}. " if tiene_blend else "")
+            + f"También {os.path.basename(glb)}/.obj/.stl/.fbx, foto, giro y el "
+            f"visor holográfico (abierto en el navegador). Carpeta: {out}. "
+            "Di «holograma pirámide de eso» para la versión de acrílico.")
 
 
 def holograma(core, entrada: str = "", modo: str = "completo", abrir: bool = True,

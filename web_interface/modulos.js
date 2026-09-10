@@ -749,9 +749,12 @@ document.getElementById('mod-contenido').addEventListener('click', async e => {
         break;
       }
       case 'm3d-modelar': {
-        const ent = val('m3d-entrada');
+        let ent = val('m3d-entrada');
         if (!ent){ brindis('Escribe una descripción o una ruta.'); break; }
         const tp = document.getElementById('m3d-tpose')?.checked;
+        // No duplicar el verbo si el usuario ya lo escribió.
+        ent = ent.replace(/^\s*(mod[eé]la\w*|escan\w*|haz(me)?\s+un\s+modelo\s*(3\s*-?\s*d)?\s*(de)?)\s*:?\s*/i, '').trim();
+        ent = ent.replace(/^\s*(en\s+)?3\s*-?\s*d\s*:?\s*/i, '').trim();
         salida('<p class="pista">Modelando en 3D… 1–3 min. Te abriré el visor al acabar.</p>');
         const r = await API.post('/cmd', {texto:
           (tp ? 'modélame en 3D en T-pose: ' : 'modélame en 3D: ') + ent});
