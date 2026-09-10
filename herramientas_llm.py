@@ -229,6 +229,11 @@ class Herramientas:
                "en_segundo_plano": {"type": "boolean",
                                     "description": "true (def) = no esperar; false = esperar el resumen"}},
               ["tarea"]),
+            h("mision_larga", "Lanza una misión de HORAS: parte el objetivo en "
+                              "fases, replanifica entre fases, vigila el gasto y "
+                              "rinde cuentas al acabar cada fase. Para objetivos "
+                              "grandes que no caben en una tanda.",
+              {"objetivo": texto}, ["objetivo"]),
             h("orden_libre", "Ejecuta cualquier otra orden en el lenguaje de siempre. "
                              "Úsala solo si ninguna herramienta encaja.",
               {"orden": texto}, ["orden"]),
@@ -534,6 +539,10 @@ class Herramientas:
         import subagente
         return subagente.delegar(self.core, a.get("tarea", ""),
                                  a.get("en_segundo_plano", True), log=self.log)
+
+    def _t_mision_larga(self, a):
+        import mision
+        return mision.mision_larga(self.core, a.get("objetivo", ""), log=self.log)
 
     def _t_orden_libre(self, a):
         return self._frase(a.get("orden", ""))

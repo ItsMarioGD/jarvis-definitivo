@@ -262,6 +262,123 @@ class Piloto:
             pass
 
 
+# ── DRÁSTICO #6: misión de horizonte largo (fases + presupuesto de dinero) ──
+MAX_FASES = int(os.getenv("JARVIS_MISION_FASES", "6"))
+MAX_HORAS = float(os.getenv("JARVIS_MISION_HORAS", "6"))
+
+_INSTR_FASES = """Eres el planificador de un asistente que controla un PC Windows.
+Divide este OBJETIVO GRANDE en FASES de alto nivel (entre 2 y {max_fases}).
+Cada fase es un bloque de trabajo con sentido propio que luego se detallará en
+pasos. Una fase por línea, empezando por un verbo, sin numerar.
+Responde SOLO con las fases, una por línea."""
+
+
+class PilotoLargo(Piloto):
+    """Misión que dura horas: se replanifica fase a fase, vigila el gasto en
+    dinero además del tiempo, y rinde cuentas al terminar cada fase."""
+
+    def fases(self, objetivo: str) -> list:
+        try:
+            from openai import OpenAI
+            _n, url, modelo, clave = self.core._proveedores()[0]
+            cli = (self.core._cliente_llm(url, clave)
+                   if hasattr(self.core, "_cliente_llm")
+                   else OpenAI(base_url=url, api_key=clave))
+            r = cli.chat.completions.create(
+                model=modelo, temperature=0.3, max_tokens=300,
+                messages=[{"role": "system",
+                           "content": _INSTR_FASES.replace("{max_fases}", str(MAX_FASES))},
+                          {"role": "user", "content": f"Objetivo: {objetivo}"}])
+            txt = (r.choices[0].message.content or "")
+            if "</think>" in txt:
+                txt = txt.split("</think>", 1)[1]
+            fs = [l.strip().lstrip("-•*0123456789. ").strip() for l in txt.splitlines()]
+            return [f for f in fs if len(f) > 6][:MAX_FASES]
+        except Exception as e:
+            self.log(f"[MISION-LARGA] no pude dividir en fases: {e}")
+            return []
+
+    def _presupuesto_roto(self) -> bool:
+        try:
+            import presupuesto
+            return presupuesto.excedido()
+        except Exception:
+            return False
+
+    def _aviso(self, texto: str):
+        self.log(f"[MISION-LARGA] {texto}")
+        try:
+            if getattr(self.core, "tts_queue", None) is not None:
+                self.core.tts_queue.put(f"Señor, {texto}")
+        except Exception:
+            pass
+
+    def ejecutar_larga(self, objetivo: str) -> Mision:
+        raiz = Mision(objetivo, minutos=int(MAX_HORAS * 60))
+        raiz.estado = "en curso"
+        raiz.inicio = time.time()
+        limite = MAX_HORAS * 3600
+        fases = self.fases(objetivo) or [objetivo]
+        self._aviso(f"empiezo «{objetivo[:50]}» en {len(fases)} fases, "
+                    f"hasta {MAX_HORAS:g} horas.")
+
+        for i, fase in enumerate(fases, 1):
+            if self._parar.is_set():
+                raiz.detenida_por = "el señor la detuvo"; break
+            if time.time() - raiz.inicio > limite:
+                raiz.detenida_por = "se agotó el presupuesto de tiempo"; break
+            if self._presupuesto_roto():
+                raiz.detenida_por = "se alcanzó el tope de gasto del cerebro"; break
+
+            # Cada fase se planifica AHORA, con lo hecho hasta ahora de contexto.
+            contexto = "; ".join(b["paso"][:40] for b in raiz.bitacora[-4:])
+            pasos = planificar(self.core, f"{fase} (contexto: {contexto})" if contexto else fase,
+                               log=self.log)
+            sub = Mision(fase, pasos=pasos,
+                         minutos=max(5, int((limite - (time.time() - raiz.inicio)) / 60 /
+                                            max(1, len(fases) - i + 1))))
+            self._aviso(f"fase {i}/{len(fases)}: {fase[:60]} ({len(pasos)} pasos).")
+            self.ejecutar(sub)
+            raiz.bitacora.extend(sub.bitacora)
+
+            hechos = sum(1 for b in sub.bitacora if b["ok"])
+            if sub.detenida_por and "permiso" in sub.detenida_por:
+                raiz.detenida_por = f"fase {i} necesita su permiso: {sub.detenida_por}"
+                break
+            if sub.bitacora and hechos < len(sub.bitacora) / 2:
+                self._aviso(f"la fase {i} salió a medias ({hechos}/{len(sub.bitacora)}); "
+                            "sigo con la siguiente pero anótelo.")
+            self._guardar(raiz)   # reanudable: estado tras cada fase
+
+        raiz.fin = time.time()
+        hechos = sum(1 for b in raiz.bitacora if b["ok"])
+        raiz.estado = ("detenida" if raiz.detenida_por else
+                       "completada" if hechos == len(raiz.bitacora) and raiz.bitacora else
+                       "parcial")
+        self._guardar(raiz)
+        self._aviso(parte(raiz))
+        return raiz
+
+    def lanzar_larga(self, objetivo: str):
+        self._parar.clear()
+        self._hilo = threading.Thread(target=self.ejecutar_larga, args=(objetivo,),
+                                      daemon=True)
+        self._hilo.start()
+
+
+def mision_larga(core, objetivo: str, log=print) -> str:
+    """Entrada para el harness/voz: lanza una misión de horas en segundo plano."""
+    p = PilotoLargo(core, log=log)
+    try:
+        core._piloto_largo = p
+    except Exception:
+        pass
+    p.lanzar_larga(objetivo)
+    return (f"En marcha, señor. Trabajaré en «{objetivo[:60]}» por fases, hasta "
+            f"{MAX_HORAS:g} horas o hasta el tope de gasto. Le rindo cuentas al "
+            "acabar cada fase.")
+
+
 def parte(mision: Mision) -> str:
     """El resumen hablado de una misión."""
     if not mision.bitacora:
