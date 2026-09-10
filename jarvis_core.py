@@ -2239,6 +2239,21 @@ class JarvisCore:
             self.log(f"Paralingüística ilegible: {e}")
             return
 
+        # Patrón temporal (idea 3): suaviza el ruido de una sola frase con lo
+        # que el señor suele marcar a esta hora/día de la semana.
+        try:
+            from cognition import paralinguistica_patron as _plp
+            _mix = _plp.mezclar(estres, fatiga, arousal, valencia, confianza,
+                                log=self.log)
+            estres, fatiga = _mix["estres"], _mix["fatiga"]
+            arousal, valencia = _mix["arousal"], _mix["valencia"]
+            confianza = _mix["confianza"]
+            if _mix.get("patron"):
+                self.log(f"[PARALING] patrón temporal aplicado "
+                         f"({_mix.get('muestras_franja')} lecturas de la franja)")
+        except Exception as e:
+            self.log(f"[PARALING] patrón no disponible: {e}")
+
         self._estado_animo = {"estres": round(estres, 2), "fatiga": round(fatiga, 2),
                               "arousal": round(arousal, 2), "valencia": round(valencia, 2),
                               "confianza": round(confianza, 2), "ts": time.time()}
@@ -2885,6 +2900,21 @@ class JarvisCore:
                 return relacion.resumen(self)
             except Exception as e:
                 return f"Señor, no pude calcularlo: {str(e)[:80]}"
+        _m_corr = re.search(r"\bno estoy (muy )?(cansad[oa]|tens[oa]|estresad[oa]|agobiad[oa])",
+                            text, re.IGNORECASE)
+        if _m_corr:
+            try:
+                from cognition import paralinguistica_patron as _plp
+                return _plp.corregir(_m_corr.group(2), "menos", log=self.log)
+            except Exception:
+                pass
+        if re.search(r"patr[oó]n de mi voz|c[oó]mo me ves|c[oó]mo me notas|"
+                     r"como sueno a esta hora", text, re.IGNORECASE):
+            try:
+                from cognition import paralinguistica_patron as _plp
+                return _plp.resumen(log=self.log)
+            except Exception as e:
+                return f"Señor, no pude consultarlo: {str(e)[:80]}"
 
         # Inyectar datos del sistema si el usuario pregunta por él
         stats_kw = ["cpu", "ram", "memoria", "sistema", "rendimiento",
