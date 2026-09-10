@@ -2878,6 +2878,13 @@ class JarvisCore:
                 return presupuesto.informe()
             except Exception as e:
                 return f"Señor, no pude consultar el gasto: {str(e)[:80]}"
+        if re.search(r"nivel de (nuestra )?relaci[oó]n|qu[eé] tan bien nos "
+                     r"(conocemos|llevamos)|cu[aá]nto (tiempo )?llevamos", text, re.IGNORECASE):
+            try:
+                import relacion
+                return relacion.resumen(self)
+            except Exception as e:
+                return f"Señor, no pude calcularlo: {str(e)[:80]}"
 
         # Inyectar datos del sistema si el usuario pregunta por él
         stats_kw = ["cpu", "ram", "memoria", "sistema", "rendimiento",
@@ -2939,6 +2946,16 @@ class JarvisCore:
                 _instruccion = perfiles.instruccion_prompt(self)
                 if _instruccion:
                     msgs = msgs + [{"role": "system", "content": _instruccion}]
+            except Exception:
+                pass
+
+            # Nivel de relación: el tono evoluciona con el trato (idea 5).
+            try:
+                import relacion
+                relacion.registrar_interaccion(self, text, log=self.log)
+                _rel = relacion.instruccion_prompt(self)
+                if _rel:
+                    msgs = msgs + [{"role": "system", "content": _rel}]
             except Exception:
                 pass
 
