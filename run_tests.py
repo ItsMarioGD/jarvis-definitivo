@@ -225,6 +225,117 @@ def test_generator():
             ok(f"gen {tipo}", False, str(e)[:60])
 
 
+def test_modulos_nuevos():
+    """Harness ampliado: ficheros, permisos, presupuesto, relación, git,
+    paralingüística temporal, MCP genérico, pre-vuelo del móvil. Sin red."""
+    print("\n== 7. MÓDULOS NUEVOS DEL HARNESS ==")
+    import tempfile, importlib
+
+    # herramientas_fs: escribir/editar/leer + raíces vetadas
+    try:
+        import herramientas_fs as fs
+        d = tempfile.mkdtemp(dir=os.path.expanduser("~"))
+        p = os.path.join(d, "t.txt")
+        fs.escribir_archivo(p, "uno\ndos\n")
+        fs.editar_archivo(p, "dos", "DOS")
+        cont = open(p, encoding="utf-8").read()
+        ok("fs: escribir+editar", cont == "uno\nDOS\n", f"({cont!r})")
+        ok("fs: veta credenciales",
+           "protegido" in fs.escribir_archivo(os.path.expanduser("~/.env"), "x"))
+        ok("fs: veta fuera de raíz",
+           "permitidas" in fs.leer_archivo("C:/Windows/system.ini"))
+        import shutil; shutil.rmtree(d, ignore_errors=True)
+    except Exception as e:
+        ok("fs: módulo", False, str(e)[:80])
+
+    # permisos: políticas y afirmaciones
+    try:
+        import permisos
+        ok("permisos: lectura=directo", permisos.evaluar("leer_archivo") == "directo")
+        ok("permisos: escritura=confirmar", permisos.evaluar("escribir_archivo") == "confirmar")
+        ok("permisos: afirmación", permisos.es_afirmacion("venga, confirma")
+           and not permisos.es_afirmacion("mejor no"))
+    except Exception as e:
+        ok("permisos: módulo", False, str(e)[:80])
+
+    # presupuesto: corte por tope
+    try:
+        os.environ["JARVIS_PRESUPUESTO_USD"] = "0.01"
+        import presupuesto; importlib.reload(presupuesto)
+        presupuesto.reiniciar()
+        ok("presupuesto: parte sin exceder", presupuesto.permite_nube())
+        presupuesto.registrar_uso("openai", "gpt-4o", 100000, 100000)
+        ok("presupuesto: corta al pasarse", not presupuesto.permite_nube())
+        presupuesto.reiniciar()
+        os.environ.pop("JARVIS_PRESUPUESTO_USD", None)
+    except Exception as e:
+        ok("presupuesto: módulo", False, str(e)[:80])
+
+    # relación: niveles por umbral
+    try:
+        import relacion
+        class _C:
+            def __init__(s): s.d = {}
+            def get_pref(s, k): return s.d.get(k)
+            def set_pref(s, k, v): s.d[k] = v
+            log = staticmethod(lambda *a: None)
+        c = _C()
+        for _ in range(3):
+            relacion.registrar_interaccion(c, "hola")
+        ok("relación: arranca en conocimiento", relacion.nivel(c)[1] == "conocimiento")
+        c.d["rel_interacciones"] = "700"; c.d["rel_desde"] = "2023-01-01"
+        ok("relación: veterano llega a asesor", relacion.nivel(c)[0] == 4)
+    except Exception as e:
+        ok("relación: módulo", False, str(e)[:80])
+
+    # git_tools: estado sobre este mismo repo
+    try:
+        import git_tools
+        est = git_tools.git_estado(".", log=lambda *a: None)
+        ok("git: lee su propio repo", "Rama:" in est)
+        ok("git: rechaza no-repo",
+           "no es un repositorio" in git_tools.git_estado("C:/Windows", log=lambda *a: None))
+    except Exception as e:
+        ok("git: módulo", False, str(e)[:80])
+
+    # paralingüística temporal: mezcla con prior
+    try:
+        from cognition import paralinguistica_patron as plp
+        plp._ARCHIVO = os.path.join(tempfile.gettempdir(), "plp_test.json")
+        plp._cache = {"muestras": [], "correcciones": {}}
+        for _ in range(10):
+            m = plp.mezclar(0.9, 0.1, 0.5, 0.0, 0.4, log=lambda *a: None)
+        ok("paraling: aplica patrón tras N muestras", m.get("patron") is True)
+        try: os.remove(plp._ARCHIVO)
+        except OSError: pass
+    except Exception as e:
+        ok("paraling: módulo", False, str(e)[:80])
+
+    # mcp_generico: degrada sin servidores
+    try:
+        import mcp_generico
+        ok("mcp: descubre sin reventar",
+           isinstance(mcp_generico.descubrir(log=lambda *a: None), list))
+    except Exception as e:
+        ok("mcp: módulo", False, str(e)[:80])
+
+    # sandbox_android: sin dispositivo pide confirmación
+    try:
+        import sandbox_android
+        r = sandbox_android.informe("abrir ajustes", texto="Ajustes", log=lambda *a: None)
+        ok("móvil: sin dispositivo pide confirmar", "confirme" in r or "confianza" in r)
+    except Exception as e:
+        ok("móvil: módulo", False, str(e)[:80])
+
+    # correo_gmail: degrada sin credenciales
+    try:
+        import correo_gmail
+        ok("correo: degrada sin token",
+           "autorizar_google" in correo_gmail.resumen(log=lambda *a: None))
+    except Exception as e:
+        ok("correo: módulo", False, str(e)[:80])
+
+
 def main():
     t0 = time.time()
     print("=" * 60)
@@ -237,6 +348,7 @@ def main():
         test_http()
         test_robustez()
         test_generator()
+        test_modulos_nuevos()
     except Exception as e:
         print(f"\n!! Error global en las pruebas: {e}")
         import traceback
