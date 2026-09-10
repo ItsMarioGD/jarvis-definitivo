@@ -366,6 +366,31 @@ def test_modulos_nuevos():
     except Exception as e:
         ok("permisos drásticos: módulo", False, str(e)[:80])
 
+    # modelado3d: encuentra Blender y construye desde una receta
+    try:
+        import modelado3d as M3D, tempfile as _tf, json as _j, glob as _g
+        ok("3d: encuentra Blender", M3D.disponible(),
+           "(pon BLENDER_EXE si lo tienes en otra ruta)")
+        if M3D.disponible():
+            _d = _tf.mkdtemp()
+            _rp = os.path.join(_d, "receta.json")
+            _j.dump({"nombre": "t", "piezas": [{"forma": "esfera", "pos": [0, 0, 0],
+                     "escala": [0.3, 0.3, 0.3], "rot_grados": [0, 0, 0],
+                     "color": [0.6, 0.6, 0.7], "metal": 0.1, "rugosidad": 0.5}]},
+                    open(_rp, "w"))
+            _r = M3D._run_blender(M3D._SB_CONSTRUIR, [_rp, "", _d], timeout=400,
+                                  log=lambda *a: None)
+            ok("3d: Blender construye y exporta",
+               _r["ok"] and os.path.isfile(os.path.join(_d, "modelo.glb")),
+               _r.get("error", "")[:80])
+            ok("3d: render de la foto hero",
+               os.path.isfile(os.path.join(_d, "modelo_hero.png")))
+            ok("3d: genera visor holográfico HTML",
+               os.path.isfile(M3D._holo_web(os.path.join(_d, "modelo.glb"),
+                                            os.path.join(_d, "h.html"), "t")))
+    except Exception as e:
+        ok("3d: módulo", False, str(e)[:120])
+
 
 def main():
     t0 = time.time()

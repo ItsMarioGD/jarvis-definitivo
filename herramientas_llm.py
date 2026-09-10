@@ -192,6 +192,18 @@ class Herramientas:
             h("analizar_documento", "Lee un PDF (o texto) y responde una pregunta "
                                     "o lo resume.",
               {"ruta": texto, "pregunta": texto}, ["ruta"]),
+            h("modelar_3d", "Crea un modelo 3D con Blender: desde una foto (la "
+                            "reconstruye por escaneo o imaginándose lo que no se "
+                            "ve) o desde una descripción de texto. Devuelve "
+                            ".glb/.obj/.stl, un render de giro y un visor "
+                            "holográfico.",
+              {"entrada": {"type": "string",
+                           "description": "ruta a una imagen, o la descripción del objeto"}},
+              ["entrada"]),
+            h("holograma", "Renderiza un holograma (vídeo para pirámide de "
+                           "acrílico sobre el móvil + visor web) del último "
+                           "modelo 3D o de un .glb concreto.",
+              {"entrada": {"type": "string", "description": "ruta a un .glb (opcional)"}}),
             h("procesar_reunion", "Transcribe un audio de reunión y saca resumen, "
                                   "acuerdos y tareas; mete las tareas como "
                                   "recordatorios.",
@@ -501,6 +513,14 @@ class Herramientas:
         import multimodal
         return multimodal.analizar_documento(self.core, a.get("ruta", ""),
                                              a.get("pregunta", ""), log=self.log)
+
+    def _t_modelar_3d(self, a):
+        import modelado3d
+        return modelado3d.modelar(self.core, a.get("entrada", ""), log=self.log)
+
+    def _t_holograma(self, a):
+        import modelado3d
+        return modelado3d.holograma(self.core, a.get("entrada", ""), log=self.log)
 
     def _t_procesar_reunion(self, a):
         import reunion

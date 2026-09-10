@@ -3019,6 +3019,23 @@ class JarvisCore:
                 return multimodal.analizar_documento(self, ruta, "", log=self.log)
             except Exception as e:
                 return f"Señor, no pude analizarlo: {str(e)[:100]}"
+        _m_3d = re.search(r"(mod[eé]la(me)?|haz(me)?|crea(me)?)\s+(esto\s+|un[ao]?\s+)?"
+                          r"(en\s+)?3\s*d\b[:,]?\s*(.+)", text, re.IGNORECASE)
+        if _m_3d and "holograma" not in text.lower():
+            try:
+                import modelado3d
+                return modelado3d.modelar(self, _m_3d.group(7).strip(), log=self.log)
+            except Exception as e:
+                return f"Señor, el modelado 3D falló: {str(e)[:100]}"
+        _m_holo = re.search(r"(haz(me)?|crea(me)?|gener[ae]|quiero)\s+(un\s+)?holograma"
+                            r"(\s+de)?[:,]?\s*(.*)", text, re.IGNORECASE)
+        if _m_holo:
+            try:
+                import modelado3d
+                return modelado3d.holograma(self, (_m_holo.group(6) or "").strip(),
+                                            log=self.log)
+            except Exception as e:
+                return f"Señor, el holograma falló: {str(e)[:100]}"
         _m_am = re.search(r"(mej[oó]rate|mejora tu c[oó]digo|modif[ií]cate|"
                           r"aut[oó]?\s*-?\s*mej[oó]rate)(\s+para)?[:,]?\s+(.+)",
                           text, re.IGNORECASE)
