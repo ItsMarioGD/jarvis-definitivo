@@ -164,12 +164,23 @@ def _revertir_preferencia(datos, log, set_pref):
         return 0, 1
 
 
+def _revertir_archivo(datos, log):
+    """Escrituras y ediciones de herramientas_fs: restaura desde respaldo."""
+    try:
+        import herramientas_fs
+        return herramientas_fs.revertir(datos, log=log)
+    except Exception as e:
+        log(f"deshacer: no pude revertir archivo: {e}")
+        return 0, 1
+
+
 _REVERSORES = {
     "mover_archivos": _revertir_mover,
     "renombrar": _revertir_renombrar,
     "papelera": _revertir_papelera,
     "comando": _revertir_comando,
     "app_cerrada": _revertir_app,
+    "archivo": _revertir_archivo,
 }
 
 

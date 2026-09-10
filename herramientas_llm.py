@@ -114,6 +114,27 @@ class Herramientas:
               "convertir formatos, renombrar en lote por criterios. Úsala cuando "
               "ninguna herramienta simple sirva y haga falta cálculo real.",
               {"tarea": texto}, ["tarea"]),
+            h("leer_archivo", "Lee un archivo de texto del señor (código, notas, "
+                              "config). Devuelve las líneas numeradas.",
+              {"ruta": texto,
+               "desde": {"type": "integer", "description": "primera línea (1 por defecto)"},
+               "hasta": {"type": "integer", "description": "última línea (0 = hasta el final)"}},
+              ["ruta"]),
+            h("escribir_archivo", "Crea o reescribe por completo un archivo de "
+                                  "texto. Reversible con «deshaz eso».",
+              {"ruta": texto, "contenido": texto}, ["ruta", "contenido"]),
+            h("editar_archivo", "Cambia UN fragmento exacto de un archivo por otro. "
+                                "El fragmento a buscar debe aparecer una sola vez. "
+                                "Reversible con «deshaz eso».",
+              {"ruta": texto, "buscar": texto, "reemplazar": texto},
+              ["ruta", "buscar", "reemplazar"]),
+            h("listar_dir", "Lista el contenido de una carpeta.",
+              {"ruta": texto}),
+            h("buscar_en_archivos", "Busca un patrón (regex) dentro de los archivos "
+                                    "de una carpeta. Devuelve ruta:línea: coincidencia.",
+              {"patron": texto, "ruta": texto,
+               "glob": {"type": "string", "description": "filtro de nombre, p. ej. *.py"}},
+              ["patron"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
             h("orden_libre", "Ejecuta cualquier otra orden en el lenguaje de siempre. "
                              "Úsala solo si ninguna herramienta encaja.",
@@ -255,6 +276,30 @@ class Herramientas:
         import analista
         r = analista.resolver(self.core, a.get("tarea", ""), log=self.log)
         return analista.frase(r)
+
+    def _t_leer_archivo(self, a):
+        import herramientas_fs
+        return herramientas_fs.leer_archivo(a.get("ruta", ""), a.get("desde", 1),
+                                            a.get("hasta", 0), log=self.log)
+
+    def _t_escribir_archivo(self, a):
+        import herramientas_fs
+        return herramientas_fs.escribir_archivo(a.get("ruta", ""),
+                                                a.get("contenido", ""), log=self.log)
+
+    def _t_editar_archivo(self, a):
+        import herramientas_fs
+        return herramientas_fs.editar_archivo(a.get("ruta", ""), a.get("buscar", ""),
+                                              a.get("reemplazar", ""), log=self.log)
+
+    def _t_listar_dir(self, a):
+        import herramientas_fs
+        return herramientas_fs.listar_dir(a.get("ruta", "."), log=self.log)
+
+    def _t_buscar_en_archivos(self, a):
+        import herramientas_fs
+        return herramientas_fs.buscar_en_archivos(a.get("patron", ""), a.get("ruta", "."),
+                                                  a.get("glob", "*"), log=self.log)
 
     def _t_deshacer_ultimo(self, a):
         import deshacer
