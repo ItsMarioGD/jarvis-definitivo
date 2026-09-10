@@ -241,14 +241,40 @@ def _bk_meshroom(carpeta_imgs: str, out_dir: str, log=print) -> str:
     return hits[0] if hits else ""
 
 
+_MALLA_OK = (".glb", ".gltf", ".obj", ".ply", ".stl", ".fbx", ".dae")
+
+
+def _a_png(imagen: str, log=print) -> str:
+    """Convierte CUALQUIER imagen (webp, bmp, tiff, jpg…) a un PNG limpio.
+    Los reconstructores 3D suelen aceptar solo png/jpg."""
+    if imagen.lower().endswith(".png"):
+        return imagen
+    try:
+        from PIL import Image
+        os.makedirs(_SCRATCH, exist_ok=True)
+        dst = os.path.join(_SCRATCH, f"img_{int(time.time()*1000)}.png")
+        im = Image.open(imagen)
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGBA")
+        im.save(dst, "PNG")
+        return dst
+    except Exception as e:
+        log(f"[3D] no pude convertir {os.path.basename(imagen)} a PNG ({e}); "
+            "instala pillow. Sigo con el archivo original.")
+        return imagen
+
+
 def _reconstruir(imagen: str, out_dir: str, log=print) -> tuple[str, str]:
     """(ruta_malla, metodo). '' si ningún backend local pudo."""
+    imagen = _a_png(imagen, log=log)
     for bk in backends():
         log(f"[3D] intento con backend local: {bk}")
         r = ({"triposr": _bk_triposr, "hunyuan3d": _bk_hunyuan,
               "comfyui": _bk_comfyui}.get(bk, lambda *a, **k: ""))(imagen, out_dir, log=log)
-        if r and os.path.isfile(r):
+        if r and os.path.isfile(r) and r.lower().endswith(_MALLA_OK):
             return r, bk
+        if r:
+            log(f"[3D] {bk} devolvió algo que no es una malla ({os.path.basename(r)}); lo ignoro")
     return "", ""
 
 
@@ -426,10 +452,19 @@ if meshes:
 
 base = os.path.join(out_dir, "modelo")
 bpy.ops.object.select_all(action="SELECT")
-bpy.ops.export_scene.gltf(filepath=base+".glb", export_format="GLB")
+# Formato NATIVO de Blender: el .blend es el entregable principal.
+try: bpy.ops.wm.save_as_mainfile(filepath=base+".blend", copy=True)
+except Exception as _e: print("no pude guardar .blend:", _e)
+try: bpy.ops.export_scene.gltf(filepath=base+".glb", export_format="GLB")
+except Exception as _e: print("sin glb:", _e)
 try: bpy.ops.wm.obj_export(filepath=base+".obj")
 except Exception: pass
 try: bpy.ops.wm.stl_export(filepath=base+".stl")
+except Exception: pass
+# FBX es un add-on: con --factory-startup viene desactivado. Se activa aparte.
+try:
+    bpy.ops.preferences.addon_enable(module="io_scene_fbx")
+    bpy.ops.export_scene.fbx(filepath=base+".fbx")
 except Exception: pass
 print("JARVIS3D_OK", base)
 '''
@@ -526,10 +561,10 @@ def _a_animacion(frdir: str, salida_sin_ext: str, fps: int = 24, log=print) -> s
         pass
     try:
         from PIL import Image
-        ims = [Image.open(f).convert("RGB") for f in frames]
-        out = salida_sin_ext + ".webp"
+        ims = [Image.open(f).convert("P", palette=Image.ADAPTIVE) for f in frames]
+        out = salida_sin_ext + ".gif"
         ims[0].save(out, save_all=True, append_images=ims[1:],
-                    duration=int(1000/fps), loop=0, method=4)
+                    duration=int(1000/fps), loop=0, optimize=True)
         return out
     except Exception as e:
         log(f"[3D] sin pillow/imageio: quedan los fotogramas en {frdir} ({e})")
@@ -620,7 +655,12 @@ def modelar(core, entrada: str, t_pose: bool = False, abrir: bool = True, log=pr
         return ("Señor, no encuentro Blender. Póngalo en Prefs/modelado3d.json "
                 "(blender_exe) o instálelo.")
     entrada = (entrada or "").strip().strip('"')
-    ext = os.path.splitext(entrada)[1].lower() if os.path.isfile(entrada) else ""
+    es_archivo = os.path.isfile(entrada)
+    ext = os.path.splitext(entrada)[1].lower() if es_archivo else ""
+    if es_archivo and ext and ext not in (_FORMATOS_3D + _FORMATOS_IMG + _FORMATOS_VID):
+        return (f"Señor, no sé qué hacer con «{ext}». Para modelar acepto una "
+                "descripción de texto, una foto (.png/.jpg/.webp…), un vídeo, o "
+                "un archivo de modelado (" + ", ".join(_FORMATOS_3D) + ").")
     nombre = os.path.splitext(os.path.basename(entrada))[0] if ext else entrada[:40]
     out = _carpeta(nombre)
     modo, fuente, metodo = "receta", "", ""
@@ -654,7 +694,8 @@ def modelar(core, entrada: str, t_pose: bool = False, abrir: bool = True, log=pr
         else:
             try:
                 import base64
-                b64 = "data:image/png;base64," + base64.b64encode(open(entrada, "rb").read()).decode()
+                png = _a_png(entrada, log=log)
+                b64 = "data:image/png;base64," + base64.b64encode(open(png, "rb").read()).decode()
             except Exception:
                 b64 = ""
             rec = _geometria(core, f"lo que se ve en la foto {nombre}", imagen_b64=b64, log=log)
@@ -678,16 +719,25 @@ def modelar(core, entrada: str, t_pose: bool = False, abrir: bool = True, log=pr
                     "t-pose" if t_pose else "completo")
     if abrir:
         _abrir(web, log=log)
+    tiene_blend = os.path.isfile(os.path.join(out, "modelo.blend"))
     return (f"Listo, señor. Modelé «{nombre}» por {metodo}"
-            + (" en T-pose" if t_pose else "") + f". Todo en {out}: modelo.glb/.obj/"
-            f".stl, modelo_hero.png, el giro y el visor holográfico (ya te lo abrí). "
-            "Di «hazme el holograma pirámide de eso» para la versión de acrílico.")
+            + (" en T-pose" if t_pose else "") + f". En {out}: "
+            + ("modelo.blend (Blender), " if tiene_blend else "")
+            + "modelo.glb/.obj/.stl/.fbx, modelo_hero.png, el giro y el visor "
+            "holográfico (ya te lo abrí). Di «holograma pirámide de eso» para la "
+            "versión de acrílico.")
 
 
 def holograma(core, entrada: str = "", modo: str = "completo", abrir: bool = True,
               log=print) -> str:
     entrada = (entrada or "").strip().strip('"')
     ext = os.path.splitext(entrada)[1].lower() if os.path.isfile(entrada) else ""
+    if ext in _FORMATOS_IMG or ext in _FORMATOS_VID:
+        # Es una foto o un vídeo: primero modelo, y el holograma sale al final.
+        return modelar(core, entrada, t_pose=(modo == "t-pose"), abrir=abrir, log=log)
+    if ext and ext not in _FORMATOS_3D:
+        return (f"Señor, «{ext}» no es un archivo 3D. Acepto: "
+                + ", ".join(_FORMATOS_3D) + ", o una foto/vídeo/descripción.")
     if ext in _FORMATOS_3D and ext not in (".glb", ".gltf"):
         # normalizar cualquier formato a glb
         out = _carpeta(os.path.splitext(os.path.basename(entrada))[0])
