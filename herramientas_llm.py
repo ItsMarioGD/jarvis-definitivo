@@ -32,6 +32,27 @@ import json
 import os
 
 MAX_RONDAS = int(os.getenv("JARVIS_TOOLS_RONDAS", "4"))
+_TOPE_CONVERSACION = int(os.getenv("JARVIS_TOOLS_TOPE_CHARS", "24000"))
+
+
+def podar_conversacion(conversacion: list, tope: int = _TOPE_CONVERSACION) -> list:
+    """Si el hilo de tool-calling se hace largo, resume los resultados de
+    herramienta más viejos: se conservan el system, el primer user y los dos
+    últimos intercambios enteros; lo de en medio se recorta a una línea."""
+    total = sum(len(str(m.get("content") or "")) for m in conversacion)
+    if total <= tope or len(conversacion) <= 6:
+        return conversacion
+    cabeza = conversacion[:2]        # system + primer user (o los dos primeros)
+    cola = conversacion[-4:]         # últimos dos pares
+    medio = conversacion[2:-4]
+    for m in medio:
+        if m.get("role") == "tool":
+            c = str(m.get("content") or "")
+            if len(c) > 200:
+                m["content"] = c.splitlines()[0][:200] + " …[recortado]"
+        elif m.get("role") == "assistant" and m.get("content"):
+            m["content"] = str(m["content"])[:200]
+    return cabeza + medio + cola
 
 
 class Herramientas:
@@ -510,6 +531,7 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
     definiciones = caja.definiciones()
 
     for ronda in range(MAX_RONDAS):
+        conversacion = podar_conversacion(conversacion)
         try:
             resp = cliente.chat.completions.create(
                 model=modelo, messages=conversacion, tools=definiciones,

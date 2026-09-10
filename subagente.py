@@ -63,6 +63,10 @@ def _correr(core, tarea: str, sid: int, log=print):
     ]
     for _ronda in range(RONDAS_SUBAGENTE):
         try:
+            conversacion = herramientas_llm.podar_conversacion(conversacion)
+        except Exception:
+            pass
+        try:
             resp = cliente.chat.completions.create(
                 model=modelo, messages=conversacion, tools=definiciones,
                 tool_choice="auto", temperature=0.2, max_tokens=500)
