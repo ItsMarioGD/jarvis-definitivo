@@ -2923,6 +2923,14 @@ class JarvisCore:
                 return relacion.resumen(self)
             except Exception as e:
                 return f"Señor, no pude calcularlo: {str(e)[:80]}"
+        _m_md = re.search(r"(apunta|anota|gu[aá]rda(te)?|recuerda) (esto )?en (tu )?"
+                          r"memoria permanente(?: que)?[:,]?\s+(.+)", text, re.IGNORECASE)
+        if _m_md:
+            try:
+                import memoria_proyecto
+                return memoria_proyecto.anadir(_m_md.group(5))
+            except Exception as e:
+                return f"Señor, no pude apuntarlo: {str(e)[:80]}"
         _m_corr = re.search(r"\bno estoy (muy )?(cansad[oa]|tens[oa]|estresad[oa]|agobiad[oa])",
                             text, re.IGNORECASE)
         if _m_corr:
@@ -3009,6 +3017,16 @@ class JarvisCore:
                 _rel = relacion.instruccion_prompt(self)
                 if _rel:
                     msgs = msgs + [{"role": "system", "content": _rel}]
+            except Exception:
+                pass
+
+            # Memoria permanente (JARVIS.md): hechos y convenciones que siempre
+            # deben estar presentes.
+            try:
+                import memoria_proyecto
+                _mp = memoria_proyecto.contexto(log=self.log)
+                if _mp:
+                    msgs = msgs + [{"role": "system", "content": _mp}]
             except Exception:
                 pass
 

@@ -165,6 +165,14 @@ class Herramientas:
                             "completa o número) y lo revisa. Solo lectura.",
               {"objetivo": texto}, ["objetivo"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
+            h("recordar_permanente", "Apunta un hecho o convención en la memoria "
+                                     "permanente (JARVIS.md), que se carga en "
+                                     "cada conversación. Solo para lo que SIEMPRE "
+                                     "debe recordarse.",
+              {"nota": texto,
+               "seccion": {"type": "string",
+                           "description": "Preferencias fijas, Convenciones, Proyectos en curso o Notas"}},
+              ["nota"]),
             h("delegar_subtarea", "Lanza un sub-agente aparte que resuelve una "
                                   "subtarea con sus propias herramientas y te "
                                   "avisa al terminar. Úsala para trabajo que "
@@ -430,6 +438,11 @@ class Herramientas:
         import deshacer
         return deshacer.deshacer_ultimo(1, log=self.log,
                                         set_pref=getattr(self.core, "set_pref", None))
+
+    def _t_recordar_permanente(self, a):
+        import memoria_proyecto
+        return memoria_proyecto.anadir(a.get("nota", ""),
+                                       a.get("seccion", "Notas"), log=self.log)
 
     def _t_delegar_subtarea(self, a):
         import subagente
