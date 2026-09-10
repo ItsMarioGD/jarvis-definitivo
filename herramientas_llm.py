@@ -100,6 +100,13 @@ class Herramientas:
             h("ensayar_orden", "Comprueba qué haría una orden ANTES de ejecutarla "
                                 "(cuántos archivos toca, qué cambiaría).",
               {"orden": texto}, ["orden"]),
+            h("ensayar_orden_movil", "Pre-vuelo de una acción en el móvil: mira "
+                                     "el árbol de la pantalla y estima la confianza "
+                                     "de acertar antes de tocar el teléfono.",
+              {"objetivo": texto, "texto": {"type": "string", "description": "texto del elemento a tocar"},
+               "resource_id": texto,
+               "accion": {"type": "string", "description": "tap, swipe o text_input"}},
+              ["objetivo"]),
             h("pilotar_pantalla", "Usa ratón y teclado para lograr un objetivo en "
                                   "pantalla cuando ninguna otra herramienta sirve. "
                                   "Es lento: úsala solo como último recurso.",
@@ -287,6 +294,12 @@ class Herramientas:
     def _t_ensayar_orden(self, a):
         import sandbox
         return sandbox.informe_impacto(a.get("orden", ""), log=self.log)
+
+    def _t_ensayar_orden_movil(self, a):
+        import sandbox_android
+        return sandbox_android.informe(a.get("objetivo", ""), a.get("texto", ""),
+                                       a.get("resource_id", ""),
+                                       a.get("accion", "tap"), log=self.log)
 
     def _t_pilotar_pantalla(self, a):
         from piloto import Piloto
