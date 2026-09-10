@@ -139,6 +139,22 @@ class Herramientas:
               {"patron": texto, "ruta": texto,
                "glob": {"type": "string", "description": "filtro de nombre, p. ej. *.py"}},
               ["patron"]),
+            h("git_estado", "Estado de un repositorio git: rama, archivos sin "
+                            "guardar, commits sin subir.",
+              {"repo": {"type": "string", "description": "ruta del repo (. por defecto)"}}),
+            h("git_diff", "Muestra el diff de un repositorio git.",
+              {"repo": texto, "ruta": {"type": "string", "description": "archivo concreto (opcional)"}}),
+            h("correr_tests", "Ejecuta la batería de tests del repo (pytest, npm "
+                              "test o go test) y reporta si pasan.",
+              {"repo": texto}),
+            h("git_crear_rama", "Crea y activa una rama nueva en el repo.",
+              {"repo": texto, "nombre": texto}, ["nombre"]),
+            h("git_commit", "Hace stage de todo y un commit local (NO sube nada). "
+                            "No permite commit directo en main/master.",
+              {"repo": texto, "mensaje": texto}, ["mensaje"]),
+            h("revisar_pr", "Trae el diff de un Pull Request de GitHub (URL "
+                            "completa o número) y lo revisa. Solo lectura.",
+              {"objetivo": texto}, ["objetivo"]),
             h("deshacer_ultimo", "Revierte la última acción reversible.", {}),
             h("orden_libre", "Ejecuta cualquier otra orden en el lenguaje de siempre. "
                              "Úsala solo si ninguna herramienta encaja.",
@@ -329,6 +345,30 @@ class Herramientas:
         import herramientas_fs
         return herramientas_fs.buscar_en_archivos(a.get("patron", ""), a.get("ruta", "."),
                                                   a.get("glob", "*"), log=self.log)
+
+    def _t_git_estado(self, a):
+        import git_tools
+        return git_tools.git_estado(a.get("repo", "."), log=self.log)
+
+    def _t_git_diff(self, a):
+        import git_tools
+        return git_tools.git_diff(a.get("repo", "."), a.get("ruta", ""), log=self.log)
+
+    def _t_correr_tests(self, a):
+        import git_tools
+        return git_tools.correr_tests(a.get("repo", "."), log=self.log)
+
+    def _t_git_crear_rama(self, a):
+        import git_tools
+        return git_tools.crear_rama(a.get("repo", "."), a.get("nombre", ""), log=self.log)
+
+    def _t_git_commit(self, a):
+        import git_tools
+        return git_tools.commit(a.get("repo", "."), a.get("mensaje", ""), log=self.log)
+
+    def _t_revisar_pr(self, a):
+        import git_tools
+        return git_tools.revisar_pr(a.get("objetivo", ""), core=self.core, log=self.log)
 
     def _t_deshacer_ultimo(self, a):
         import deshacer
