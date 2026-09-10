@@ -2916,6 +2916,13 @@ class JarvisCore:
                 return presupuesto.informe()
             except Exception as e:
                 return f"Señor, no pude consultar el gasto: {str(e)[:80]}"
+        if re.search(r"(estado|salud) de (tus |los )?proveedores|proveedores? "
+                     r"(sanos?|con problemas)|est[aá]n sanos", text, re.IGNORECASE):
+            try:
+                import cerebro_salud
+                return cerebro_salud.informe()
+            except Exception as e:
+                return f"Señor, no pude consultarlo: {str(e)[:80]}"
         if re.search(r"nivel de (nuestra )?relaci[oó]n|qu[eé] tan bien nos "
                      r"(conocemos|llevamos)|cu[aá]nto (tiempo )?llevamos", text, re.IGNORECASE):
             try:
@@ -3089,6 +3096,14 @@ class JarvisCore:
                     except Exception:
                         pass
                 try:
+                    import cerebro_salud
+                    if cerebro_salud.en_cuarentena(nombre):
+                        self.log(f"[CEREBRO-SALUD] salto «{nombre}»: en cuarentena "
+                                 f"{cerebro_salud.segundos_restantes(nombre)} s")
+                        continue
+                except Exception:
+                    pass
+                try:
                     cliente = self._cliente_llm(b_url, clave)
                     esfuerzo = self._esfuerzo_razonamiento(text)
                     es_kimi = ("moonshot" in b_url) or modelo.startswith("kimi-k3")
@@ -3119,11 +3134,21 @@ class JarvisCore:
                         self.log(f"Sin control de razonamiento en {nombre}: {e_raz}")
                         resp = cliente.chat.completions.create(**comun)
                     self._cerebro_activo = nombre
+                    try:
+                        import cerebro_salud
+                        cerebro_salud.registrar_exito(nombre)
+                    except Exception:
+                        pass
                     break
                 except Exception as e:
                     ultimo_error = e
                     self.log(f"Proveedor «{nombre}» falló: {e}")
                     resp = None
+                    try:
+                        import cerebro_salud
+                        cerebro_salud.registrar_fallo(nombre, str(e), log=self.log)
+                    except Exception:
+                        pass
             if resp is None:
                 if _nube_cortada and ultimo_error is None:
                     try:
