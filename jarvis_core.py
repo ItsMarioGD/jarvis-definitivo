@@ -3019,21 +3019,27 @@ class JarvisCore:
                 return multimodal.analizar_documento(self, ruta, "", log=self.log)
             except Exception as e:
                 return f"Señor, no pude analizarlo: {str(e)[:100]}"
-        _m_3d = re.search(r"(mod[eé]la(me)?|haz(me)?|crea(me)?)\s+(esto\s+|un[ao]?\s+)?"
-                          r"(en\s+)?3\s*d\b[:,]?\s*(.+)", text, re.IGNORECASE)
+        _m_3d = re.search(r"(mod[eé]la(me)?|haz(me)?|crea(me)?|esc[aá]nea(me)?)\s+"
+                          r"(esto\s+|un[ao]?\s+)?(en\s+)?3\s*d\b[:,]?\s*(.+)",
+                          text, re.IGNORECASE)
         if _m_3d and "holograma" not in text.lower():
             try:
                 import modelado3d
-                return modelado3d.modelar(self, _m_3d.group(7).strip(), log=self.log)
+                tpose = bool(re.search(r"\bt[\s-]?pose\b|en\s+t\b", text, re.IGNORECASE))
+                return modelado3d.modelar(self, _m_3d.group(8).strip(),
+                                          t_pose=tpose, log=self.log)
             except Exception as e:
                 return f"Señor, el modelado 3D falló: {str(e)[:100]}"
-        _m_holo = re.search(r"(haz(me)?|crea(me)?|gener[ae]|quiero)\s+(un\s+)?holograma"
-                            r"(\s+de)?[:,]?\s*(.*)", text, re.IGNORECASE)
+        _m_holo = re.search(r"(haz(me)?|crea(me)?|gener[ae]|quiero|mu[eé]strame|"
+                            r"ens[eé][ñn]ame)\s+(el\s+|un\s+)?holograma"
+                            r"(\s+(de|piramide|pir[aá]mide))?[:,]?\s*(.*)",
+                            text, re.IGNORECASE)
         if _m_holo:
             try:
                 import modelado3d
-                return modelado3d.holograma(self, (_m_holo.group(6) or "").strip(),
-                                            log=self.log)
+                modo = "t-pose" if re.search(r"\bt[\s-]?pose\b", text, re.IGNORECASE) else "completo"
+                return modelado3d.holograma(self, (_m_holo.group(7) or "").strip(),
+                                            modo=modo, log=self.log)
             except Exception as e:
                 return f"Señor, el holograma falló: {str(e)[:100]}"
         _m_am = re.search(r"(mej[oó]rate|mejora tu c[oó]digo|modif[ií]cate|"

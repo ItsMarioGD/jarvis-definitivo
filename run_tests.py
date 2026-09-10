@@ -378,16 +378,22 @@ def test_modulos_nuevos():
                      "escala": [0.3, 0.3, 0.3], "rot_grados": [0, 0, 0],
                      "color": [0.6, 0.6, 0.7], "metal": 0.1, "rugosidad": 0.5}]},
                     open(_rp, "w"))
-            _r = M3D._run_blender(M3D._SB_CONSTRUIR, [_rp, "", _d], timeout=400,
+            _r = M3D._run_blender(M3D._SB_PREP, ["receta", _rp, _d, "0"], timeout=400,
                                   log=lambda *a: None)
-            ok("3d: Blender construye y exporta",
+            ok("3d: Blender prepara y exporta glb",
                _r["ok"] and os.path.isfile(os.path.join(_d, "modelo.glb")),
                _r.get("error", "")[:80])
-            ok("3d: render de la foto hero",
-               os.path.isfile(os.path.join(_d, "modelo_hero.png")))
-            ok("3d: genera visor holográfico HTML",
+            if os.path.isfile(os.path.join(_d, "modelo.glb")):
+                _rr = M3D._run_blender(M3D._SB_RENDER,
+                                       [os.path.join(_d, "modelo.glb"), _d, "foto"],
+                                       timeout=400, log=lambda *a: None)
+                ok("3d: render de la foto hero",
+                   _rr["ok"] and os.path.isfile(os.path.join(_d, "modelo_hero.png")),
+                   _rr.get("error", "")[:80])
+            ok("3d: visor holográfico HTML",
                os.path.isfile(M3D._holo_web(os.path.join(_d, "modelo.glb"),
                                             os.path.join(_d, "h.html"), "t")))
+            ok("3d: lista de backends no revienta", isinstance(M3D.backends(), list))
     except Exception as e:
         ok("3d: módulo", False, str(e)[:120])
 
