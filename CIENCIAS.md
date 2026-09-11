@@ -37,6 +37,7 @@ trescientos cuarenta y cinco») a notación antes de resolver.
 | «balancea KMnO4 + HCl -> KCl + MnCl2 + H2O + Cl2» | ajuste por álgebra lineal, con el sistema y la comprobación |
 | «hazme el modelo 3D de la molécula de amoniaco» | geometría RPECV, polaridad y el modelo de bolas y varillas girable |
 | «enséñame la tabla periódica» | los 118 elementos dibujados |
+| un enunciado de examen entero, con su lista de requisitos y LaTeX | saca la ecuación de dentro de la prosa, la resuelve exacta y el cerebro redacta la clase encima |
 | «entrena tus ciencias» | pasa el examen interno y aprende de los fallos |
 
 Para ver el dibujo basta añadir **«grafícalo»**; para que sea volumen,
@@ -63,9 +64,9 @@ que un visor que cargara los datos aparte no funcionaría.
 |---|---|
 | `ciencias.py` | la puerta: entiende el enunciado y reparte. Con el cerebro si hay; con reglas si no hay internet |
 | `matematica.py` | el motor: dictado → notación, sympy, muestreo robusto, láminas 2D/3D, mallas y visor |
-| `fisica.py` | banco de ~60 leyes con símbolos y unidades (despeja sola la incógnita) + análisis con gráfica |
+| `fisica.py` | banco de 74 leyes con símbolos y unidades (elige y despeja sola) + análisis con gráfica |
 | `quimica.py` | tabla periódica de 118 elementos, masas molares, balanceo, pH, cinética, RPECV en 3D |
-| `entrenar_ciencias.py` | el examen de 41 problemas y la memoria de frases aprendidas |
+| `entrenar_ciencias.py` | el examen de 50 problemas y la memoria de frases aprendidas |
 
 ## Tipos de gráfica
 
@@ -91,7 +92,8 @@ python entrenar_ciencias.py --solo-examen
 python entrenar_ciencias.py --materia quimica
 ```
 
-1. Pasa los 41 problemas del banco (muchos escritos como se **dictan**).
+1. Pasa los 50 problemas del banco (muchos escritos como se **dictan**, y
+   otros envueltos en prosa de examen).
 2. Compara con la respuesta correcta: por número con tolerancia, por texto que
    debe aparecer, o comprobando que el archivo `.png`/`.obj` se generó de verdad.
 3. De cada fallo de **enrutado** guarda la huella de la frase con la acción
@@ -112,8 +114,62 @@ entrenar_ciencias.ensenar("sácame la pendiente de", "derivar")
 
 o por voz: «cuando te diga sácame la pendiente de, haz derivar».
 
-**Nota actual: 10,0 sobre 10 — 41 de 41 problemas** (19 matemáticas,
-10 física, 12 química).
+**Nota actual: 10,0 sobre 10 — 50 de 50 problemas** (22 matemáticas,
+15 física, 13 química).
+
+## Encargos largos y modo tutor
+
+Un enunciado real no viene solo. Llega así:
+
+> «Actúa como un tutor experto en matemáticas. Resuelve paso a paso la
+> siguiente ecuación cuadrática: 3x² − 5x − 2 = 0. Requisitos de respuesta:
+> 1. Identifica los coeficientes (a, b, c). 2. Aplica la fórmula general
+> mostrando cada paso explícito en LaTeX. 3. Encuentra y simplifica los dos
+> valores posibles para x. 4. Explica brevemente el significado del
+> discriminante.»
+
+Quitar verbos no sirve con eso, así que el módulo va a **buscar** el trozo que
+es matemática dentro del texto (`ciencias._extraer_matematica`) y lo resuelve
+exacto con sympy. Después, como el encargo pide además que se EXPLIQUE, el
+cerebro redacta la clase **encima del cálculo ya verificado**: recibe los
+resultados de sympy con la orden de no recalcular nada. Así la explicación es
+didáctica y la aritmética no se inventa, que es justo lo que hacen mal los
+modelos de lenguaje por su cuenta.
+
+Se activa solo, cuando el encargo trae marcas de instrucción: «actúa como»,
+«paso a paso», «explica», «justifica», «requisitos», una lista numerada, o más
+de 35 palabras. Si además se pide LaTeX, las fórmulas salen en `$$…$$`.
+
+Sin cerebro disponible, queda el desarrollo determinista, que ya cubre los
+cuatro puntos del ejemplo (coeficientes, fórmula general, raíces exactas y
+decimales, discriminante con su interpretación, y de propina Cardano-Vieta y
+el vértice de la parábola).
+
+**Cuando NO hay nada que calcular** («explícame qué es una derivada y para qué
+sirve»), el módulo se aparta: devuelve vacío y la frase sigue su camino normal
+hasta el cerebro. Un callejón sin salida es peor que una respuesta conversada.
+
+## La física elige la ley sola
+
+Nadie dice «usa la fórmula de la velocidad». Se dan los datos y ya:
+
+> «Un móvil parte del reposo con aceleración de 2 m/s². ¿Qué velocidad tiene a
+> los 5 s?»
+
+`fisica.elegir_ley()` prueba las 74 leyes del banco y se queda con la que más
+datos del enunciado consume dejando exactamente una incógnita. Además:
+
+- lee los **sobreentendidos** («parte del reposo» → v₀ = 0; «hasta detenerse»
+  → v = 0; «se deja caer» → v₀ = 0; «horizontalmente» → θ = 0);
+- pesa **cómo se pregunta** («¿cuánto tarda?» busca un tiempo, «¿qué
+  aceleración?» una aceleración), que distingue mejor que las palabras sueltas;
+- distingue el símbolo de la constante que se llama igual: la `h` de la caída
+  libre es una ALTURA, no la constante de Planck. Rellenarla con 6,6·10⁻³⁴
+  arruinaba el problema en silencio.
+
+Y cuando una cuadrática da dos raíces, se queda con la de sentido físico (un
+tiempo de vuelo negativo es la solución de antes de soltar la piedra), pero
+enseña las dos.
 
 ## Herramientas que ve el modelo
 

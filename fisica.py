@@ -366,6 +366,135 @@ def _plano(t: str) -> str:
                    if unicodedata.category(c) != "Mn")
 
 
+# Lo que un enunciado da por sabido sin escribir el número. Un profesor lo lee
+# solo; el módulo también tiene que hacerlo o se queda con dos incógnitas.
+_SOBREENTENDIDOS = [
+    (r"\b(?:parte|sale|arranca|comienza|empieza)\s+(?:del|desde\s+el|en)\s+reposo\b",
+     {"v0": 0.0, "omega": 0.0}),
+    (r"\binicialmente\s+en\s+reposo\b", {"v0": 0.0}),
+    (r"\b(?:se\s+detiene|hasta\s+(?:detenerse|parar(?:se)?)|queda\s+parado)\b",
+     {"v": 0.0}),
+    (r"\bdesde\s+(?:el\s+)?(?:suelo|origen|nivel\s+del\s+suelo)\b", {"x0": 0.0, "h": 0.0}),
+    (r"\b(?:se\s+deja\s+caer|cae\s+libremente|en\s+ca[ií]da\s+libre)\b", {"v0": 0.0}),
+    (r"\bhorizontalmente\b", {"theta": 0.0}),
+]
+
+
+def constante_aplicable(simbolo: str, descripcion: str) -> bool:
+    """¿Este símbolo de la ley ES la constante universal que se llama igual?
+
+    Importa mucho: `h` es la constante de Planck, pero en «caída libre» la `h`
+    del enunciado es la ALTURA. Rellenarla con 6,6·10⁻³⁴ arruinaba el problema
+    en silencio. Se compara lo que dice la ley del símbolo con lo que dice la
+    tabla de constantes.
+    """
+    info = CONSTANTES.get(simbolo)
+    if not info:
+        return False
+    d = _plano(descripcion)
+    return any(len(p) > 4 and p in d for p in _plano(info[2]).split())
+
+
+def casar_datos(enunciado: str, clave: str) -> dict:
+    """Empareja los números del enunciado con los símbolos de una ley, por unidad."""
+    if clave not in FORMULAS:
+        return {}
+    _tema, _ec, simbolos = FORMULAS[clave]
+    equivalentes = {"grados": "rad", "km": "m", "cm": "m", "mm": "m",
+                    "min": "s", "h": "s", "g": "kg", "km/h": "m/s",
+                    "L": "m³", "atm": "Pa", "°C": "K", "ohm": "Ω"}
+    salida = {}
+    bajo = _plano(enunciado)
+    for patron, valores in _SOBREENTENDIDOS:
+        if re.search(patron, bajo):
+            for sim, v in valores.items():
+                if sim in simbolos:
+                    salida[sim] = v
+    for valor, unidad, _orig, _ctx in datos_del_enunciado(enunciado):
+        if not unidad:
+            continue
+        objetivo = equivalentes.get(unidad, unidad)
+        for sim, (_desc, u) in simbolos.items():
+            if sim in salida or constante_aplicable(sim, _desc):
+                continue
+            if u == objetivo:
+                salida[sim] = valor
+                break
+    return salida
+
+
+# Cómo se pregunta por cada magnitud. Es lo que más pesa al elegir la ley: la
+# pregunta dice qué se busca mucho mejor que las palabras sueltas del texto.
+_PREGUNTA_POR = [
+    (r"cu[aá]nto\s+(?:tarda|tiempo)|en\s+cu[aá]nto\s+tiempo|qu[eé]\s+tiempo", "tiempo"),
+    (r"qu[eé]\s+velocidad|con\s+qu[eé]\s+velocidad|cu[aá]l\s+es\s+la\s+velocidad|"
+     r"cu[aá]n\s+r[aá]pido|qu[eé]\s+rapidez", "velocidad"),
+    (r"qu[eé]\s+aceleraci[oó]n|cu[aá]l\s+es\s+la\s+aceleraci[oó]n", "aceleraci"),
+    (r"qu[eé]\s+altura|cu[aá]nto\s+(?:sube|asciende)|hasta\s+qu[eé]\s+altura", "altura"),
+    (r"qu[eé]\s+(?:distancia|alcance)|cu[aá]nto\s+(?:recorre|avanza|llega)", "alcance"),
+    (r"qu[eé]\s+fuerza|cu[aá]l\s+es\s+la\s+fuerza", "fuerza"),
+    (r"qu[eé]\s+masa|cu[aá]l\s+es\s+la\s+masa", "masa"),
+    (r"qu[eé]\s+energ[ií]a|cu[aá]nta\s+energ[ií]a", "energ"),
+    (r"qu[eé]\s+trabajo|cu[aá]nto\s+trabajo", "trabajo"),
+    (r"qu[eé]\s+potencia", "potencia"),
+    (r"qu[eé]\s+presi[oó]n|cu[aá]l\s+es\s+la\s+presi[oó]n", "presi"),
+    (r"qu[eé]\s+temperatura", "temperatura"),
+    (r"qu[eé]\s+(?:calor|cantidad\s+de\s+calor)", "calor"),
+    (r"qu[eé]\s+(?:periodo|per[ií]odo)", "periodo"),
+    (r"qu[eé]\s+frecuencia", "frecuencia"),
+    (r"qu[eé]\s+(?:intensidad|corriente)", "intensidad"),
+    (r"qu[eé]\s+(?:tensi[oó]n|voltaje|diferencia\s+de\s+potencial)", "tensi"),
+    (r"qu[eé]\s+resistencia", "resistencia"),
+]
+
+
+def elegir_ley(enunciado: str, log=print) -> str:
+    """Qué ley pide el enunciado cuando no la nombra: la que mejor encaja.
+
+    Se prueban las 74 y se queda con la que más datos del enunciado consume
+    dejando EXACTAMENTE una incógnita. Así «un móvil parte del reposo con
+    aceleración de 2 m/s² a los 5 s» acaba en mrua_velocidad sin que nadie
+    tenga que decir «usa la fórmula de la velocidad».
+    """
+    bajo = _plano(enunciado)
+    mejor, mejor_p = "", 0
+    for clave, (tema, _ec, simbolos) in FORMULAS.items():
+        conocidos = casar_datos(enunciado, clave)
+        # Hace falta al menos UN número con unidad —si todo lo que encaja son
+        # sobreentendidos («parte del reposo») no hay enunciado— y dos datos en
+        # total contando los sobreentendidos.
+        con_numero = sum(1 for s, v in conocidos.items()
+                         if any(abs(v - d[0]) < 1e-12
+                                for d in datos_del_enunciado(enunciado) if d[1]))
+        if con_numero < 1 or len(conocidos) < 2:
+            continue
+        pendientes = [s for s in simbolos
+                      if s not in conocidos
+                      and not constante_aplicable(s, simbolos[s][0])]
+        if len(pendientes) != 1:
+            continue
+        # Puntúa cuántos datos usa, y premia sobre todo que la PREGUNTA apunte
+        # a la magnitud que queda por despejar.
+        desc = _plano(simbolos[pendientes[0]][0])
+        p = len(conocidos) * 10
+        for patron, magnitud in _PREGUNTA_POR:
+            if re.search(patron, bajo) and magnitud in desc:
+                p += 30
+                break
+        if desc.split()[0] in bajo:
+            p += 25
+        if _plano(tema) in bajo:
+            p += 8
+        for trozo in clave.split("_"):
+            if len(trozo) > 3 and trozo in bajo:
+                p += 3
+        if p > mejor_p:
+            mejor, mejor_p = clave, p
+    if mejor:
+        log(f"[FÍSICA] sin ley nombrada; la que encaja es «{mejor}»")
+    return mejor
+
+
 def formulario(tema: str = "") -> str:
     """Chuleta legible de todo el banco, o de un tema."""
     t = _plano(tema).strip()
@@ -410,10 +539,12 @@ def resolver_formula(clave: str, conocidos: dict, incognita: str = "", log=print
     tema, ec_txt, simbolos = FORMULAS[clave]
     ec = ecuacion(clave)
     conocidos = {k: v for k, v in (conocidos or {}).items() if v is not None}
-    # Las constantes universales se rellenan solas si el enunciado no las da.
+    # Las constantes universales se rellenan solas si el enunciado no las da,
+    # pero solo cuando el símbolo ES esa constante: la «h» de la caída libre es
+    # una altura, no la de Planck.
     for s in ec.free_symbols:
         n = s.name
-        if n not in conocidos and n in CONSTANTES:
+        if n not in conocidos and constante_aplicable(n, simbolos.get(n, ("", ""))[0]):
             conocidos[n] = CONSTANTES[n][0]
     libres = [s for s in ec.free_symbols if s.name not in conocidos]
     if incognita:
@@ -450,7 +581,14 @@ def resolver_formula(clave: str, conocidos: dict, incognita: str = "", log=print
                 valores.append(float(v.real))
         except Exception:
             pass
+    # Una cuadrática da dos raíces y en física casi siempre manda la positiva
+    # (un tiempo de vuelo negativo es la solución matemática de antes de soltar
+    # la piedra). Se ordenan, pero se enseñan las dos.
+    valores.sort(key=lambda v: (v < 0, abs(v)))
     ud = simbolos.get(inc.name, ("", ""))[1]
+    if len(valores) > 1:
+        pasos.append("Hay dos raíces; me quedo con la de sentido físico "
+                     f"({valores[0]:.6g} {ud}).")
     if valores:
         pasos.append(f"Sustituyendo: {inc} = " +
                      "  ó  ".join(f"{v:.6g} {ud}" for v in valores))
@@ -465,6 +603,10 @@ _UNIDADES = [
     (r"(?:km/h|kil[oó]metros?\s+por\s+hora)", "km/h", 1 / 3.6),
     (r"(?:m/s2|m/s²|metros?\s+por\s+segundo\s+al\s+cuadrado)", "m/s²", 1.0),
     (r"(?:m/s|metros?\s+por\s+segundo)", "m/s", 1.0),
+    (r"(?:m3|m³|metros?\s+c[uú]bicos?)", "m³", 1.0),
+    (r"(?:cm3|cm³|cent[ií]metros?\s+c[uú]bicos?)", "m³", 1e-6),
+    (r"(?:m2|m²|metros?\s+cuadrados?)", "m²", 1.0),
+    (r"(?:cm2|cm²|cent[ií]metros?\s+cuadrados?)", "m²", 1e-4),
     (r"(?:kg|kilogramos?|kilos?)", "kg", 1.0),
     (r"(?:gramos?|g\b)", "g", 1e-3),
     (r"(?:km|kil[oó]metros?)", "km", 1000.0),

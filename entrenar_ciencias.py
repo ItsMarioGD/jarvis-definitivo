@@ -130,6 +130,45 @@ BANCO = [
      "texto": ["74"]},
     {"m": "quimica", "e": "enséñame la tabla periódica", "accion": "tabla_periodica",
      "archivo": "png"},
+
+    # ── encargos largos: el enunciado viene envuelto en prosa e instrucciones.
+    # Es como se pide de verdad, y es donde el módulo se caía al principio.
+    {"m": "matematica",
+     "e": "Actúa como un tutor experto en matemáticas. Resuelve paso a paso la "
+          "siguiente ecuación cuadrática: 3x² - 5x - 2 = 0. Requisitos de "
+          "respuesta: 1. Identifica los coeficientes (a, b, c). 2. Aplica la "
+          "fórmula general mostrando cada paso explícito en LaTeX. 3. Encuentra "
+          "y simplifica los dos valores posibles para x. 4. Explica brevemente "
+          "el significado del discriminante obtenido.",
+     "accion": "ecuacion", "texto": ["-1/3", "2", "49"]},
+    {"m": "matematica",
+     "e": "Determina el valor de x en la ecuación 2x + 7 = 19, explicando cada paso.",
+     "accion": "ecuacion", "numero": 6.0},
+    {"m": "matematica",
+     "e": "Explícame qué es una derivada y para qué sirve en la vida real",
+     "accion": "sin_calculo", "solo_accion": True},
+    {"m": "fisica",
+     "e": "Se deja caer una piedra desde 45 m de altura. ¿Cuánto tarda en "
+          "llegar al suelo?",
+     "accion": "formula_fisica", "numero": 3.0294, "tol": 0.01},
+    {"m": "fisica",
+     "e": "Un móvil parte del reposo con aceleración de 2 m/s2. ¿Qué velocidad "
+          "tiene a los 5 s?",
+     "accion": "formula_fisica", "numero": 10.0},
+    {"m": "fisica",
+     "e": "Un coche que va a 20 m/s frena hasta detenerse en 4 s. ¿Qué "
+          "aceleración lleva?",
+     "accion": "formula_fisica", "numero": -5.0},
+    {"m": "fisica",
+     "e": "Un resistor de 4 ohmios conectado a 12 V. ¿Qué intensidad circula?",
+     "accion": "formula_fisica", "numero": 3.0},
+    {"m": "fisica",
+     "e": "Calcula la presión de 2 moles de gas a 300 K en un volumen de 0.05 m3",
+     "accion": "formula_fisica", "numero": 99773.6, "tol": 5.0},
+    {"m": "quimica",
+     "e": "Balancea la siguiente reacción química e indica los coeficientes: "
+          "Al + O2 -> Al2O3",
+     "accion": "balancear", "texto": ["4 Al", "3 O2", "2 Al2O3"]},
 ]
 
 
@@ -241,6 +280,11 @@ def _numeros_de(texto: str) -> list:
 def _acierta(caso: dict, respuesta: str, r: dict) -> tuple:
     """(ok, motivo) comparando la respuesta con lo que esperaba el banco."""
     texto = (r.get("titular", "") + "\n" + "\n".join(r.get("pasos", [])))
+    if caso.get("solo_accion"):
+        # Casos en los que lo correcto es NO calcular («explícame qué es una
+        # derivada»): lo que se juzga es a dónde enrutó, no el resultado.
+        elegida = r.get("accion", "")
+        return elegida == caso.get("accion"), f"enrutó a «{elegida}»"
     if "numero" in caso:
         tol = caso.get("tol", max(abs(caso["numero"]) * 0.01, 1e-6))
         nums = _numeros_de(r.get("titular", "")) + _numeros_de(texto)

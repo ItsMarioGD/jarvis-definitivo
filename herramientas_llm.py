@@ -578,7 +578,12 @@ class Herramientas:
 
     def _t_resolver_ciencia(self, a):
         import ciencias
-        return ciencias.resolver(self.core, a.get("enunciado", ""), log=self.log)
+        r = ciencias.resolver(self.core, a.get("enunciado", ""), log=self.log)
+        # Vacío = el motor no supo con ese enunciado. Se dice, para que el
+        # modelo conteste por su cuenta en vez de quedarse callado.
+        return r or ("No he podido convertir ese enunciado en un cálculo. "
+                     "Respóndele tú razonándolo, y avísale de que no está "
+                     "verificado con sympy.")
 
     def _t_graficar(self, a):
         import ciencias

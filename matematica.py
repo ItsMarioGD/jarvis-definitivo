@@ -363,6 +363,7 @@ def resolver_ecuacion(texto: str, variable: str = "") -> dict:
     var = sp.Symbol(variable) if variable else libres[0]
     pasos = [f"Ecuación: {bonito(izq)} = {bonito(der)}",
              f"Todo a un lado: {bonito(expr)} = 0"]
+    tex = [rf"{latex(izq)} = {latex(der)}", rf"{latex(expr)} = 0"]
     fact = sp.factor(expr)
     if fact != expr:
         pasos.append(f"Factorizada: {bonito(fact)} = 0")
@@ -371,27 +372,67 @@ def resolver_ecuacion(texto: str, variable: str = "") -> dict:
         grado = sp.degree(sp.Poly(expr, var))
     except Exception:
         pass
+    datos = {}
     if grado == 2:
         a, b, c = (sp.Poly(expr, var).all_coeffs() + [0, 0, 0])[:3]
         disc = sp.simplify(b**2 - 4*a*c)
-        pasos.append(f"Cuadrática: a={bonito(a)}, b={bonito(b)}, c={bonito(c)}")
-        pasos.append(f"Discriminante b²-4ac = {bonito(disc)} "
-                     + ("(dos raíces reales)" if disc.is_positive else
-                        "(raíz doble)" if disc == 0 else "(raíces complejas)"))
-        pasos.append("Fórmula general: x = (-b ± √(b²-4ac)) / (2a)")
+        rdisc = sp.sqrt(disc)
+        datos = {"a": a, "b": b, "c": c, "discriminante": disc}
+        pasos.append(f"Coeficientes: a = {bonito(a)}, b = {bonito(b)}, c = {bonito(c)}")
+        pasos.append("Fórmula general: x = (−b ± √(b² − 4ac)) / (2a)")
+        pasos.append(f"Discriminante: Δ = b² − 4ac = ({bonito(b)})² − 4·({bonito(a)})·"
+                     f"({bonito(c)}) = {bonito(disc)}")
+        pasos.append("   Δ > 0 → dos raíces reales distintas; Δ = 0 → una raíz doble; "
+                     "Δ < 0 → dos raíces complejas conjugadas.")
+        pasos.append("   Aquí Δ = " + bonito(disc) + " → "
+                     + ("dos soluciones reales y distintas: la parábola corta al eje X "
+                        "en dos puntos."
+                        if disc.is_positive else
+                        "raíz doble: la parábola es tangente al eje X."
+                        if disc == 0 else
+                        "sin solución real: la parábola no llega a cortar el eje X."))
+        if disc.is_positive and not sp.sqrt(disc).is_rational:
+            pasos.append(f"   √Δ = {bonito(rdisc)} ≈ {float(sp.N(rdisc)):.6g} "
+                         "(irracional: las raíces salen con radical)")
+        elif disc.is_positive:
+            pasos.append(f"   √Δ = {bonito(rdisc)} (exacto: las raíces son racionales)")
+        pasos.append(f"Sustituyendo: x = ({bonito(-b)} ± √{bonito(disc)}) / "
+                     f"({bonito(2*a)})")
+        tex += [rf"a = {latex(a)},\quad b = {latex(b)},\quad c = {latex(c)}",
+                r"x = \frac{-b \pm \sqrt{b^{2}-4ac}}{2a}",
+                rf"\Delta = b^{{2}}-4ac = ({latex(b)})^{{2}}-4({latex(a)})({latex(c)})"
+                rf" = {latex(disc)}",
+                rf"x = \frac{{{latex(-b)} \pm \sqrt{{{latex(disc)}}}}}{{{latex(2*a)}}}"]
+        pasos.append(f"Suma de las raíces (−b/a) = {bonito(sp.simplify(-b/a))}   ·   "
+                     f"Producto (c/a) = {bonito(sp.simplify(c/a))}   [Cardano-Vieta]")
+        vx = sp.simplify(-b / (2*a))
+        pasos.append(f"Vértice de la parábola: x = −b/2a = {bonito(vx)}, "
+                     f"y = {bonito(sp.simplify(expr.subs(var, vx)))}")
     sols = sp.solve(sp.Eq(izq, der), var, dict=False)
     if not isinstance(sols, (list, tuple)):
         sols = [sols]
-    pasos.append("Soluciones: " + (", ".join(f"{var} = {bonito(s)}" for s in sols)
-                                   if sols else "ninguna en los reales"))
+    if sols:
+        pasos.append("Soluciones exactas: "
+                     + ", ".join(f"{var} = {bonito(sp.nsimplify(s))}" for s in sols))
+        tex.append(r",\quad ".join(rf"{var} = {latex(s)}" for s in sols))
+    else:
+        pasos.append("No tiene solución en los reales.")
     aprox = []
     for s in sols:
         try:
             aprox.append(complex(sp.N(s)))
         except Exception:
             aprox.append(None)
+    decimales = [f"{var} ≈ {v.real:.6g}" for v in aprox
+                 if v is not None and abs(v.imag) < 1e-12]
+    if decimales and any(not sp.nsimplify(s).is_Integer for s in sols):
+        pasos.append("En decimal: " + ", ".join(decimales))
+    if fact != expr and grado == 2:
+        pasos.append(f"Comprobación por factorización: {bonito(fact)} = 0 "
+                     "da las mismas raíces.")
     return {"tipo": "ecuacion", "variable": str(var), "expr": expr,
-            "soluciones": sols, "aprox": aprox, "grado": grado, "pasos": pasos}
+            "soluciones": sols, "aprox": aprox, "grado": grado, "pasos": pasos,
+            "latex": tex, "coeficientes": datos}
 
 
 def resolver_sistema(lineas: list, incognitas: list | None = None) -> dict:
@@ -421,8 +462,12 @@ def resolver_sistema(lineas: list, incognitas: list | None = None) -> dict:
             f"{k} = {bonito(v)}" for k, v in sol[0].items()))
     else:
         pasos.append("El sistema no tiene solución.")
+    tex = [r"\begin{cases}" + r"\\".join(
+        rf"{latex(e.lhs)} = {latex(e.rhs)}" for e in ecs) + r"\end{cases}"]
+    if sol:
+        tex.append(r",\quad ".join(rf"{k} = {latex(v)}" for k, v in sol[0].items()))
     return {"tipo": "sistema", "incognitas": [str(i) for i in inc],
-            "soluciones": sol, "pasos": pasos}
+            "soluciones": sol, "pasos": pasos, "latex": tex}
 
 
 def derivar(texto: str, variable: str = "", orden: int = 1) -> dict:
@@ -454,7 +499,9 @@ def derivar(texto: str, variable: str = "", orden: int = 1) -> dict:
     except Exception:
         pass
     return {"tipo": "derivada", "variable": str(var), "expr": expr,
-            "resultado": ds, "pasos": pasos}
+            "resultado": ds, "pasos": pasos,
+            "latex": [rf"f({var}) = {latex(expr)}",
+                      rf"\frac{{d^{{{orden}}}f}}{{d{var}^{{{orden}}}}} = {latex(ds)}"]}
 
 
 def integrar(texto: str, variable: str = "", a=None, b=None) -> dict:
@@ -478,8 +525,13 @@ def integrar(texto: str, variable: str = "", a=None, b=None) -> dict:
             pasos.append(f"En decimal ≈ {float(sp.N(res)):.6g}")
         except Exception:
             pass
+    tex = [rf"\int {latex(expr)}\,d{var} = {latex(F)} + C"]
+    if a is not None and b is not None:
+        tex.append(rf"\int_{{{latex(sympificar(str(a)))}}}^{{{latex(sympificar(str(b)))}}}"
+                   rf" {latex(expr)}\,d{var} = {latex(sp.simplify(res))}")
     return {"tipo": "integral", "variable": str(var), "expr": expr,
-            "resultado": res, "primitiva": F, "limites": (a, b), "pasos": pasos}
+            "resultado": res, "primitiva": F, "limites": (a, b), "pasos": pasos,
+            "latex": tex}
 
 
 def limite(texto: str, variable: str = "", punto="0", lado: str = "") -> dict:
@@ -501,7 +553,8 @@ def limite(texto: str, variable: str = "", punto="0", lado: str = "") -> dict:
         pass
     pasos.append(f"lím = {bonito(L)}")
     return {"tipo": "limite", "variable": str(var), "expr": expr,
-            "resultado": L, "punto": p, "pasos": pasos}
+            "resultado": L, "punto": p, "pasos": pasos,
+            "latex": [rf"\lim_{{{var} \to {latex(p)}}} {latex(expr)} = {latex(L)}"]}
 
 
 def serie_taylor(texto: str, variable: str = "", centro="0", orden: int = 6) -> dict:
@@ -515,7 +568,8 @@ def serie_taylor(texto: str, variable: str = "", centro="0", orden: int = 6) -> 
              f"Taylor alrededor de {var}={bonito(c)} hasta orden {orden}:",
              f"   {bonito(sp.expand(s))}"]
     return {"tipo": "serie", "variable": str(var), "expr": expr,
-            "resultado": sp.expand(s), "pasos": pasos}
+            "resultado": sp.expand(s), "pasos": pasos,
+            "latex": [rf"{latex(expr)} \approx {latex(sp.expand(s))}"]}
 
 
 def matriz(datos, operacion: str = "todo") -> dict:
@@ -619,7 +673,8 @@ def simplificar(texto: str) -> dict:
                 pasos.append(f"{nombre}: {bonito(v)}")
         except Exception:
             pass
-    return {"tipo": "simplificar", "expr": expr, "resultado": s, "pasos": pasos}
+    return {"tipo": "simplificar", "expr": expr, "resultado": s, "pasos": pasos,
+            "latex": [rf"{latex(expr)} = {latex(s)}"]}
 
 
 # ── muestreo robusto ───────────────────────────────────────────────────────

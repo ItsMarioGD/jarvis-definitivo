@@ -473,8 +473,45 @@ def test_modulos_nuevos():
            _p["accion"] == "derivar" and _p["graficar"])
         _p3 = CIE.plan_por_reglas("grafícame en tres dimensiones seno de x por coseno de y")
         ok("ciencias: enruta la superficie 3D", _p3["accion"] == "superficie3d")
+        # Encargos largos: el enunciado envuelto en prosa e instrucciones.
+        _largo = ("Actúa como un tutor experto en matemáticas. Resuelve paso a "
+                  "paso la siguiente ecuación cuadrática: 3x² - 5x - 2 = 0. "
+                  "Requisitos: 1. Identifica los coeficientes (a, b, c). "
+                  "2. Aplica la fórmula general en LaTeX.")
+        ok("ciencias: saca la ecuación de dentro de la prosa",
+           CIE._extraer_matematica(_largo).replace(" ", "") == "3x^2-5x-2=0")
+        _pl = CIE.plan_por_reglas(_largo)
+        ok("ciencias: un encargo largo sigue siendo una ecuación",
+           _pl["accion"] == "ecuacion")
+        _rl = CIE.ejecutar(None, _pl, log=lambda *a: None)
+        ok("ciencias: resuelve la cuadrática del encargo",
+           "-1/3" in " ".join(_rl["pasos"]) and "49" in " ".join(_rl["pasos"]))
+        ok("ciencias: devuelve LaTeX cuando se pide",
+           any("\\frac" in x for x in _rl.get("latex", [])))
+        ok("ciencias: una pregunta de teoría no se calcula",
+           CIE.plan_por_reglas("explícame qué es una derivada y para qué "
+                               "sirve")["accion"] == "sin_calculo")
+        ok("ciencias: sin cálculo devuelve vacío y contesta el cerebro",
+           CIE.resolver(None, "explícame qué es una derivada", abrir=False,
+                        log=lambda *a: None) == "")
+        import fisica as FIS2
+        ok("física: elige la ley sola por las unidades",
+           FIS2.elegir_ley("Un móvil parte del reposo con aceleración de 2 m/s2. "
+                           "¿Qué velocidad tiene a los 5 s?",
+                           log=lambda *a: None) == "mrua_velocidad")
+        ok("física: «parte del reposo» vale como dato",
+           FIS2.casar_datos("parte del reposo con aceleración de 2 m/s2 "
+                            "durante 5 s", "mrua_velocidad").get("v0") == 0.0)
+        # La «h» de la caída libre es una altura, no la constante de Planck.
+        ok("física: no confunde el símbolo con la constante homónima",
+           not FIS2.constante_aplicable("h", "altura caída")
+           and FIS2.constante_aplicable("h", "Planck"))
+        _cl = FIS2.resolver_formula("caida_libre",
+                                    FIS2.casar_datos("se deja caer desde 45 m", "caida_libre"))
+        ok("física: caída libre desde 45 m tarda 3,03 s",
+           _cl.get("ok") and abs(_cl["resultado"] - 3.0294) < 0.01)
         import entrenar_ciencias as ENT
-        ok("ciencias: banco de entrenamiento", len(ENT.BANCO) >= 40)
+        ok("ciencias: banco de entrenamiento", len(ENT.BANCO) >= 50)
         ok("ciencias: huella de frases estable",
            ENT.huella("derívame equis al cubo") == ENT.huella("derivame equis al cubo"))
     except Exception as e:

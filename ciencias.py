@@ -38,7 +38,7 @@ _DISPARA = re.compile(
     r"\b(resu[eé]lv\w*|resolver|calcul\w*|der[ií]v\w*|integra\w*|"
     r"l[ií]mite|ecuaci[oó]n|inecuaci[oó]n|sistema\s+de\s+ecuaciones|matriz|"
     r"determinante|autovalor|factoriza\w*|simplifica\w*|polinomio|funci[oó]n|"
-    r"gr[aá][fp]ic\w*|dibuja\w*\s+(?:la\s+)?(?:gr[aá]fica|funci[oó]n)|"
+    r"gr[aá][fp][ií]c\w*|dibuja\w*\s+(?:la\s+)?(?:gr[aá]fica|funci[oó]n)|"
     r"traza\w*\s+la\s+gr[aá]fica|superficie|par[aá]bola|hip[eé]rbola|elipse|"
     r"seno|coseno|tangente|logaritmo|exponencial|ra[ií]z\s+cuadrada|"
     r"estad[ií]stic|media\s+aritm|desviaci[oó]n\s+t[ií]pica|varianza|probabilidad|"
@@ -174,10 +174,18 @@ def _materia(t: str) -> str:
                           r"mol[eé]cula|peri[oó]dica|estequiometr|gramos?\s+de|"
                           r"reactivo|producto|valencia|enlace)\b", t, re.I))
     fis = len(re.findall(r"\b(velocidad|aceleraci[oó]n|fuerza|energ[ií]a|masa\s+de|"
-                         r"movimiento|proyectil|ca[ií]da|p[eé]ndulo|onda|circuito|"
-                         r"corriente|voltaje|tensi[oó]n|campo|calor|temperatura|"
-                         r"presi[oó]n|trabajo|potencia|newton|julios?|vatios?|"
-                         r"metros?\s+por\s+segundo|kil[oó]gramos?)\b", t, re.I))
+                         r"movimiento|proyectil|ca[ií]da|cae|caer|p[eé]ndulo|onda|"
+                         r"circuito|corriente|voltaje|tensi[oó]n|campo|calor|"
+                         r"temperatura|presi[oó]n|trabajo|potencia|newton|julios?|"
+                         r"vatios?|metros?\s+por\s+segundo|kil[oó]gramos?|reposo|"
+                         r"altura|suelo|frena\w*|choca\w*|recorre|tarda|gravedad|"
+                         r"muelle|resorte|oscila\w*|lanza\w*|empuja\w*|rozamiento)\b",
+                         t, re.I))
+    # Una unidad del SI pegada a un número es la pista más fuerte de todas.
+    fis += 2 * len(re.findall(
+        r"\d\s*(?:m/s2|m/s²|m/s|km/h|m³|m3|m²|m2|kg|N\b|J\b|W\b|V\b|A\b|Hz|K\b|Pa|"
+        r"[ºº°]C|newtons?|julios?|vatios?|voltios?|amperios?|ohmios?|pascales?|"
+        r"metros?|segundos?|kil[oó]gramos?|grados)\b", t, re.I))
     if quim > fis and quim:
         return "quimica"
     if fis:
@@ -200,13 +208,14 @@ def _expresion_del_texto(t: str) -> str:
     s = re.sub(r"^\s*[¿¡]?\s*(?:cu[aá]l\s+es|cu[aá]nto\s+(?:es|vale|da)|"
                r"qu[eé]\s+(?:es|vale|da))\b", " ", s, flags=re.I)
     s = re.sub(r"\b(res[uú][eé]lve\w*|calcul[ae]\w*|halla\w*|obt[eé]n\w*|dame|"
+               r"determin[ae]\w*|averigua\w*|indica\w*|plantea\w*|comprueba\w*|"
                r"dime|necesito|quiero|h[aá]zme|hazme|haz|encuentra\w*|"
                r"(?:la\s+)?(?:primera|segunda|tercera|cuarta)\s+derivada(?:\s+de)?|"
                r"der[ií]v[ae]\w*|derivada\s+de|"
                r"(?:la\s+)?serie\s+de\s+taylor(?:\s+de)?|maclaurin(?:\s+de)?|"
                r"(?:el\s+)?desarrollo\s+de\s+taylor(?:\s+de)?|"
                r"(?:la\s+)?ecuaci[oó]n\s+diferencial|(?:el\s+)?sistema(?:\s+de\s+ecuaciones)?|"
-               r"integra\w*|simplifica\w*|factoriza\w*|gr[aá][fp]ic\w*|"
+               r"integra\w*|simplifica\w*|factoriza\w*|gr[aá][fp][ií]c\w*|"
                r"dib[uú]ja\w*|traza\w*|repres[eé]nta\w*|mu[eé]stra\w*|pl[oó]tea\w*|"
                r"ens[eé][ñn]a\w*|el\s+l[ií]mite\s+de|la\s+derivada\s+de|"
                r"la\s+integral\s+de|la\s+funci[oó]n|la\s+ecuaci[oó]n|"
@@ -301,12 +310,26 @@ def plan_por_reglas(enunciado: str) -> dict:
         if claves:
             return {**p, "accion": "formula_fisica", "formula": claves[0],
                     "enunciado": t}
+        # Nadie dice «usa la fórmula de la velocidad»: se dan los datos y ya.
+        # Que la elija el propio banco por las unidades del enunciado.
+        ley = F.elegir_ley(t, log=lambda *a: None)
+        if ley:
+            return {**p, "accion": "formula_fisica", "formula": ley}
         if re.search(r"\b(movimiento\s+rectil[ií]neo|mru|mrua|velocidad\s+constante|"
                      r"acelera\w*\s+a)\b", bajo):
             return {**p, "accion": "rectilineo", "datos": {"nums": _numeros(bajo)}}
 
     # ── matemáticas ──
     expr = _expresion_del_texto(t)
+    # Si quitar verbos no ha dejado matemática limpia, es que el encargo trae
+    # prosa alrededor (un enunciado de examen, una tanda de requisitos).
+    # Entonces se va a BUSCAR la expresión dentro del texto.
+    # «Explícame qué es una derivada»: hay palabra clave de ciencias pero NO hay
+    # nada que calcular. Se corta aquí y contesta el cerebro. El rescate de la
+    # expresión va al FINAL, porque las ramas con verbo propio (límite,
+    # estadística, sistema, EDO) ya saben recortar su enunciado solas.
+    if not _hay_matematica(expr) and not _extraer_matematica(t):
+        return {**p, "accion": "sin_calculo", "expresion": expr}
     if re.search(r"\bmatriz|determinante|inversa\s+de|autovalor", bajo):
         return {**p, "accion": "matriz", "expresion": expr}
     if re.search(r"\b(media|mediana|moda|desviaci[oó]n|varianza|estad[ií]stic|"
@@ -345,8 +368,16 @@ def plan_por_reglas(enunciado: str) -> dict:
     if re.search(r"\bsistema\b", bajo) or expr.count("=") > 1:
         partes = [s for s in re.split(r"[;\n]|,(?=[^=]*=)", expr) if "=" in s]
         return {**p, "accion": "sistema", "expresiones": partes or [expr]}
-    if re.search(r"\b(simplifica|factoriza|desarrolla|expande)\b", bajo):
-        return {**p, "accion": "simplificar", "expresion": expr}
+    # Aquí ya no queda ninguna rama con limpieza propia: si lo que hay sigue
+    # siendo prosa, se va a BUSCAR la expresión dentro del encargo. Es lo que
+    # salva los enunciados largos de examen con su lista de requisitos.
+    if _es_prosa_pura(expr):
+        rescatada = _extraer_matematica(t)
+        if rescatada:
+            expr = rescatada
+    # Si lo que hay es una IGUALDAD, es una ecuación y punto: va antes que
+    # «simplifica», que en un encargo largo aparece como un requisito más
+    # («…3. Encuentra y simplifica los dos valores de x») y desviaba la orden.
     # «igual a cero» solo se convierte en «=» al normalizar: hay que mirar ahí.
     try:
         normal = M.normalizar_expresion(expr)
@@ -354,16 +385,222 @@ def plan_por_reglas(enunciado: str) -> dict:
         normal = expr
     if "=" in expr or "=" in normal:
         return {**p, "accion": "ecuacion", "expresion": expr}
+    if re.search(r"\b(simplifica|factoriza|desarrolla|expande)\b", bajo):
+        return {**p, "accion": "simplificar", "expresion": expr}
     # Sin verbo claro: si pide gráfica es gráfica; si no, se simplifica/evalúa.
     if p["graficar"] or re.search(r"\bfunci[oó]n\b", bajo):
         if p["dim"] == 3 or re.search(r"\by\b.*\bx\b|f\s*\(\s*x\s*,\s*y\s*\)", expr):
             return {**p, "accion": "superficie3d", "expresion": expr, "dim": 3}
         return {**p, "accion": "grafica2d", "expresion": expr}
+    # Si lo que queda es prosa y no hay ninguna expresión que rescatar, no hay
+    # cálculo que hacer: se dice, y la frase sigue hasta el cerebro en vez de
+    # intentar «simplificar» un párrafo entero y reventar.
+    if _tiene_prosa(expr) and not _extraer_matematica(t):
+        return {**p, "accion": "sin_calculo", "expresion": expr}
     return {**p, "accion": "simplificar", "expresion": expr}
 
 
 def _normaliza(t: str) -> str:
     return re.sub(r"\s+", " ", t.strip().lower())
+
+
+# ── sacar la matemática de dentro de un encargo largo ──────────────────────
+# Un enunciado de verdad no viene solo: «Actúa como un tutor experto… resuelve
+# 3x² - 5x - 2 = 0 … 1. Identifica los coeficientes…». Quitar verbos no basta;
+# hay que ir a buscar el trozo que ES matemática y dejar la prosa fuera.
+_FUNCIONES = ("sin", "cos", "tan", "sen", "log", "ln", "exp", "sqrt", "abs",
+              "sinh", "cosh", "tanh", "asin", "acos", "atan", "pi")
+
+
+def _ficha_matematica(tok: str) -> bool:
+    if not tok:
+        return False
+    if tok.lower() in _FUNCIONES:
+        return True
+    if re.fullmatch(r"-?\d+(?:[.,]\d+)?", tok):
+        return True
+    if re.fullmatch(r"[+\-*/^=<>]+", tok):
+        return True
+    if re.fullmatch(r"[()\[\]]", tok):
+        return True
+    # Variable con coeficiente pegado o subíndice: x, 3x, x2, 5x
+    return bool(re.fullmatch(r"\d*[a-zA-Z]\d*", tok))
+
+
+def _extraer_matematica(texto: str) -> str:
+    """Devuelve el trozo del texto que es una expresión o ecuación, o ''."""
+    t = texto or ""
+    for k, v in M._SUPER.items():
+        t = t.replace(k, "^" + v[-1])
+    t = (t.replace("×", "*").replace("·", "*").replace("÷", "/")
+          .replace("−", "-").replace("–", "-").replace("≤", "<=").replace("≥", ">="))
+    t = re.sub(r"([+\-*/^=()\[\]<>])", r" \1 ", t)
+    # La puntuación que cierra frase se separa: sin esto, «= 19,» dejaba fuera
+    # el 19 y la ecuación se quedaba coja. Los decimales no se tocan porque el
+    # punto de «3.14» no va seguido de espacio.
+    t = re.sub(r"([,;:.])(\s|$)", r" \1\2", t)
+    fichas = t.split()
+    mejor, mejor_p = [], -1
+    actual = []
+    for f in fichas + [""]:
+        if _ficha_matematica(f):
+            actual.append(f)
+            continue
+        if actual:
+            # Puntuación: manda tener «=», luego cuántos operadores y fichas.
+            ops = sum(1 for x in actual if re.fullmatch(r"[+\-*/^]+", x))
+            tiene_var = any(re.fullmatch(r"\d*[a-zA-Z]\d*", x) for x in actual)
+            p = (60 if any("=" in x for x in actual) else 0) + ops * 8 \
+                + len(actual) + (10 if tiene_var else 0)
+            if ops >= 1 and len(actual) >= 3 and p > mejor_p:
+                mejor, mejor_p = actual, p
+            actual = []
+    if not mejor:
+        return ""
+    # Un operador suelto en los bordes sobra («= 0 .» o «- 2»).
+    while mejor and re.fullmatch(r"[+*/^=<>]+", mejor[-1]):
+        mejor.pop()
+    return " ".join(mejor).strip()
+
+
+def _sympifica(expresion: str) -> bool:
+    """¿Esto lo entiende sympy? Sirve para decidir si hay que ir a buscar mejor."""
+    if not (expresion or "").strip():
+        return False
+    try:
+        M.sympificar(expresion)
+        return True
+    except Exception:
+        return False
+
+
+# Nombres de varias letras que SÍ son magnitudes y no prosa.
+_SIMBOLOS_LARGOS = {"theta", "alpha", "beta", "gamma", "delta", "omega", "lamda",
+                    "lambda", "phi", "rho", "tau", "mu", "epsilon", "sigma",
+                    "pi", "oo", "inf", "nan"}
+
+
+def _hay_matematica(expresion: str) -> bool:
+    """¿Queda algo que calcular, una vez traducido el dictado?
+
+    Cifras, una llamada a función, o un operador entre dos operandos. Si no hay
+    nada de eso, la frase es una pregunta de teoría y no un ejercicio.
+    """
+    try:
+        n = M.normalizar_expresion(expresion)
+    except Exception:
+        n = expresion or ""
+    if re.search(r"\d", n):
+        return True
+    if re.search(r"[A-Za-z_]\w*\s*\(", n):
+        return True
+    return bool(re.search(r"[A-Za-z)]\s*[+\-*/^]\s*[A-Za-z(]", n))
+
+
+def _es_prosa_pura(expresion: str) -> bool:
+    """Prosa que sigue siendo prosa DESPUÉS de traducir el dictado.
+
+    Hay que normalizar antes de juzgar: «equis al cubo por seno de equis» está
+    lleno de palabras, pero al traducirlo queda `x**3*sin(x)` y es matemática
+    perfecta. Lo que no sobrevive a la traducción es una pregunta de verdad.
+    """
+    try:
+        return _tiene_prosa(M.normalizar_expresion(expresion))
+    except Exception:
+        return _tiene_prosa(expresion)
+
+
+def _tiene_prosa(expresion: str) -> bool:
+    """¿Queda castellano dentro de lo que debería ser solo matemática?
+
+    `_sympifica` no basta como criterio: sympy se traga «el valor de x en la
+    ecuación» como un producto de símbolos y devuelve algo sin protestar. Lo
+    que delata la prosa son las palabras largas que no son funciones.
+    """
+    for palabra in re.findall(r"[A-Za-zÁ-Úá-úñÑ]{3,}", expresion or ""):
+        p = palabra.lower()
+        if p not in _FUNCIONES and p not in _SIMBOLOS_LARGOS:
+            return True
+    return False
+
+
+_INSTRUCTIVO = re.compile(
+    r"(act[uú]a\s+como|haz\s+de\s+tutor|como\s+(?:un\s+)?(?:tutor|profesor|experto)|"
+    r"paso\s+a\s+paso|expl[ií]ca\w*|just[ií]fic\w*|demuestra|razona|interpreta|"
+    r"detalladamente|en\s+detalle|latex|requisitos?\s+de\s+respuesta|"
+    r"significado\s+del?|por\s+qu[eé]|\n\s*\d[\.\)]|\d[\.\)]\s+[A-ZÁ-Ú])",
+    re.IGNORECASE)
+
+
+def es_instructivo(texto: str) -> bool:
+    """¿El señor pide además una EXPLICACIÓN, no solo el resultado?"""
+    t = texto or ""
+    if _INSTRUCTIVO.search(t):
+        return True
+    return len(t.split()) > 35
+
+
+def pide_latex(texto: str) -> bool:
+    return bool(re.search(r"\blatex\b|\$\$|\\\\\(", texto or "", re.I))
+
+
+_PROMPT_TUTOR = """Eres un tutor experto de matemáticas, física y química.
+El alumno ha pedido lo siguiente:
+
+--- ENCARGO ---
+{encargo}
+--- FIN DEL ENCARGO ---
+
+Un motor de cálculo simbólico (sympy) YA ha resuelto el problema. Estos
+resultados son EXACTOS y verificados. NO los recalcules, NO los contradigas y
+NO cambies ningún número:
+
+--- RESULTADOS VERIFICADOS ---
+{desarrollo}
+{bloque_latex}--- FIN DE LOS RESULTADOS ---
+
+Escribe ahora la respuesta para el alumno:
+- Responde a TODOS los puntos que pide el encargo, en su orden y numeración.
+- Explica el porqué de cada paso, no solo el qué.
+- Usa exclusivamente los valores verificados de arriba.
+- {formato}
+- En español, directo, sin presentarte ni decir que eres una IA.
+Si algún punto del encargo no se puede contestar con los datos verificados,
+dilo con claridad en vez de inventarlo."""
+
+
+def explicar(core, enunciado: str, r: dict, log=print) -> str:
+    """Convierte el cálculo exacto en la explicación de tutor que se ha pedido.
+
+    El cálculo lo hace sympy y el cerebro solo REDACTA: así la explicación es
+    didáctica sin arriesgar que el modelo se invente la aritmética, que es
+    justo lo que hacen mal los modelos de lenguaje solos.
+    """
+    if core is None:
+        return ""
+    pasos = [s for s in (r.get("pasos") or []) if s]
+    if not pasos and not r.get("titular"):
+        return ""
+    tex = r.get("latex") or []
+    bloque = ("\nEn LaTeX:\n" + "\n".join(f"  {x}" for x in tex) + "\n") if tex else ""
+    formato = ("Escribe las fórmulas en LaTeX, cada una en su propio bloque $$…$$."
+               if pide_latex(enunciado) else
+               "Escribe las fórmulas en texto llano, legibles en voz alta.")
+    prompt = _PROMPT_TUTOR.format(
+        encargo=enunciado.strip()[:1500],
+        desarrollo="\n".join(f"  {s}" for s in ([r.get("titular", "")] + pasos))[:3000],
+        bloque_latex=bloque, formato=formato)
+    try:
+        from openai import OpenAI
+        _n, url, modelo, clave = core._proveedores()[0]
+        cli = OpenAI(base_url=url, api_key=clave)
+        resp = cli.chat.completions.create(
+            model=modelo, temperature=0.2, max_tokens=1600,
+            messages=[{"role": "user", "content": prompt}])
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        log(f"[CIENCIAS] el tutor no pudo redactar ({str(e)[:90]}); va el desarrollo seco")
+        return ""
 
 
 # Moléculas que el señor puede nombrar en castellano.
@@ -431,6 +668,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     if accion == "ecuacion":
         s = M.resolver_ecuacion(expr, var)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         sols = s.get("soluciones") or []
         r["titular"] = ("La solución es " + ", ".join(M.bonito(x) for x in sols)
                         if sols else "Esa ecuación no tiene solución real.")
@@ -443,6 +681,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion == "sistema":
         s = M.resolver_sistema(exprs)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         sol = s.get("soluciones") or []
         r["titular"] = ("Solución: " + ", ".join(f"{k} = {M.bonito(v)}"
                                                  for k, v in sol[0].items())
@@ -465,6 +704,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion == "derivar":
         s = M.derivar(expr, var, int(p.get("orden") or 1))
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = f"La derivada es {M.bonito(s['resultado'])}"
         if graficar:
             g = M.grafica_2d([s["expr"], s["resultado"]], rango=_rango(p),
@@ -476,6 +716,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
         a, b = (lim[0], lim[1]) if lim and len(lim) == 2 else (None, None)
         s = M.integrar(expr, var, a, b)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"La integral vale {M.bonito(s['resultado'])}" if a is not None
                         else f"La primitiva es {M.bonito(s['resultado'])} + C")
         if graficar or a is not None:
@@ -488,6 +729,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion == "limite":
         s = M.limite(expr, var, p.get("punto", "0"))
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = f"El límite vale {M.bonito(s['resultado'])}"
         if graficar:
             g = M.grafica_2d(s["expr"], rango=_rango(p),
@@ -497,6 +739,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion == "serie":
         s = M.serie_taylor(expr, var, p.get("punto", "0"), int(p.get("orden") or 6))
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = f"El desarrollo es {M.bonito(s['resultado'])}"
         if graficar:
             g = M.grafica_2d([s["expr"], s["resultado"]], rango=_rango(p, por_defecto=(-4, 4)),
@@ -510,11 +753,13 @@ def ejecutar(core, p: dict, log=print) -> dict:
         else:
             s = M.matriz(filas)
             r["pasos"] = s["pasos"]
+            r["latex"] = s.get("latex") or []
             r["titular"] = ("Determinante " + M.bonito(s["det"]) if "det" in s
                             else "Matriz analizada.")
     elif accion == "edo":
         s = M.ecuacion_diferencial(expr)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = f"Solución general: {M.bonito(s['resultado'].rhs)}"
         if graficar:
             try:
@@ -528,6 +773,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
         nums = datos.get("nums") or []
         s = M.estadistica(nums)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         d = s.get("resultado") or {}
         r["titular"] = (f"Media {d.get('media', 0):.4g}, mediana "
                         f"{d.get('mediana', 0):.4g}, desviación típica "
@@ -539,6 +785,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion in ("simplificar", "evaluar"):
         s = M.simplificar(expr)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         try:
             import sympy as sp
             val = sp.N(s["resultado"])
@@ -619,6 +866,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
             conocidos = _datos_por_contexto(p["enunciado"], ley)
         s = F.resolver_formula(ley, conocidos, p.get("incognita", ""), log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"{s['incognita']} = {s['resultado']:.6g} {s['unidad']}"
                         if s.get("ok") else "Me faltan datos para despejar.")
     elif accion == "tiro":
@@ -632,6 +880,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
         s = F.tiro_parabolico(float(v0), float(ang), float(y0),
                               tridimensional=(dim == 3), log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "obj", "stl", "carpeta")})
         r["titular"] = (f"Alcanza {s['alcance']:.4g} metros, sube hasta "
                         f"{s['altura_max']:.4g} metros y vuela {s['t_vuelo']:.4g} segundos.")
@@ -640,41 +889,48 @@ def ejecutar(core, p: dict, log=print) -> dict:
                                     _n(datos, 2, 0.0) or 0.0, _n(datos, 3, 10.0) or 10.0,
                                     log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "carpeta")})
         r["titular"] = f"Acaba en {s['x_final']:.4g} m a {s['v_final']:.4g} m/s."
     elif accion == "oscilador":
         s = F.oscilador_armonico(_n(datos, 0, 1.0) or 1.0, _n(datos, 1, 1.0) or 1.0,
                                  _n(datos, 2, 1.0) or 1.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "carpeta")})
         r["titular"] = f"Periodo {s['periodo']:.4g} s, pulsación {s['omega']:.4g} rad/s."
     elif accion == "onda":
         s = F.onda_viajera(_n(datos, 0, 1.0) or 1.0, _n(datos, 1, 2.0) or 2.0,
                            _n(datos, 2, 1.0) or 1.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "obj", "stl", "carpeta")})
         r["titular"] = f"La onda viaja a {s['velocidad']:.4g} metros por segundo."
     elif accion == "campo_electrico":
         cargas = p.get("cargas") or [(1.0, -1.5, 0.0), (-1.0, 1.5, 0.0)]
         s = F.campo_electrico(cargas, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "obj", "stl", "carpeta")})
         r["titular"] = "Campo y potencial dibujados; el potencial también en 3D."
     elif accion == "circuito_rc":
         s = F.circuito_rc(_n(datos, 0, 1000.0) or 1000.0, _n(datos, 1, 1e-6) or 1e-6,
                           _n(datos, 2, 5.0) or 5.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "carpeta")})
         r["titular"] = f"Constante de tiempo {s['tau']:.4g} segundos."
     elif accion == "diagrama_pv":
         s = F.diagrama_pv(p.get("puntos") or [(0.001, 200000), (0.003, 200000),
                                               (0.003, 100000), (0.001, 100000)], log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "carpeta")})
         r["titular"] = f"El ciclo produce {s['trabajo']:.5g} julios por vuelta."
     elif accion == "lente":
         s = F.lente_delgada(_n(datos, 0, 0.1) or 0.1, _n(datos, 1, 0.3) or 0.3, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "carpeta")})
         r["titular"] = (f"Imagen a {s['s_imagen']:.4g} m, aumento {s['aumento']:.4g}."
                         if "s_imagen" in s else "Caso degenerado.")
@@ -682,6 +938,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
         s = F.energia_relativista(_n(datos, 0, 1.0) or 1.0,
                                   _n(datos, 1, 0.9 * 299792458) or 0.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "carpeta")})
         r["titular"] = f"Factor de Lorentz γ = {s['gamma']:.6g}."
 
@@ -689,16 +946,19 @@ def ejecutar(core, p: dict, log=print) -> dict:
     elif accion == "masa_molar":
         s = Q.masa_molar(expr)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"La masa molar de {expr} es {s['masa_molar']:.4f} gramos por mol."
                         if s.get("ok") else s["pasos"][0])
     elif accion == "balancear":
         s = Q.balancear(expr)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"Ajustada: {s['ecuacion']}" if s.get("ok")
                         else "No he podido ajustarla.")
     elif accion == "estequiometria":
         s = Q.estequiometria(expr, p.get("cantidades") or {}, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"El limitante es {s['limitante']}." if s.get("ok")
                         else "Faltan datos.")
     elif accion == "ph":
@@ -707,6 +967,7 @@ def ejecutar(core, p: dict, log=print) -> dict:
         s = Q.ph(nums[0], "acido debil" if debil else "acido fuerte",
                  ka=(nums[1] if debil and len(nums) > 1 else None))
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = f"El pH es {s['pH']:.3f}." if s.get("ok") else s["pasos"][0]
     elif accion == "valoracion":
         nums = datos.get("nums") or []
@@ -714,34 +975,40 @@ def ejecutar(core, p: dict, log=print) -> dict:
                                _n(datos, 2, 0.1) or 0.1,
                                ka=(nums[3] if len(nums) > 3 else None), log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "carpeta")})
         r["titular"] = f"Equivalencia a {s['v_equivalencia'] * 1000:.4g} mililitros."
     elif accion == "cinetica":
         s = Q.cinetica(int(p.get("orden") or 1), _n(datos, 0, 0.1) or 0.1,
                        _n(datos, 1, 1.0) or 1.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "html", "carpeta")})
         r["titular"] = f"Tiempo de semirreacción {s['t_medio']:.4g} segundos."
     elif accion == "arrhenius":
         s = Q.arrhenius(_n(datos, 0, 50.0) or 50.0, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r.update({k: s.get(k, "") for k in ("png", "carpeta")})
         r["titular"] = "Curva de Arrhenius dibujada."
     elif accion == "equilibrio":
         s = Q.equilibrio(p.get("K", 1.0), p.get("iniciales") or {},
                          p.get("coeficientes") or {}, log=log)
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"Avance x = {s['x']:.5g} mol/L." if s.get("ok")
                         else "No se pudo resolver el equilibrio.")
     elif accion == "hess":
         s = Q.entalpia_reaccion(p.get("reactivos") or {}, p.get("productos") or {})
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"ΔH de reacción = {s['delta_H']:.2f} kilojulios."
                         if s.get("ok") else "Me faltan entalpías de formación.")
     elif accion == "pila":
         s = Q.pila(p.get("catodo", "Cu2+/Cu"), p.get("anodo", "Zn2+/Zn"),
                    int(p.get("orden") or 2))
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = (f"La pila da {s['E0']:+.3f} voltios." if s.get("ok")
                         else "Ese par redox no lo tengo.")
     elif accion == "molecula":
@@ -762,7 +1029,12 @@ def ejecutar(core, p: dict, log=print) -> dict:
         s = Q.tabla_periodica_grafica(p.get("colorear", "categoria"), log=log)
         r.update({k: s.get(k, "") for k in ("png", "carpeta")})
         r["pasos"] = s["pasos"]
+        r["latex"] = s.get("latex") or []
         r["titular"] = "Aquí tiene la tabla periódica completa, señor."
+    elif accion == "sin_calculo":
+        # Titular vacío a propósito: `resolver` lo lee como «no tengo nada» y
+        # deja que conteste el cerebro.
+        r["titular"] = ""
     else:
         r["titular"] = f"No sé hacer «{accion}» todavía, señor."
     return r
@@ -805,27 +1077,13 @@ def _leer_matriz(texto: str):
 
 
 def _datos_por_contexto(enunciado: str, clave_formula: str) -> dict:
-    """Casa los números del enunciado con los símbolos de la ley por su unidad."""
+    """Casa los números del enunciado con los símbolos de la ley.
+
+    Lo hace `fisica.casar_datos`, que además de las unidades entiende lo que el
+    enunciado da por sabido («parte del reposo» es v₀ = 0).
+    """
     import fisica as F
-    if clave_formula not in F.FORMULAS:
-        return {}
-    _tema, _ec, simbolos = F.FORMULAS[clave_formula]
-    leidos = F.datos_del_enunciado(enunciado)
-    salida = {}
-    for valor, unidad, _orig, _ctx in leidos:
-        if not unidad:
-            continue
-        for sim, (_desc, u) in simbolos.items():
-            if sim in salida:
-                continue
-            if (unidad == u or (unidad == "grados" and u == "rad")
-                    or (unidad in ("km", "cm", "mm") and u == "m")
-                    or (unidad in ("min", "h") and u == "s")
-                    or (unidad == "g" and u == "kg")
-                    or (unidad == "km/h" and u == "m/s")):
-                salida[sim] = valor
-                break
-    return salida
+    return F.casar_datos(enunciado, clave_formula)
 
 
 # ── API pública ────────────────────────────────────────────────────────────
@@ -851,13 +1109,22 @@ def resolver(core, enunciado: str, abrir: bool = True, log=print) -> str:
         log(f"[CIENCIAS] fallo al ejecutar {p.get('accion')}: {e}")
         # Segundo intento con el analizador de reglas, por si el plan del
         # cerebro traía una expresión mal formada.
+        r = None
         if p.get("_fuente") == "cerebro":
             try:
                 r = ejecutar(core, plan_por_reglas(enunciado), log=log)
             except Exception as e2:
-                return f"Señor, no he podido con ese problema: {str(e2)[:160]}"
-        else:
-            return f"Señor, no he podido con ese problema: {str(e)[:160]}"
+                log(f"[CIENCIAS] tampoco con reglas: {e2}")
+        if r is None:
+            # Cadena vacía y NO un mensaje de error: así `_orden_ciencias`
+            # devuelve None y la frase sigue su camino normal hasta el cerebro,
+            # que al menos contestará algo. Un callejón sin salida es peor que
+            # una respuesta conversada.
+            return ""
+
+    if not r.get("titular") and not r.get("pasos") and not r.get("png"):
+        log("[CIENCIAS] no hay cálculo que hacer aquí; que conteste el cerebro")
+        return ""
 
     ULTIMO.update({"carpeta": r.get("carpeta", ""), "obj": r.get("obj", ""),
                    "html": r.get("html", ""), "png": r.get("png", ""),
@@ -876,10 +1143,24 @@ def resolver(core, enunciado: str, abrir: bool = True, log=print) -> str:
         if h:
             r["pasos"].append(h)
 
+    # Si el encargo pedía además que se EXPLIQUE (tutor, paso a paso, LaTeX,
+    # una lista de requisitos), el cerebro redacta la clase encima del cálculo
+    # ya verificado. Si no hay cerebro o falla, queda el desarrollo de siempre.
+    leccion = ""
+    if es_instructivo(enunciado):
+        leccion = explicar(core, enunciado, r, log=log)
+
     partes = [r.get("titular") or "Hecho, señor."]
+    if leccion:
+        partes.append("\n\n" + leccion)
     pasos = [s for s in (r.get("pasos") or []) if s]
     if pasos:
-        partes.append("\n\nDesarrollo:\n" + "\n".join(f"  {s}" for s in pasos[:40]))
+        partes.append(("\n\nDesarrollo verificado (sympy):\n" if leccion
+                       else "\n\nDesarrollo:\n")
+                      + "\n".join(f"  {s}" for s in pasos[:40]))
+    if pide_latex(enunciado) and r.get("latex") and not leccion:
+        partes.append("\n\nEn LaTeX:\n"
+                      + "\n".join(f"  $$ {x} $$" for x in r["latex"]))
     archivos = []
     for etiqueta, clave in (("lámina", "png"), ("visor interactivo", "html"),
                             ("malla .obj", "obj"), ("malla .stl", "stl")):
