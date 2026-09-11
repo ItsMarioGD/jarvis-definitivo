@@ -496,6 +496,45 @@ const MODULOS = {
     }
   },
 
+  ciencias:{
+    titulo:'Ciencias', icono:'<path d="M9 3h6M10 3v6l-5 9a3 3 0 0 0 3 4h8a3 3 0 0 0 3-4l-5-9V3"/><path d="M7.5 15h9"/>',
+    async cargar(){
+      const e = await API.get('/api/ciencias/estado').catch(()=>({}));
+      const ent = e.entrenamiento || {}, u = e.ultimo || {};
+      const falta = ['sympy','numpy','matplotlib','scipy','pint'].filter(k => !e[k]);
+      return `<div class="mrejilla">
+        ${caja('Motor', `<div class="pista">sympy <b>${e.sympy?'sí':'no'}</b> ·
+          numpy <b>${e.numpy?'sí':'no'}</b> · matplotlib <b>${e.matplotlib?'sí':'no'}</b></div>
+          <div class="pista">scipy ${e.scipy?'sí':'no'} · pint ${e.pint?'sí':'no'}</div>
+          ${falta.length ? `<div class="pista" style="color:#ff8080">falta: ${esc(falta.join(', '))}</div>` : ''}`)}
+        ${caja('Saber', `<div class="grande">${e.formulas_fisica ?? '—'}</div>
+          <div class="pista">leyes de física · ${e.elementos ?? 0} elementos ·
+            ${e.constantes ?? 0} constantes</div>`)}
+        ${caja('Entrenamiento', `<div class="grande">${ent.ultima_nota != null ? Number(ent.ultima_nota).toFixed(1) : '—'}</div>
+          <div class="pista">${ent.casos_banco ?? 0} problemas de examen ·
+            ${ent.frases_aprendidas ?? 0} frases aprendidas</div>
+          <div class="pista">${esc(ent.ultimo_informe || 'sin entrenar todavía')}</div>`)}
+      </div>
+      <h4 style="margin:16px 0 8px;color:var(--p1);font-size:10.5px;letter-spacing:.18em">RESOLVER Y GRAFICAR</h4>
+      <div class="mfila">
+        <input id="cie-q" class="mcampo" style="flex:1"
+          placeholder="dicta el problema: «deriva x**3 por seno de x y grafícalo en 3D»">
+      </div>
+      <div class="mfila" style="margin-top:8px">
+        <button class="mbtn" data-accion="cie-resolver">Resolver</button>
+        <button class="mbtn" data-accion="cie-graficar-2d">Graficar 2D</button>
+        <button class="mbtn" data-accion="cie-graficar-3d">Superficie 3D</button>
+        <button class="mbtn" data-accion="cie-tabla">Tabla periódica</button>
+        <button class="mbtn" data-accion="cie-entrenar">Entrenar</button>
+        <button class="mbtn" data-accion="cie-abrir">Abrir carpeta</button>
+      </div>
+      <div id="mod-salida"></div>
+      <p class="pista" style="margin-top:10px">El visor 3D se abre en el navegador y
+        se gira con el ratón. Las mallas .obj/.stl valen para Blender y para imprimir.
+        ${u.carpeta ? 'Último: ' + esc(u.accion || '') + ' → ' + esc(u.carpeta) : ''}</p>`;
+    }
+  },
+
   cerebro:{
     titulo:'Cerebro', icono:'<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8A3 3 0 0 0 8 17a3 3 0 0 0 4 2 3 3 0 0 0 4-2 3 3 0 0 0 3-5.2A3 3 0 0 0 18 6a3 3 0 0 0-3-3 3 3 0 0 0-3 1.5A3 3 0 0 0 9 3z"/>',
     async cargar(){
@@ -772,6 +811,34 @@ document.getElementById('mod-contenido').addEventListener('click', async e => {
       case 'm3d-abrir':
         await API.post('/cmd', {texto:'abre la carpeta Descargas/JARVIS/Modelos3D'});
         brindis('Abriendo la carpeta de modelos.'); break;
+      case 'cie-resolver': case 'cie-graficar-2d': case 'cie-graficar-3d': {
+        const q = val('cie-q');
+        if (!q){ brindis('Dicta el problema primero.'); break; }
+        const sufijo = a === 'cie-graficar-3d' ? ' y grafícalo en 3D'
+                     : a === 'cie-graficar-2d' ? ' y grafícalo' : '';
+        salida('<p class="pista">Calculando… el visor se abrirá al acabar.</p>');
+        const r = await API.post('/cmd', {texto: q + sufijo});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || JSON.stringify(r).slice(0,600)) + '</pre>');
+        break;
+      }
+      case 'cie-tabla': {
+        salida('<p class="pista">Dibujando los 118 elementos…</p>');
+        const r = await API.post('/cmd', {texto:'enséñame la tabla periódica'});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || '') + '</pre>');
+        break;
+      }
+      case 'cie-entrenar': {
+        salida('<p class="pista">Examen de ciencias en marcha… medio minuto.</p>');
+        const r = await API.post('/cmd', {texto:'entrena tus ciencias'});
+        salida('<pre style="white-space:pre-wrap;font-size:12px">'
+          + esc(r.respuesta || '') + '</pre>');
+        break;
+      }
+      case 'cie-abrir':
+        await API.post('/cmd', {texto:'abre la carpeta Descargas/JARVIS/Ciencia'});
+        brindis('Abriendo la carpeta de ciencias.'); break;
       case 'cbr-buscar': {
         const q = val('cbr-q');
         if (!q){ brindis('Escribe qué buscar.'); break; }

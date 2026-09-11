@@ -2758,6 +2758,49 @@ class JarvisCore:
             return modelado3d.modelar(self, objetivo, t_pose=tpose, log=self.log)
         return None
 
+    def _orden_ciencias(self, text: str):
+        """Matemáticas, física o química dictadas. Devuelve texto o None.
+
+        Va ANTES que modelado 3D: «holograma de la molécula de agua» es
+        química, no un escaneo de objetos. `ciencias.es_problema` es la puerta:
+        si la frase no huele a ciencias, aquí no se toca nada.
+        """
+        t = (text or "").strip()
+        low = t.lower()
+        if re.search(r"\b(instala|inst[aá]lame)\b.*\b(ciencias?|matem[aá]ticas?|"
+                     r"sympy|librer[ií]as? cient)", low):
+            import matematica
+            return matematica.instalar_faltantes(log=self.log)
+        if re.search(r"\b(entrena|ent[eé]rate|repasa|ex[aá]mina\w*|estudia)\w*\b"
+                     r".{0,24}\b(ciencias?|matem[aá]ticas?|f[ií]sica|qu[ií]mica)\b", low):
+            import entrenar_ciencias
+            materia = ("matematica" if "matem" in low else
+                       "fisica" if re.search(r"f[ií]sica", low) else
+                       "quimica" if re.search(r"qu[ií]mica", low) else "")
+            return entrenar_ciencias.entrenar(self, materia=materia, log=self.log)
+        m_ens = re.search(r"\b(?:cuando (?:te )?diga|si (?:te )?digo)\s+«?([^»]{4,90})»?\s*,?\s*"
+                          r"(?:haz|usa|es)\s+([a-z_]{3,24})\b", low)
+        if m_ens:
+            import entrenar_ciencias
+            return entrenar_ciencias.ensenar(m_ens.group(1), m_ens.group(2))
+        # «el formulario de física», «qué fórmulas de óptica sabes»
+        m_form = re.search(r"\b(?:el\s+)?formulario(?:\s+de\s+f[ií]sica)?"
+                           r"(?:\s+de\s+(\w+))?\b", low)
+        if m_form and "formulario" in low:
+            import fisica
+            return fisica.formulario(m_form.group(1) or "")
+        m_cte = re.search(r"\b(?:cu[aá]nto\s+vale|valor\s+de|dame)\s+la\s+constante\s+"
+                          r"(?:de\s+)?([\w\s]{2,28})", low)
+        if m_cte:
+            import fisica
+            c = fisica.constante(m_cte.group(1).strip())
+            if c:
+                return f"La constante {m_cte.group(1).strip()} vale {c[0]:g} {c[1]}."
+        import ciencias
+        if not ciencias.es_problema(t):
+            return None
+        return ciencias.resolver(self, t, log=self.log)
+
     def _procesar(self, text: str, state_callback=None, speak_server: bool = True, skip_skills: bool = False) -> str:
         # ── Mute de la voz local: lo primero, para que funcione siempre ──
         try:
@@ -2888,6 +2931,24 @@ class JarvisCore:
                     skip_skills = True
         except Exception as e:
             self.log(f"[ROUTER] omitido: {e}")
+
+        # ── Ciencias (matemáticas, física, química): también antes de las
+        # habilidades, y antes del modelado 3D, porque «holograma de la
+        # molécula de agua» es química y no un escaneo de objetos. ──
+        try:
+            _rci = self._orden_ciencias(text)
+        except Exception as e:
+            self.log(f"[CIENCIAS] orden falló: {e}")
+            _rci = None
+        if _rci:
+            self.history.append({"role": "user", "content": text})
+            self.save_to_memory("user", text)
+            self.history.append({"role": "assistant", "content": _rci})
+            self.save_to_memory("assistant", _rci)
+            if speak_server:
+                # A la voz solo va el titular; el desarrollo se lee en pantalla.
+                self.tts_queue.put(_rci.split("\n\n")[0][:400])
+            return _rci
 
         # ── Modelado 3D / holograma: órdenes específicas, ANTES de las
         # habilidades y del bucle de herramientas (que las interceptaban). ──

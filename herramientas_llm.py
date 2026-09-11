@@ -208,6 +208,53 @@ class Herramientas:
                            "archivo 3D (.blend/.obj/.fbx/.glb/.stl...). Lo abre.",
               {"entrada": {"type": "string", "description": "ruta a un archivo 3D (opcional)"},
                "modo": {"type": "string", "description": "completo o t-pose"}}),
+            h("resolver_ciencia", "Resuelve un problema de MATEMÁTICAS, FÍSICA o "
+                                  "QUÍMICA dictado en lenguaje normal y, si se "
+                                  "pide, lo GRAFICA (2D, superficie 3D girable y "
+                                  "malla .obj/.stl). Entiende ecuaciones, "
+                                  "derivadas, integrales, límites, series, "
+                                  "matrices, EDOs, estadística, cinemática, "
+                                  "dinámica, energía, ondas, circuitos, óptica, "
+                                  "relatividad, masas molares, balanceo, "
+                                  "estequiometría, pH, cinética y geometría "
+                                  "molecular. Úsala siempre que haya que calcular "
+                                  "o dibujar algo de ciencias.",
+              {"enunciado": {"type": "string",
+                             "description": "el problema tal cual lo dijo el señor"}},
+              ["enunciado"]),
+            h("graficar", "Dibuja una función o un conjunto de funciones. En 2D "
+                          "marca raíces, máximos, mínimos y asíntotas; en 3D "
+                          "levanta la superficie z=f(x,y), la exporta a .obj/.stl "
+                          "y abre un visor girable.",
+              {"expresion": {"type": "string",
+                             "description": "f(x) o f(x,y), con ** para potencias"},
+               "dim": {"type": "integer", "description": "2 o 3"},
+               "desde": {"type": "number"}, "hasta": {"type": "number"},
+               "tipo": {"type": "string",
+                        "description": "funcion, superficie, implicita, parametrica, "
+                                       "curva3d, polar o campo"}},
+              ["expresion"]),
+            h("formula_fisica", "Despeja una ley física del formulario con los "
+                                "datos que haya (cinemática, dinámica, energía, "
+                                "gravitación, fluidos, ondas, termodinámica, "
+                                "electricidad, magnetismo, óptica y moderna) y "
+                                "explica el desarrollo.",
+              {"ley": {"type": "string",
+                       "description": "nombre de la ley, p. ej. energia_cinetica u ohm"},
+               "datos": {"type": "object",
+                         "description": "{\"m\": 2, \"v\": 10} en unidades del SI"},
+               "incognita": {"type": "string", "description": "símbolo a despejar"}},
+              ["ley"]),
+            h("quimica", "Consulta química directa: masa molar, balanceo de una "
+                         "reacción, ficha de un elemento, configuración "
+                         "electrónica, geometría molecular con MODELO 3D, o la "
+                         "tabla periódica dibujada entera.",
+              {"operacion": {"type": "string",
+                             "description": "masa_molar, balancear, elemento, "
+                                            "configuracion, molecula o tabla_periodica"},
+               "valor": {"type": "string",
+                         "description": "fórmula, ecuación o nombre del elemento"}},
+              ["operacion"]),
             h("procesar_reunion", "Transcribe un audio de reunión y saca resumen, "
                                   "acuerdos y tareas; mete las tareas como "
                                   "recordatorios.",
@@ -528,6 +575,54 @@ class Herramientas:
         modo = "t-pose" if str(a.get("modo", "")).lower().startswith("t") else "completo"
         return modelado3d.holograma(self.core, a.get("entrada", ""), modo=modo,
                                     log=self.log)
+
+    def _t_resolver_ciencia(self, a):
+        import ciencias
+        return ciencias.resolver(self.core, a.get("enunciado", ""), log=self.log)
+
+    def _t_graficar(self, a):
+        import ciencias
+        tipo = (a.get("tipo") or "").lower()
+        dim = int(a.get("dim") or (3 if tipo in ("superficie", "implicita",
+                                                 "curva3d", "parametrica3d") else 2))
+        accion = {"superficie": "superficie3d", "implicita": "implicita3d",
+                  "curva3d": "curva3d", "parametrica": "parametrica2d",
+                  "polar": "polar", "campo": "campo2d"}.get(
+                      tipo, "superficie3d" if dim == 3 else "grafica2d")
+        expr = a.get("expresion", "")
+        p = {"accion": accion, "expresion": expr,
+             "expresiones": [s.strip() for s in expr.split(";") if s.strip()],
+             "graficar": True, "dim": dim,
+             "rango": [a.get("desde", -10), a.get("hasta", 10)]}
+        r = ciencias.ejecutar(self.core, p, log=self.log)
+        for ruta in (r.get("html"), r.get("png")):
+            if ruta:
+                import matematica
+                matematica.abrir(ruta, log=self.log)
+                break
+        return (r.get("titular", "") + "\n" + "\n".join(r.get("pasos", [])[:12])
+                + f"\nArchivos en {r.get('carpeta', '')}")
+
+    def _t_formula_fisica(self, a):
+        import fisica
+        r = fisica.resolver_formula(a.get("ley", ""), a.get("datos") or {},
+                                    a.get("incognita", ""), log=self.log)
+        return "\n".join(r.get("pasos", [])) or "No pude con esa ley."
+
+    def _t_quimica(self, a):
+        import ciencias
+        op = (a.get("operacion") or "masa_molar").lower()
+        p = {"accion": op if op in ("masa_molar", "balancear", "elemento",
+                                    "configuracion", "molecula", "tabla_periodica")
+             else "masa_molar",
+             "expresion": a.get("valor", "")}
+        r = ciencias.ejecutar(self.core, p, log=self.log)
+        for ruta in (r.get("html"), r.get("png")):
+            if ruta:
+                import matematica
+                matematica.abrir(ruta, log=self.log)
+                break
+        return (r.get("titular", "") + "\n" + "\n".join(r.get("pasos", [])[:18])).strip()
 
     def _t_procesar_reunion(self, a):
         import reunion

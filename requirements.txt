@@ -67,3 +67,12 @@ python-pptx>=0.6.23
 reportlab>=4.0.0
 numpy-stl>=3.0.0
 matplotlib>=3.8.0
+
+# -- Ciencias: matematicas, fisica y quimica (modulo ciencias/matematica) ---
+# sympy resuelve exacto (ecuaciones, derivadas, integrales, limites, EDO,
+# matrices y el balanceo de reacciones por algebra lineal). numpy y matplotlib
+# ya estan arriba: muestrean y dibujan la lamina. scipy y pint son opcionales
+# (ajustes numericos y unidades); sin ellos el modulo funciona igual.
+sympy>=1.12
+scipy>=1.11.0
+pint>=0.23

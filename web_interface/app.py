@@ -2087,6 +2087,23 @@ def api_modelado3d_estado():
         return jsonify({'error': str(e)[:200]}), 500
 
 
+@app.route('/api/ciencias/estado')
+def api_ciencias_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import ciencias
+        out = ciencias.resumen_estado()
+        try:
+            import entrenar_ciencias
+            out['entrenamiento'] = entrenar_ciencias.estado()
+        except Exception as e:
+            out['entrenamiento'] = {'error': str(e)[:120]}
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
 @app.route('/api/cerebro/estado')
 def api_cerebro_estado():
     if not _auth_ok(_req_token()):

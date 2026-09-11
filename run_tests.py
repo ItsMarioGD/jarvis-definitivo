@@ -397,6 +397,89 @@ def test_modulos_nuevos():
     except Exception as e:
         ok("3d: módulo", False, str(e)[:120])
 
+    # ciencias: matemáticas, física y química, con gráfica y malla 3D
+    try:
+        import matematica as MAT
+        ok("ciencias: sympy y numpy presentes", MAT.disponible(),
+           "faltan: " + ", ".join(MAT.faltantes()))
+        if MAT.disponible():
+            ok("mat: dictado a notación",
+               MAT.normalizar_expresion("equis al cuadrado mas dos por equis")
+               .replace(" ", "") == "x**2+2*x")
+            ok("mat: números dictados",
+               MAT.normalizar_expresion("dos mil trescientos cuarenta y cinco entre cinco")
+               .replace(" ", "") == "2345/5")
+            _ec = MAT.resolver_ecuacion("x**2 - 5*x + 6 = 0")
+            ok("mat: ecuación de segundo grado",
+               sorted(str(s) for s in _ec["soluciones"]) == ["2", "3"])
+            ok("mat: integral definida",
+               abs(float(MAT.integrar("x**2", "x", 0, 3)["resultado"]) - 9) < 1e-9)
+            ok("mat: límite notable",
+               float(MAT.limite("sin(x)/x", "x", "0")["resultado"]) == 1.0)
+            import tempfile as _tf2
+            _d2 = _tf2.mkdtemp()
+            _g = MAT.grafica_2d("x**3 - 3*x", rango=(-3, 3), carpeta=_d2, puntos=400)
+            ok("mat: lámina 2D con anotaciones",
+               os.path.getsize(_g["png"]) > 10000 and bool(_g["notas"]))
+            ok("mat: visor 2D interactivo", os.path.isfile(_g["html"]))
+            _s = MAT.superficie_3d("sin(x)*cos(y)", (-3, 3), (-3, 3), n=40, carpeta=_d2)
+            ok("mat: superficie 3D + malla .obj/.stl",
+               os.path.isfile(_s["obj"]) and os.path.getsize(_s["stl"]) > 1000)
+            _v, _c = MAT._surface_nets(lambda X, Y, Z: X**2 + Y**2 + Z**2 - 4,
+                                       ((-3, 3),) * 3, n=24)
+            _r = [(_p[0]**2 + _p[1]**2 + _p[2]**2) ** 0.5 for _p in _v]
+            ok("mat: isosuperficie implícita (esfera de radio 2)",
+               bool(_v) and abs(sum(_r) / len(_r) - 2.0) < 0.05)
+    except Exception as e:
+        ok("ciencias: matemáticas", False, str(e)[:120])
+
+    try:
+        import fisica as FIS
+        _rf = FIS.resolver_formula("energia_cinetica", {"m": 2, "v": 10})
+        ok("física: despeja del formulario", abs(_rf["resultado"] - 100) < 1e-6)
+        _rt = FIS.tiro_parabolico(25, 40, graficar=False)
+        ok("física: tiro parabólico", abs(_rt["alcance"] - 62.76) < 0.5)
+        ok("física: formulario poblado", len(FIS.FORMULAS) >= 50)
+    except Exception as e:
+        ok("ciencias: física", False, str(e)[:120])
+
+    try:
+        import quimica as QUI
+        ok("química: tabla periódica completa", len(QUI.TABLA) == 118)
+        ok("química: masa molar con paréntesis",
+           abs(QUI.masa_molar("Ca(OH)2")["masa_molar"] - 74.092) < 0.01)
+        ok("química: hidratos",
+           abs(QUI.masa_molar("CuSO4·5H2O")["masa_molar"] - 249.677) < 0.05)
+        _b = QUI.balancear("KMnO4 + HCl -> KCl + MnCl2 + H2O + Cl2")
+        ok("química: balanceo redox por álgebra lineal",
+           _b.get("ok") and _b["coeficientes"] == [2, 16, 2, 2, 8, 5])
+        ok("química: pH de ácido débil",
+           abs(QUI.ph(0.1, "acido debil", ka=1.8e-5)["pH"] - 2.875) < 0.01)
+        ok("química: geometría RPECV del agua",
+           QUI.geometria_molecular("H2O")["forma"] == "angular")
+        ok("química: geometría RPECV del SF6",
+           QUI.geometria_molecular("SF6")["forma"] == "octaédrica")
+    except Exception as e:
+        ok("ciencias: química", False, str(e)[:120])
+
+    try:
+        import ciencias as CIE
+        ok("ciencias: detecta un problema dictado",
+           CIE.es_problema("resuélveme equis al cuadrado menos cuatro igual a cero"))
+        ok("ciencias: no secuestra una frase normal",
+           not CIE.es_problema("pon música y apaga las luces del salón"))
+        _p = CIE.plan_por_reglas("derívame equis al cubo y grafícalo")
+        ok("ciencias: enruta la derivada",
+           _p["accion"] == "derivar" and _p["graficar"])
+        _p3 = CIE.plan_por_reglas("grafícame en tres dimensiones seno de x por coseno de y")
+        ok("ciencias: enruta la superficie 3D", _p3["accion"] == "superficie3d")
+        import entrenar_ciencias as ENT
+        ok("ciencias: banco de entrenamiento", len(ENT.BANCO) >= 40)
+        ok("ciencias: huella de frases estable",
+           ENT.huella("derívame equis al cubo") == ENT.huella("derivame equis al cubo"))
+    except Exception as e:
+        ok("ciencias: enrutador", False, str(e)[:120])
+
 
 def main():
     t0 = time.time()
