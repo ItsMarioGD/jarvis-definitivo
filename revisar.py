@@ -20,6 +20,30 @@ import consola_utf8  # noqa: F401  (salida a prueba de cp1252)
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, RAIZ)
 
+# El .env se lee AQUI, antes de mirar nada: `jarvis_config` guarda la clave en
+# una constante al importarse, y sin cargar el fichero primero esta revision
+# daba por perdida una ANTHROPIC_API_KEY que si estaba puesta.
+def _cargar_env():
+    ruta = os.path.join(RAIZ, ".env")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(ruta)
+        return
+    except Exception:
+        pass
+    try:
+        for linea in open(ruta, encoding="utf-8"):
+            linea = linea.strip()
+            if linea and not linea.startswith("#") and "=" in linea:
+                clave, valor = linea.split("=", 1)
+                os.environ.setdefault(clave.strip(),
+                                      valor.strip().strip('"').strip("'"))
+    except Exception:
+        pass
+
+
+_cargar_env()
+
 OK, MAL, AVISO = "[OK]  ", "[MAL] ", "[!]   "
 _problemas = []
 
@@ -96,27 +120,153 @@ def revisar_dependencias():
 
 
 def revisar_ia():
-    titulo("2. Motor de IA (Ollama)")
-    import jarvis_config
-    base = jarvis_config.OLLAMA_BASE.rstrip("/").replace("/v1", "")
-    if not responde(f"{base}/api/tags"):
-        linea(MAL, f"Ollama no responde en {base}.",
-              "Abre una consola y ejecuta:  ollama serve")
+    """El cerebro: Pollinations, el de casa (Qwen/Ollama) y Claude de reserva."""
+    import os as _os
+    preferido = (_os.getenv("JARVIS_CEREBRO") or "").strip().lower()
+    revisar_pollinations()
+    nube = preferido in ("claude", "anthropic", "nube")
+    if not nube and revisar_cerebro_local():
         return
-    linea(OK, f"Ollama responde en {base}")
+    if not nube:
+        linea(AVISO, "Pruebo con Claude, que es la reserva.")
+    revisar_ia_nube()
+
+
+def revisar_pollinations() -> bool:
+    """Pollinations: el cerebro de la nube que no pide tarjeta."""
+    titulo("2a. Cerebro de la nube (Pollinations)")
     try:
-        import json
-        import urllib.request
-        datos = json.load(urllib.request.urlopen(f"{base}/api/tags", timeout=6))
-        modelos = [m["name"] for m in datos.get("models", [])]
-    except Exception:
-        modelos = []
-    buscado = jarvis_config.OLLAMA_MODEL
-    if any(m.startswith(buscado.split(":")[0]) for m in modelos):
-        linea(OK, f"Modelo disponible: {buscado}")
+        import proveedor_pollinations as poll
+    except Exception as e:
+        linea(MAL, f"No pude cargar proveedor_pollinations: {e}")
+        return False
+
+    lista = poll.modelos(log=lambda m: None)
+    if not lista:
+        linea(AVISO, "No contesta. Sin internet, JARVIS tira del cerebro de casa.")
+        return False
+
+    if poll.hay_clave():
+        linea(OK, f"Clave puesta. Nivel «{poll.nivel()}», "
+                  f"una peticion cada {poll.espera_entre_llamadas():.0f} s.")
     else:
-        linea(MAL, f"El modelo «{buscado}» no esta descargado. Hay: {modelos or 'ninguno'}",
-              f"ollama pull {buscado}")
+        linea(AVISO,
+              "SIN clave: nivel anonimo, una peticion cada 15 s. El bucle de "
+              "herramientas encadena hasta cuatro, asi que se hace eterno.",
+              "consiga la clave en https://auth.pollinations.ai y pongala en "
+              "el .env como POLLINATIONS_API_KEY=...")
+
+    con_manos = [m for m in lista if m["herramientas"]]
+    if con_manos:
+        linea(OK, f"{len(lista)} modelos, {len(con_manos)} con herramientas. "
+                  f"Uso «{poll.mejor_modelo(log=lambda m: None)}».")
+    else:
+        linea(AVISO, "Ningun modelo admite herramientas: JARVIS hablaria pero "
+                     "no podria actuar por esta via.")
+
+    r = poll.probar(log=lambda m: None)
+    if r.get("ok"):
+        linea(OK, f"Responde en {r['segundos']} s con «{r['modelo']}».")
+        return True
+    linea(MAL, f"No responde: {r.get('error', '')}")
+    return False
+
+
+def revisar_cerebro_local() -> bool:
+    titulo("2. Cerebro local (Qwen por Ollama)")
+    try:
+        import cerebro_local
+    except Exception as e:
+        linea(MAL, f"No pude cargar cerebro_local: {e}")
+        return False
+    if not cerebro_local.instalado():
+        linea(MAL, "Ollama no esta instalado: sin el no hay cerebro local.",
+              "descargalo de https://ollama.com/download")
+        return False
+    if not cerebro_local.vivo():
+        linea(AVISO, "Ollama estaba apagado; lo levanto para comprobarlo.")
+        if not cerebro_local.arrancar(log=lambda m: None):
+            linea(MAL, "Ollama no arranca.", "pruebe a mano:  ollama serve")
+            return False
+    instalados = cerebro_local.modelos_instalados()
+    modelo = cerebro_local.MODELO
+    if modelo not in instalados:
+        linea(MAL, f"Falta el modelo «{modelo}» (hay: {', '.join(instalados) or 'ninguno'}).",
+              f"ollama pull {modelo}")
+        return False
+    linea(OK, f"Ollama en marcha con {modelo}")
+    ojos = cerebro_local.MODELO_VISION
+    if ojos in instalados:
+        linea(OK, f"Ojos locales: {ojos} (pantalla, fotos y escaner 3D)")
+    else:
+        linea(AVISO, f"Sin el modelo con ojos ({ojos}) no puedo mirar imagenes.",
+              f"ollama pull {ojos}")
+    try:
+        from proveedor_claude import cliente as _cli
+        c = _cli(cerebro_local.URL, api_key=cerebro_local.CLAVE, timeout=300)
+        r = c.chat.completions.create(
+            model=modelo, max_tokens=160,
+            extra_body={"reasoning_effort": "none"},
+            messages=[{"role": "user", "content": "Responde solo: ok"}])
+        if (r.choices[0].message.content or "").strip():
+            linea(OK, "El cerebro de casa contesta (y no cuesta nada)")
+            return True
+        linea(MAL, "El modelo local no devolvio nada.",
+              f"pruebe uno mas ligero: QWEN_MODEL=qwen3:4b-instruct en el .env")
+    except Exception as e:
+        linea(MAL, f"El cerebro local fallo: {str(e)[:110]}",
+              "mire que Ollama siga en marcha")
+    return False
+
+
+def revisar_ia_nube():
+    titulo("2b. Motor de IA en la nube (Claude / Anthropic)")
+    import jarvis_config
+    if not jarvis_config.hay_clave_llm():
+        linea(AVISO, "Sin ANTHROPIC_API_KEY no hay reserva en la nube.",
+              "no hace falta si el cerebro local responde; si la quiere, "
+              "pon la clave de https://console.anthropic.com en el .env")
+        return
+    linea(OK, "ANTHROPIC_API_KEY puesta")
+    if not hay("anthropic"):
+        linea(MAL, "Falta el SDK de Anthropic.",
+              "python -m pip install anthropic")
+        return
+    import os as _os
+    modelo_nube = (_os.getenv("JARVIS_MODELO_CLAUDE") or "claude-sonnet-5").strip()
+    linea(OK, f"Modelo de reserva: {modelo_nube}")
+    # Una llamada minima: la clave puede estar puesta y no valer.
+    fallo = ""
+    respuesta = ""
+    try:
+        from proveedor_claude import cliente as _cli, URL_ANTHROPIC
+        c = _cli(URL_ANTHROPIC, timeout=20, log=lambda *a: None)
+        r = c.chat.completions.create(
+            model=modelo_nube, max_tokens=1024,
+            messages=[{"role": "user", "content": "Responde solo: ok"}])
+        respuesta = (r.choices[0].message.content or "").strip()
+    except Exception as e:
+        fallo = str(e)
+
+    if respuesta:
+        linea(OK, f"La reserva en la nube contesta ({modelo_nube})")
+    elif "anthropic-workspace-id" in fallo or "scoped to a workspace" in fallo:
+        linea(MAL, "La clave es de organizacion, no de un workspace.",
+              "Pon ANTHROPIC_WORKSPACE_ID en el .env (console.anthropic.com -> "
+              "Settings -> Workspaces) o crea una clave de workspace")
+    elif "credit" in fallo.lower() or "billing" in fallo.lower():
+        linea(AVISO, "La clave vale pero la cuenta no tiene saldo.",
+              "anade credito en console.anthropic.com -> Billing, o quedese "
+              "con el cerebro local, que no cobra")
+    elif "authentication" in fallo.lower() or "invalid x-api-key" in fallo.lower():
+        linea(MAL, "La clave no es valida.",
+              "Revisa ANTHROPIC_API_KEY en el .env")
+    elif fallo:
+        linea(MAL, f"El cerebro fallo: {fallo[:110]}",
+              "Comprueba la clave, el saldo y la red")
+    else:
+        linea(MAL, "La clave esta puesta pero el cerebro no contesta.",
+              "Comprueba saldo y red en console.anthropic.com")
 
 
 def revisar_servidores():
@@ -291,6 +441,43 @@ def revisar_remoto():
               'quitalo con "quita el acceso remoto" si ya no lo necesitas')
 
 
+def revisar_escaner3d():
+    titulo("10. Escaner 3D y holograma")
+    try:
+        import escaner3d
+        import modelado3d
+    except Exception as ex:
+        linea(MAL, f"No pude revisar el escaner: {ex}")
+        return
+    if modelado3d.disponible():
+        linea(OK, f"Blender: {modelado3d._blender()}")
+    else:
+        linea(MAL, "Sin Blender no hay modelo ni holograma.",
+              "instalalo y pon blender_exe en Descargas/JARVIS/Prefs/modelado3d.json")
+    camaras = escaner3d.camaras()
+    if camaras:
+        linea(OK, f"Camaras del PC: {camaras}")
+    else:
+        linea(AVISO, "No veo ninguna camara en el equipo.",
+              "escanea con el movil: di «escanealo con el movil»")
+    if not hay("cv2") or not hay("numpy"):
+        linea(AVISO, "Sin OpenCV/NumPy no puedo tallar el volumen con las siluetas.",
+              "python -m pip install opencv-python numpy")
+    if not hay("cryptography"):
+        linea(AVISO, "Sin cryptography no hay HTTPS y el movil no abrira la camara.",
+              "python -m pip install cryptography")
+    locales = modelado3d.backends()
+    if locales:
+        linea(OK, f"Reconstructores locales: {', '.join(locales)}")
+    else:
+        linea(AVISO, "Sin TripoSR/Hunyuan3D/ComfyUI/Meshroom uso mi casco visual.",
+              "va bien con fondo liso y una vuelta completa al objeto")
+    escaneos = escaner3d.sesiones()
+    if escaneos:
+        linea(OK, f"Escaneos guardados: {len(escaneos)} (el ultimo, "
+                  f"{escaneos[0]['nombre']})")
+
+
 def main():
     print("=" * 66)
     print("  REVISION DE JARVIS")
@@ -300,7 +487,8 @@ def main():
 
     for revision in (revisar_dependencias, revisar_ia, revisar_servidores,
                      revisar_movil, revisar_pc, revisar_google,
-                     revisar_voz, revisar_telefono, revisar_remoto):
+                     revisar_voz, revisar_telefono, revisar_remoto,
+                     revisar_escaner3d):
         try:
             revision()
         except Exception as e:

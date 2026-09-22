@@ -8,16 +8,17 @@ sobre la fianza?», «busca en mis apuntes lo de los indices invertidos».
 
 Este modulo indexa el contenido de tus documentos y responde con la cita.
 
-Dos motores de busqueda, y se usa el mejor disponible:
+El motor es FTS5, que viene dentro de SQLite: busqueda por texto completo, sin
+instalar nada y sin descargar modelos.
 
-  * FTS5 (viene dentro de SQLite): busqueda por texto completo. Funciona HOY,
-    sin instalar nada y sin descargar modelos. Es el motor por defecto.
-  * Embeddings locales (Ollama con nomic-embed-text): busqueda por significado,
-    encuentra «fianza» aunque el documento diga «deposito de garantia». Se
-    activa solo si el modelo esta instalado.
+La busqueda es HIBRIDA: FTS5 para lo literal (un nombre, un numero de
+expediente) y vectores para lo que se recuerda con otras palabras. Si el
+apunte dice «tasa de variacion instantanea» y usted pregunta «que es una
+derivada», solo la segunda via lo encuentra. El motor de significado lo pone
+`embeddings.py`, con la clave de Pollinations o con Ollama en casa.
 
-Todo es local: ni el contenido ni las consultas salen del equipo, asi que
-funciona igual con el modo privado activado.
+El indice es local: el contenido de los documentos solo sale del equipo cuando
+se le pregunta a Claude, no al indexar.
 """
 import json
 import os
@@ -25,12 +26,9 @@ import re
 import sqlite3
 import threading
 import time
-import urllib.request
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(RAIZ, "jarvis_indice.db")
-BASE_OLLAMA = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1").replace("/v1", "")
-MODELO_EMBED = os.getenv("JARVIS_EMBED_MODELO", "nomic-embed-text")
 TAM_TROZO = int(os.getenv("JARVIS_INDICE_TROZO", "1200"))
 MAX_MB = float(os.getenv("JARVIS_INDICE_MAX_MB", "20"))
 
@@ -108,35 +106,80 @@ def _trozos(texto: str):
     return partes
 
 
-# ── embeddings (opcional) ───────────────────────────────────────────────────
+# ── embeddings: de vuelta ───────────────────────────────────────────────────
+# Aqui vivia la busqueda por significado y se retiro con los modelos ajenos a
+# Anthropic. Vuelve por `embeddings.py`, que la sirve con la clave de
+# Pollinations o con Ollama en casa. La columna `vector` seguia en la tabla,
+# asi que no hay que reindexar de cero: se rellena al vuelo.
 def hay_embeddings() -> bool:
     try:
-        with urllib.request.urlopen(f"{BASE_OLLAMA}/api/tags", timeout=4) as r:
-            nombres = [m.get("name", "") for m in json.load(r).get("models", [])]
-        return any(n.startswith(MODELO_EMBED.split(":")[0]) for n in nombres)
+        import embeddings
+        return embeddings.disponible()
     except Exception:
         return False
 
 
-def _vector(texto: str, log=print):
-    cuerpo = json.dumps({"model": MODELO_EMBED, "prompt": texto[:4000]}).encode("utf-8")
-    peticion = urllib.request.Request(f"{BASE_OLLAMA}/api/embeddings", data=cuerpo,
-                                      headers={"Content-Type": "application/json"})
+def motor_embeddings() -> str:
     try:
-        with urllib.request.urlopen(peticion, timeout=60) as r:
-            return json.load(r).get("embedding") or None
-    except Exception as e:
-        log(f"[INDICE] Embedding falló: {e}")
-        return None
+        import embeddings
+        return embeddings.motor()
+    except Exception:
+        return ""
 
 
-def _similitud(a, b) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    punto = sum(x * y for x, y in zip(a, b))
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(y * y for y in b) ** 0.5
-    return punto / (na * nb) if na and nb else 0.0
+def _guardar_vectores(con, filas, log=print) -> int:
+    """Calcula y guarda los vectores de [(id, texto), ...]. Devuelve cuantos.
+
+    Se hace en lote y DESPUES de escribir el texto: si la red falla, el
+    documento ya esta indexado y buscable por palabras, y los vectores se
+    completan en la siguiente pasada en vez de perderse el indexado entero.
+    """
+    if not filas or not hay_embeddings():
+        return 0
+    import embeddings
+    marca = embeddings.motor()
+    vectores = embeddings.vectorizar([t for _i, t in filas], log=log)
+    if not vectores:
+        return 0
+    hechos = 0
+    for (ident, _texto), vec in zip(filas, vectores):
+        if not vec:
+            continue
+        con.execute("UPDATE documentos SET vector = ? WHERE id = ?",
+                    (json.dumps({"m": marca, "v": [round(x, 5) for x in vec]}), ident))
+        hechos += 1
+    return hechos
+
+
+def vectorizar_pendientes(limite: int = 400, log=print) -> str:
+    """Rellena los vectores que falten. Para lo indexado ANTES de este motor.
+
+    Sin esto, todo lo que el señor ya tenia indexado se quedaria fuera de la
+    busqueda por significado para siempre, y no se entenderia por que unos
+    documentos aparecen y otros no.
+    """
+    if not hay_embeddings():
+        import embeddings
+        return embeddings.por_que_no()
+    with _lock:
+        con = _con()
+        try:
+            filas = con.execute(
+                "SELECT id, texto FROM documentos "
+                "WHERE vector IS NULL OR vector = '' LIMIT ?", (limite,)).fetchall()
+            if not filas:
+                return "Todos sus documentos tienen ya su vector, señor."
+            hechos = _guardar_vectores(con, filas, log=log)
+            con.commit()
+            quedan = con.execute(
+                "SELECT COUNT(*) FROM documentos "
+                "WHERE vector IS NULL OR vector = ''").fetchone()[0]
+        finally:
+            con.close()
+    parte = f"He vectorizado {hechos} trozos, señor."
+    if quedan:
+        parte += f" Quedan {quedan}; dígamelo otra vez y sigo."
+    return parte
 
 
 # ── indexado ────────────────────────────────────────────────────────────────
@@ -149,12 +192,15 @@ def carpetas_por_defecto():
 
 def indexar(carpetas=None, log=print, max_archivos: int = 800,
             con_vectores: bool = None) -> str:
-    """Indexa (solo lo nuevo o modificado). Devuelve el parte para decirlo."""
+    """Indexa (solo lo nuevo o modificado). Devuelve el parte para decirlo.
+
+    Si hay motor de significado, cada trozo se vectoriza al indexarlo. Si no,
+    se indexa igual y queda buscable por palabras: `con_vectores` se acepta
+    para no romper a quien ya llamaba con ese argumento.
+    """
     carpetas = carpetas or carpetas_por_defecto()
-    if con_vectores is None:
-        con_vectores = hay_embeddings()
     inicio = time.time()
-    nuevos = actualizados = saltados = 0
+    nuevos = actualizados = saltados = vectorizados = 0
 
     with _lock:
         con = _con()
@@ -188,20 +234,21 @@ def indexar(carpetas=None, log=print, max_archivos: int = 800,
                         if not partes:
                             continue
                         con.execute("DELETE FROM documentos WHERE ruta = ?", (ruta,))
+                        recien = []
                         for i, parte in enumerate(partes[:40]):
-                            vector = ""
-                            if con_vectores:
-                                v = _vector(parte, log=log)
-                                vector = json.dumps(v) if v else ""
                             cur = con.execute(
                                 "INSERT OR REPLACE INTO documentos "
                                 "(ruta, trozo, mtime, texto, vector) VALUES (?,?,?,?,?)",
-                                (ruta, i, mtime, parte, vector))
+                                (ruta, i, mtime, parte, ""))
+                            recien.append((cur.lastrowid, parte))
                             if usa_fts:
                                 con.execute(
                                     "INSERT INTO busqueda (rowid, texto, ruta, trozo) "
                                     "VALUES (?,?,?,?)",
                                     (cur.lastrowid, parte, ruta, i))
+                        # Los vectores DESPUÉS del texto: si la red falla, el
+                        # documento ya está indexado y buscable por palabras.
+                        vectorizados += _guardar_vectores(con, recien, log=log)
                         if fila:
                             actualizados += 1
                         else:
@@ -212,11 +259,13 @@ def indexar(carpetas=None, log=print, max_archivos: int = 800,
         finally:
             con.close()
 
-    motor = "significado (embeddings)" if con_vectores else "texto completo"
     return (f"Índice actualizado, señor: {nuevos} documentos nuevos, "
             f"{actualizados} modificados"
             + (f", {saltados} demasiado grandes" if saltados else "")
-            + f". Búsqueda por {motor}, en {time.time() - inicio:.0f} segundos.")
+            + (f", {vectorizados} trozos vectorizados" if vectorizados else "")
+            + f". En {time.time() - inicio:.0f} segundos."
+            + ("" if hay_embeddings() else
+               " Sin motor de significado: solo búsqueda por palabras."))
 
 
 # ── conversaciones ──────────────────────────────────────────────────────────
@@ -296,30 +345,62 @@ def buscar_conversacion(consulta: str, k: int = 4, log=print) -> str:
 
 
 # ── búsqueda ────────────────────────────────────────────────────────────────
-def buscar(consulta: str, k: int = 5, log=print) -> list:
-    """Trozos más relevantes: [(ruta, texto, puntuación), ...]."""
-    if not consulta.strip():
+def buscar_semantica(consulta: str, k: int = 5, log=print) -> list:
+    """Por SIGNIFICADO: encuentra «tasa de variación» preguntando «derivada».
+
+    Se comparan vectores, así que las palabras no tienen que coincidir. Solo se
+    miran los trozos vectorizados con el MISMO motor que la consulta: mezclar
+    dos motores es comparar cosas que no se pueden comparar.
+    """
+    if not consulta.strip() or not hay_embeddings():
         return []
+    import embeddings
+    vec = embeddings.vectorizar_uno(consulta, log=log)
+    if not vec:
+        return []
+    marca = embeddings.motor()
+
     with _lock:
         con = _con()
         try:
-            if hay_embeddings():
-                objetivo = _vector(consulta, log=log)
-                if objetivo:
-                    filas = con.execute(
-                        "SELECT ruta, texto, vector FROM documentos "
-                        "WHERE vector != '' LIMIT 4000").fetchall()
-                    puntuadas = []
-                    for ruta, texto, vector in filas:
-                        try:
-                            v = json.loads(vector)
-                        except Exception:
-                            continue
-                        puntuadas.append((ruta, texto, _similitud(objetivo, v)))
-                    puntuadas.sort(key=lambda x: -x[2])
-                    if puntuadas and puntuadas[0][2] > 0.3:
-                        return puntuadas[:k]
+            filas = con.execute(
+                "SELECT ruta, texto, vector FROM documentos "
+                "WHERE vector IS NOT NULL AND vector != ''").fetchall()
+        finally:
+            con.close()
 
+    puntuados = []
+    for ruta, texto, crudo in filas:
+        try:
+            guardado = json.loads(crudo)
+        except Exception:
+            continue
+        if guardado.get("m") != marca:
+            continue
+        s = embeddings.coseno(vec, guardado.get("v") or [])
+        if s > 0.15:                     # por debajo de ahí es ruido
+            puntuados.append((ruta, texto, s))
+    puntuados.sort(key=lambda x: -x[2])
+    return puntuados[:k]
+
+
+def buscar(consulta: str, k: int = 5, log=print) -> list:
+    """Trozos más relevantes: [(ruta, texto, puntuación), ...].
+
+    Híbrida a propósito. FTS5 clava lo literal —un nombre propio, un número de
+    expediente— y el significado clava lo que se recuerda con otras palabras.
+    Ninguna de las dos sola sirve para unos apuntes de carrera, así que se
+    juntan y se quita lo repetido.
+    """
+    if not consulta.strip():
+        return []
+
+    semanticos = buscar_semantica(consulta, k=k, log=log)
+
+    literales = []
+    with _lock:
+        con = _con()
+        try:
             if _hay_fts(con):
                 limpia = re.sub(r'["\'\-*()]', " ", consulta).strip()
                 try:
@@ -327,18 +408,33 @@ def buscar(consulta: str, k: int = 5, log=print) -> list:
                         "SELECT ruta, texto, rank FROM busqueda "
                         "WHERE busqueda MATCH ? ORDER BY rank LIMIT ?",
                         (limpia, k)).fetchall()
-                    if filas:
-                        return [(r, t, 1.0) for r, t, _rank in filas]
+                    literales = [(r, t, 1.0) for r, t, _rank in filas]
                 except Exception as e:
                     log(f"[INDICE] FTS falló: {e}")
-
-            patron = f"%{consulta.strip()[:60]}%"
-            filas = con.execute(
-                "SELECT ruta, texto FROM documentos WHERE texto LIKE ? LIMIT ?",
-                (patron, k)).fetchall()
-            return [(r, t, 0.5) for r, t in filas]
+            if not literales:
+                patron = f"%{consulta.strip()[:60]}%"
+                filas = con.execute(
+                    "SELECT ruta, texto FROM documentos WHERE texto LIKE ? LIMIT ?",
+                    (patron, k)).fetchall()
+                literales = [(r, t, 0.5) for r, t in filas]
         finally:
             con.close()
+
+    # Se mezclan alternando: primero el mejor de cada vía, luego el segundo de
+    # cada una... Así ninguna de las dos se come la lista entera, que es lo que
+    # pasaba al concatenarlas sin más.
+    mezcla, vistos = [], set()
+    for par in zip(literales + [None] * len(semanticos),
+                   semanticos + [None] * len(literales)):
+        for item in par:
+            if item is None:
+                continue
+            firma = (item[0], (item[1] or "")[:80])
+            if firma in vistos:
+                continue
+            vistos.add(firma)
+            mezcla.append(item)
+    return mezcla[:k]
 
 
 def responder(core, pregunta: str, log=print) -> str:
@@ -353,7 +449,7 @@ def responder(core, pregunta: str, log=print) -> str:
     fuentes = ", ".join(sorted({os.path.basename(r) for r, _t, _p in trozos}))
 
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         _n, url, modelo, clave = core._proveedores()[0]
         cliente = OpenAI(base_url=url, api_key=clave)
         resp = cliente.chat.completions.create(
@@ -384,4 +480,4 @@ def estado(log=print) -> dict:
         finally:
             con.close()
     return {"trozos": total, "archivos": archivos, "fts5": fts,
-            "embeddings": hay_embeddings(), "db": DB}
+            "embeddings": False, "db": DB}

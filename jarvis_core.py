@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 jarvis_core.py - Nucleo cognitivo de Jarvis
-STT + LLM (Qwen3 via Ollama local) + TTS (ElevenLabs) + Telemetria
+STT + LLM (Claude / Anthropic) + TTS (ElevenLabs) + Telemetria
 """
 import base64, json, os, re, sys, time, platform, subprocess, tempfile, threading, queue
 import sqlite3, socket
@@ -81,7 +81,7 @@ if FALTANTES:
     print("[JARVIS] Arranco en modo degradado, falta: " + "; ".join(FALTANTES))
 
 try:
-    from openai import OpenAI
+    from proveedor_claude import cliente as OpenAI
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
@@ -188,14 +188,19 @@ class JarvisCore:
 
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "")
         self.voice_id       = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-        self.base_url       = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1")
-        self.api_key        = os.getenv("QWEN_API_KEY", "ollama")
-        self.model          = os.getenv("QWEN_MODEL", "qwen3:8b")
-        # Cerebro principal en la nube: Kimi K3 (Moonshot). 1M de contexto,
-        # visión nativa, tool-calling. Deja la clave en la variable de entorno
-        # MOONSHOT_API_KEY (o pégala en Prefs/cerebro.json -> proveedores[0].clave).
-        # Sin clave, JARVIS cae solo al proveedor local (Ollama) y no se rompe.
-        self.moonshot_key   = os.getenv("sk-BlCBmliVMaAlmh3G9aWjVbY9vklGCbhCwaWjV03zijpCW5PV", "").strip()
+        # Cerebro: Qwen EN CASA por defecto (Ollama), con Claude de reserva
+        # para quien tenga clave con saldo. Se volvió al modelo local porque
+        # un cerebro de pago sin crédito deja al asistente mudo entero, hasta
+        # para abrir una aplicación. Con JARVIS_CEREBRO=claude manda la nube.
+        import cerebro_local as _local
+        _nube = (os.getenv("JARVIS_CEREBRO") or "").strip().lower() in (
+            "claude", "anthropic", "nube")
+        self.base_url       = (os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+                               if _nube else _local.URL)
+        self.api_key        = ((os.getenv("ANTHROPIC_API_KEY", "").strip())
+                               if _nube else _local.CLAVE)
+        _pedido = (os.getenv("JARVIS_MODELO") or "").strip()
+        self.model          = _pedido or ("claude-sonnet-5" if _nube else _local.MODELO)
         self.tts_fallback   = os.getenv("JARVIS_TTS_FALLBACK", "windows").strip().lower()
         # Silencio de la voz local de Windows. Se puede alternar en caliente
         # ("silencia la voz de Windows") y sobrevive al reinicio, porque con
@@ -245,8 +250,8 @@ class JarvisCore:
             "Responde SIEMPRE en espanol. "
             "Respuestas concisas (máx 3 oraciones) salvo que pidan más detalle. "
             "Sin Markdown. Sin asteriscos. Sin listas con guiones. "
-            # Qwen3 razona antes de contestar y, si no se le dice nada, vuelca
-            # el desarrollo entero (con LaTeX incluido) en la respuesta hablada.
+            # Claude razona antes de contestar y, si no se le dice nada,
+            # vuelca el desarrollo entero (con LaTeX incluido) en la voz.
             "No muestres el desarrollo de tus cálculos ni tu razonamiento: "
             "da el resultado y, como mucho, una frase de justificación. "
             "Nada de fórmulas escritas ni notación matemática. "
@@ -261,6 +266,19 @@ class JarvisCore:
             self.system_prompt = self.system_prompt + " " + PROMPT_DECISIONES + " " + PROMPT_CREATIVIDAD
         except Exception:
             pass
+
+        # Estilo aprendido del señor (afinar.py): unos pocos intercambios reales
+        # y anonimizados. Con el modelo local el plan era meterlos en los pesos
+        # con LoRA; a Claude le basta verlos en el prompt para imitar el tono.
+        try:
+            import afinar
+            estilo = afinar.bloque_estilo()
+            if estilo:
+                self.system_prompt += "\n\n" + estilo
+                self.log(f"Estilo aprendido cargado ({len(estilo)} caracteres)")
+        except Exception as e:
+            self.log(f"Estilo aprendido no disponible: {e}")
+
         self.init_memory()
 
         # Memoria unificada (drástico #3): un solo almacén con tiempo. Por
@@ -410,11 +428,9 @@ class JarvisCore:
         self._ultimo_consejo_descanso = 0.0
         # Historial TTS para el detector de eco (isair echo_detection)
         self._tts_hist = []
-        # Calentar el modelo local para respuestas rápidas (isair warm_up) y
-        # mantenerlo cargado: Ollama lo descarga a los 5 minutos y la primera
-        # pregunta tras una pausa pagaba 2,2 s de recarga.
-        threading.Thread(target=self._warmup_ollama, daemon=True).start()
-        threading.Thread(target=self._mantener_caliente, daemon=True).start()
+        # Antes aquí se precalentaba el modelo local y se le hacía ping cada
+        # cuatro minutos para que Ollama no lo descargase. Claude vive en la
+        # nube y está siempre caliente: dos hilos menos y ni un token gastado.
         # Y el dictado: cargarlo aquí evita 6,3 s en la primera frase hablada.
         threading.Thread(target=self._precargar_dictado, daemon=True).start()
 
@@ -926,33 +942,129 @@ class JarvisCore:
         t.start()
 
     # ── CEREBRO: proveedores, fallback y límites (estilo Free Claude Code) ──
+    # Gama de Anthropic por orden de preferencia: el más listo primero y dos
+    # reservas cada vez más rápidas. Todos comparten ANTHROPIC_API_KEY.
+    def _proveedores_defecto(self) -> list:
+        """Pollinations delante si hay clave; el cerebro de casa siempre detrás.
+
+        El orden no es capricho. Pollinations contesta en unos 2 s donde el
+        Qwen de casa tarda 30, así que con clave merece ir primero. Pero el de
+        casa NO se quita nunca de la lista: es el que responde sin internet y
+        el que no depende de que a nadie se le acabe el saldo, que es
+        exactamente lo que ya pasó con Anthropic.
+        """
+        import cerebro_local as _local
+        import proveedor_pollinations as _poll
+        nube, locales = [], list(_local.proveedores())
+        try:
+            if _poll.hay_clave():
+                nube += _poll.proveedores(log=self.log)
+        except Exception as e:
+            self.log(f"[POLLINATIONS] No pude preparar el proveedor: {e}")
+        if (os.getenv("ANTHROPIC_API_KEY") or "").strip():
+            nube.append({"nombre": "claude-sonnet-5",
+                         "url": "https://api.anthropic.com",
+                         "modelo": "claude-sonnet-5",
+                         "clave": "${ANTHROPIC_API_KEY}"})
+        return nube + locales
+
     def _cerebro_leer(self) -> dict:
-        """Lee Prefs/cerebro.json; si no existe, crea el proveedor por defecto (Ollama/env)."""
+        """Lee Prefs/cerebro.json; si no existe, siembra Qwen (y Claude si hay clave).
+
+        Además LIMPIA lo que ya no existe: los cerebro.json de hace dos vueltas
+        traían Kimi (Moonshot) y otros proveedores muertos. Se quedan los dos
+        que JARVIS sabe usar — el cerebro de casa y Anthropic — y el fichero se
+        reescribe una sola vez.
+        """
+        import cerebro_local as _local
+        import proveedor_pollinations as _poll
         d = {}
         try:
             with open(self._cerebro_path, encoding="utf-8") as f:
                 d = json.load(f) or {}
         except Exception:
             pass
-        if not d.get("proveedores"):
-            d["proveedores"] = [
-                {
-                    # Cerebro principal: Kimi K3 (Moonshot).
-                    # Clave: variable de entorno MOONSHOT_API_KEY, o pega el
-                    # valor literal aquí en "clave" reemplazando ${MOONSHOT_API_KEY}.
-                    "nombre": "kimi-k3",
-                    "url": "https://api.moonshot.ai/v1",
-                    "modelo": "kimi-k3",
-                    "clave": "${MOONSHOT_API_KEY}",
-                },
-                {
-                    # Reserva local: sin clave de Moonshot o si la nube falla.
-                    "nombre": "ollama",
-                    "url": self.base_url,
-                    "modelo": self.model,
-                    "clave": self.api_key,
-                },
-            ]
+
+        def _util(p) -> bool:
+            url = (p.get("url") or "").lower()
+            # Pollinations entra en la lista blanca: sin esto, la entrada que
+            # el señor ponga en cerebro.json se borraría sola en el siguiente
+            # arranque y nadie sabría por qué.
+            return bool(url) and ("anthropic.com" in url or _local.es_local(url)
+                                  or _poll.es_pollinations(url))
+
+        previos = d.get("proveedores") or []
+        limpios = [p for p in previos if _util(p)]
+        cambiado = len(limpios) != len(previos)
+
+        # JARVIS_MODELO manda: es la perilla documentada y la que el señor toca
+        # en el .env. Un cerebro.json sembrado por una versión anterior no debe
+        # dejarle en un modelo más flojo sin que se entere. La URL sale del
+        # propio nombre: lo que empieza por «claude» es de Anthropic y el
+        # resto, del servidor de casa.
+        pedido = (os.getenv("JARVIS_MODELO") or "").strip()
+        if pedido and (not limpios or (limpios[0].get("modelo") or "") != pedido):
+            es_nube = pedido.lower().startswith("claude")
+            limpios = [p for p in limpios if (p.get("modelo") or "") != pedido]
+            limpios.insert(0, {
+                "nombre": pedido,
+                "url": "https://api.anthropic.com" if es_nube else _local.URL,
+                "modelo": pedido,
+                "clave": "${ANTHROPIC_API_KEY}" if es_nube else "${QWEN_API_KEY}"})
+            cambiado = True
+
+        if not limpios:
+            limpios = self._proveedores_defecto()
+            cambiado = True
+
+        # Reservas: si solo hay un modelo, un fallo de ese modelo deja al señor
+        # sin respuesta. Se completan las de la gama que falten.
+        modelos = {(p.get("modelo") or "") for p in limpios}
+        for reserva in self._proveedores_defecto():
+            if reserva["modelo"] not in modelos:
+                limpios.append(reserva)
+                modelos.add(reserva["modelo"])
+                cambiado = True
+
+        # Quién va delante. Antes el de casa iba siempre primero, y el motivo
+        # era bueno: probar Anthropic sin saldo hacía esperar a CADA frase para
+        # acabar en local igual. Pollinations no tiene ese problema si hay
+        # clave —contesta en ~2 s donde el de casa tarda 30—, así que se deja
+        # elegir, con un valor por defecto que hace lo sensato.
+        #
+        #   JARVIS_CEREBRO=local         el de casa primero (sin internet, gratis)
+        #   JARVIS_CEREBRO=pollinations  la nube libre primero
+        #   JARVIS_CEREBRO=claude        Anthropic primero
+        #
+        # Sin la variable: Pollinations primero SI hay clave; si no, el de casa,
+        # porque el nivel anónimo va a una petición cada 15 segundos.
+        preferido = (os.getenv("JARVIS_CEREBRO") or "").strip().lower()
+        if not preferido:
+            preferido = "pollinations" if _poll.hay_clave() else "local"
+
+        def _familia(p) -> str:
+            url = (p.get("url") or "").lower()
+            if _poll.es_pollinations(url):
+                return "pollinations"
+            if "anthropic.com" in url:
+                return "claude"
+            return "local"
+
+        def _orden(p) -> int:
+            familia = _familia(p)
+            if familia == preferido:
+                return 0
+            # El de casa siempre por delante del resto de la nube: es el que
+            # responde cuando no hay internet ni saldo.
+            return 1 if familia == "local" else 2
+
+        # (`sorted` es estable: dentro de cada grupo se respeta el orden.)
+        ordenados = sorted(limpios, key=_orden)
+        if ordenados != limpios:
+            limpios, cambiado = ordenados, True
+
+        d["proveedores"] = limpios
+        if cambiado:
             try:
                 os.makedirs(os.path.dirname(self._cerebro_path), exist_ok=True)
                 with open(self._cerebro_path, "w", encoding="utf-8") as f:
@@ -993,19 +1105,24 @@ class JarvisCore:
             m = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", clave)
             if m:
                 clave = os.getenv(m.group(1), "").strip()
-            es_local = ("localhost" in url) or ("127.0.0.1" in url)
-            # Un proveedor de nube sin clave se descarta en silencio (p. ej.
-            # Kimi antes de que el señor ponga MOONSHOT_API_KEY): así el
-            # fallback local sigue respondiendo sin ruido de errores.
-            if url and modelo and (clave or es_local):
-                proveedores.append((nombre, url, modelo, clave or "ollama"))
-        if not proveedores:
-            proveedores = [("ollama", self.base_url.rstrip("/"), self.model, self.api_key)]
+            # El cerebro de casa no pide clave (Ollama se conforma con
+            # cualquier cosa); la nube sin clave no sirve de nada, así que se
+            # descarta en vez de fingir un proveedor muerto.
+            if not (url and modelo):
+                continue
+            import cerebro_local as _local
+            if _local.es_local(url):
+                proveedores.append((nombre, url, modelo, clave or _local.CLAVE))
+            elif clave and "anthropic.com" in url.lower():
+                proveedores.append((nombre, url, modelo, clave))
+        if not proveedores and self.api_key:
+            proveedores = [(self.model, self.base_url.rstrip("/"), self.model,
+                            self.api_key)]
         return proveedores
 
-    # Qwen3 razona antes de responder. Pensando acierta la aritmética y las
-    # decisiones, pero tarda unos 20 segundos; sin pensar contesta en uno y
-    # falla en cuanto hay que echar cuentas. Ni una cosa ni la otra siempre:
+    # Claude razona antes de responder. Pensando acierta la aritmética y las
+    # decisiones, pero tarda más; sin pensar contesta al momento y falla en
+    # cuanto hay que echar cuentas. Ni una cosa ni la otra siempre:
     # se mira la pregunta y se decide, que es lo que haría un mayordomo.
     _PIDE_PENSAR = re.compile(
         r"(cu[aá]nt|calcul|suma|resta|multiplic|divid|porcentaje|promedio|"
@@ -1032,12 +1149,17 @@ class JarvisCore:
         return "none"
 
     def _solo_cerebro_local(self) -> bool:
-        """¿Todos los proveedores son locales? Entonces no hay cuota que cuidar."""
+        """¿Todo lo que hay es de casa? Entonces no hay cuota que respetar.
+
+        El intervalo mínimo entre llamadas y el tope por hora existen por las
+        cuentas gratuitas de la nube. Con Qwen en el propio equipo no hay
+        cuota, ni coste, ni motivo para hacer esperar al señor.
+        """
         try:
-            for _n, url, _m, _c in self._proveedores():
-                if "localhost" not in url and "127.0.0.1" not in url:
-                    return False
-            return True
+            import cerebro_local
+            proveedores = self._proveedores()
+            return bool(proveedores) and all(cerebro_local.es_local(u)
+                                             for _n, u, _m, _c in proveedores)
         except Exception:
             return False
 
@@ -1055,13 +1177,16 @@ class JarvisCore:
             return True
 
         cfg = self._cerebro
-        min_seg = float(cfg.get("min_segundos") or 2)
-        max_hora = int(cfg.get("max_por_hora") or 40)
+        # Sin reserva local no hay a dónde caer: si se corta, el señor se queda
+        # sin respuesta. Por eso ambos topes vienen APAGADOS (0) y solo los pone
+        # quien quiera limitar el gasto a mano en cerebro.json.
+        min_seg = float(cfg.get("min_segundos") or 0)
+        max_hora = int(cfg.get("max_por_hora") or 0)
         now = time.time()
-        if self._llm_ultimo and now - self._llm_ultimo < min_seg:
+        if min_seg and self._llm_ultimo and now - self._llm_ultimo < min_seg:
             time.sleep(min_seg - (now - self._llm_ultimo))
         self._llm_hora = [t for t in self._llm_hora if now - t < 3600]
-        if len(self._llm_hora) >= max_hora:
+        if max_hora and len(self._llm_hora) >= max_hora:
             return False
         return True
 
@@ -1090,15 +1215,14 @@ class JarvisCore:
             info = {"nombre": nombre, "modelo": modelo, "ok": False}
             try:
                 cliente = OpenAI(base_url=b_url, api_key=clave)
-                es_kimi = ("moonshot" in b_url) or modelo.startswith("kimi-k3")
-                extra = {"reasoning_effort": "low"} if es_kimi else {}
+                # Claude piensa dentro del mismo presupuesto de tokens: con 5
+                # pensaría y se quedaría sin turno para decir «ok».
                 r = cliente.chat.completions.create(
                     model=modelo,
                     messages=[{"role": "user", "content": "Responde solo: ok"}],
-                    max_tokens=64 if es_kimi else 5,
-                    temperature=0,
+                    max_tokens=64,
                     timeout=20,
-                    extra_body=extra)
+                    extra_body={"reasoning_effort": "none"})
                 info["respuesta"] = (r.choices[0].message.content or "").strip()[:80]
                 info["ok"] = True
                 resultado["ok"] = True
@@ -1435,7 +1559,8 @@ class JarvisCore:
             import vision
             e = vision.estado(log=self.log)
             if e["listo"]:
-                return f"Veo con el modelo {e['modelo']}, señor. Todo local."
+                return (f"Veo con {e['modelo']}, señor: le mando la captura a "
+                        "Anthropic y me la interpreta.")
             return vision.instrucciones_instalacion()
 
         # ── Piloto: usar el PC como lo haría un humano ──────────────────
@@ -1587,6 +1712,14 @@ class JarvisCore:
             import indice_documentos
             return indice_documentos.indexar(log=self.log)
 
+        # Lo indexado ANTES de que volviera el motor de significado no tiene
+        # vector: sin esto se quedaría fuera de la búsqueda semántica para
+        # siempre, y no se entendería por qué unos apuntes salen y otros no.
+        if re.search(r"vectoriza|busqueda por significado|búsqueda por significado|"
+                     r"completa el indice|completa el índice", t):
+            import indice_documentos
+            return indice_documentos.vectorizar_pendientes(log=self.log)
+
         if re.search(r"estado del indice|cuantos documentos (tienes|has leido)", t):
             import indice_documentos
             e = indice_documentos.estado(log=self.log)
@@ -1713,30 +1846,33 @@ class JarvisCore:
                 self.cluster = Cluster(self, log=self.log)
             return self.cluster.start()
 
-        # ── Ajuste fino del modelo ──────────────────────────────────────────
+        # ── Estilo aprendido del señor ───────────────────────────
         if re.search(r"puedes afinar(te)?|ajuste fino|entrenar (tu|el) modelo|lora|"
                      r"estado del afinado|cuanto has aprendido de mi|"
                      r"cuánto has aprendido de mí", t):
             import afinar
-            resumen_afinado = afinar.resumen(log=self.log)
-            info = afinar.comprobar(log=lambda *a: None)
-            if info.get("gpu"):
-                resumen_afinado += f" GPU: {info['gpu']} con {info['vram_gb']} GB."
-            return resumen_afinado
+            return afinar.resumen(log=self.log)
 
         if re.search(r"exporta (tu|el) (historial|dataset)|prepara el entrenamiento|"
                      r"af[ií]nate|aprende de m[ií]|entr[eé]nate conmigo", t):
             import afinar
             datos = afinar.estado(log=lambda *a: None)
             ruta = afinar.exportar(log=self.log)
-            guion = afinar.guion(ruta, log=self.log)
+            estilo = afinar.estilo(log=self.log)
+            # El estilo nuevo entra ya en este prompt: no hace falta reiniciar.
+            bloque = afinar.bloque_estilo()
+            if bloque and bloque not in self.system_prompt:
+                self.system_prompt += "\n\n" + bloque
+                if self.history and self.history[0].get("role") == "system":
+                    self.history[0]["content"] = self.system_prompt
             aviso = ""
             if not datos["suficiente"]:
                 aviso = (f" Aún somos pocos datos ({datos['conversaciones']} de "
-                         f"{datos['minimo']}): el resultado sería flojo.")
-            return (f"Dataset y guion listos, señor: {os.path.basename(ruta)} y "
-                    f"{os.path.basename(guion)}, en la carpeta Afinado. "
-                    f"{datos['equipo']['recomendacion']}{aviso}")
+                         f"{datos['minimo']}): el estilo sale flojo.")
+            return (f"Aprendido, señor: {os.path.basename(ruta)} con el historial y "
+                    f"{os.path.basename(estilo)} con su estilo, en la carpeta "
+                    f"Afinado. Ya hablo como usted en esta misma conversación."
+                    f"{aviso}")
 
         # ── Perfiles de contexto ────────────────────────────────────────────
         m_perfil = re.search(r"(?:modo|perfil) (trabajo|juego|noche|invitado|normal)|"
@@ -1985,13 +2121,26 @@ class JarvisCore:
                 getattr(self, "nombre_agente", "jarvis").lower(), self)
             return voz_propia.instalar(objetivo, log=self.log)
 
+        # «que hablen como hombres»: las tres personalidades con voz masculina.
+        if re.search(r"voz (?:de )?hombre|vo(?:z|ces) masculinas?|"
+                     r"habl(?:a|en|ad) como (?:un )?hombres?|"
+                     r"que suenen? a hombre", t):
+            import voz_propia
+            m_cual = re.search(r"con (?:la )?voz ([\w.\- ]+)", t)
+            escogida = ""
+            if m_cual:
+                pedida = m_cual.group(1).strip().strip('.«»"')
+                escogida = next((v for v in voz_propia.VOCES_HOMBRE
+                                 if pedida.lower() in v.lower()), pedida)
+            return voz_propia.voces_de_hombre(self, escogida, log=self.log)
+
         m_usa_voz = re.search(r"(?:usa|ponte|cambia a) la voz ([\w.\- ]+)", t)
         if m_usa_voz:
             import voz_propia
             pedida = m_usa_voz.group(1).strip().strip('.«»"')
             agente = getattr(self, "nombre_agente", "JARVIS").lower()
             # «usa la voz de ultron» cambia la de esa personalidad, no la mia.
-            m_quien = re.search(r"\bde (jarvis|ultron)\b", pedida)
+            m_quien = re.search(r"\bde (jarvis|ultron|consejo)\b", pedida)
             if m_quien:
                 agente = m_quien.group(1)
                 pedida = pedida.replace(m_quien.group(0), "").strip()
@@ -2441,11 +2590,23 @@ class JarvisCore:
         return None
 
     def _voz_piper_activa(self) -> bool:
+        """¿Hablo con la voz neuronal local?
+
+        Se mira en los dos sitios: el JSON de preferencias (lo escribe «cambia
+        tu voz a piper») y la preferencia guardada en la base de datos (la
+        escribe voz_propia al elegir voz). Antes solo se leía el JSON, así que
+        elegir una voz neuronal no apagaba la voz de Windows.
+        """
         try:
             with open(os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Prefs", "voz.json"), encoding="utf-8") as f:
                 d = json.load(f)
             v = (d.get("voice") or d.get("voz") or "").strip().lower()
-            return v == "piper"
+            if v == "piper":
+                return True
+        except Exception:
+            pass
+        try:
+            return str(self.get_pref("voz_piper") or "").strip() in ("1", "si", "sí", "true")
         except Exception:
             return False
 
@@ -2476,55 +2637,6 @@ class JarvisCore:
         except Exception as e:
             self.log(f"Dictado falló: {e}")
             return False
-
-    def _warmup_ollama(self):
-        """Warm-up (isair warm_up): precarga el modelo local en RAM."""
-        try:
-            base = (self._cerebro.get("proveedores") or [{}])[0].get("base_url", "")
-            if "11434" not in base and "localhost" not in base and "127.0.0.1" not in base:
-                return
-            modelo = (self._cerebro.get("proveedores") or [{}])[0].get("modelo", "")
-            if not modelo:
-                return
-            import urllib.request
-            data = json.dumps({"model": modelo, "prompt": "hola", "stream": False,
-                               "keep_alive": "30m"}).encode()
-            req = urllib.request.Request(base.replace("/v1", "").rstrip("/") + "/api/generate",
-                                         data=data, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=30):
-                pass
-            self.log("Modelo local precalentado (warm-up ok).")
-        except Exception as e:
-            self.log(f"Warm-up omitido: {e}")
-
-    def _mantener_caliente(self):
-        """Ping periódico a Ollama para que no descargue el modelo.
-
-        Ollama libera el modelo a los cinco minutos de inactividad. Como el
-        señor no habla cada cinco minutos, casi toda pregunta pagaba la
-        recarga. Un ping de dos tokens cada cuatro minutos la evita.
-        """
-        import urllib.request
-        base = self.base_url.replace("/v1", "")
-        minutos = float(os.getenv("JARVIS_CALIENTE_MINUTOS", "4"))
-        if minutos <= 0:
-            return
-        time.sleep(90)
-        while True:
-            try:
-                cuerpo = json.dumps({
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": "ok"}],
-                    "stream": False, "keep_alive": "30m",
-                    "options": {"num_predict": 1},
-                }).encode("utf-8")
-                peticion = urllib.request.Request(
-                    f"{base}/api/chat", data=cuerpo,
-                    headers={"Content-Type": "application/json"})
-                urllib.request.urlopen(peticion, timeout=30).read()
-            except Exception:
-                pass          # sin cerebro no pasa nada: se reintenta luego
-            time.sleep(minutos * 60)
 
     def _precargar_dictado(self):
         """Carga el modelo de dictado en segundo plano, no en la primera frase."""
@@ -2758,6 +2870,26 @@ class JarvisCore:
             return modelado3d.modelar(self, objetivo, t_pose=tpose, log=self.log)
         return None
 
+    def _orden_escaner3d(self, text: str):
+        """«escanea este objeto con la cámara», «desármalo», «hazme un
+        prototipo de esto»... Devuelve texto o None.
+
+        Va ANTES que el modelado 3D normal: aquí se atiende la cámara y el
+        holograma vivo; `modelado3d` sigue llevando las fotos y los archivos
+        sueltos («modélame en 3D esta foto»).
+        """
+        import escaner3d
+        return escaner3d.orden(self, text, log=self.log)
+
+    def _orden_ojo_global(self, text: str):
+        """«abre el ojo global» y, con la app ya abierta, su manejo. O None.
+
+        Fuera del nombre explícito solo contesta si la pestaña ya está
+        conectada: sin eso, «vuela a Madrid» puede ser cualquier otra cosa.
+        """
+        import ojo_global
+        return ojo_global.orden(self, text, log=self.log)
+
     def _orden_ciencias(self, text: str):
         """Matemáticas, física o química dictadas. Devuelve texto o None.
 
@@ -2950,6 +3082,23 @@ class JarvisCore:
                 self.tts_queue.put(_rci.split("\n\n")[0][:400])
             return _rci
 
+        # ── Escáner 3D y holograma vivo: la cámara y el modelo con el que se
+        # habla. Va antes del modelado 3D normal porque «desármalo» o «aísla
+        # la tapa» solo tienen sentido con el holograma delante. ──
+        try:
+            _res = self._orden_escaner3d(text)
+        except Exception as e:
+            self.log(f"[ESCANER] orden falló: {e}")
+            _res = None
+        if _res:
+            self.history.append({"role": "user", "content": text})
+            self.save_to_memory("user", text)
+            self.history.append({"role": "assistant", "content": _res})
+            self.save_to_memory("assistant", _res)
+            if speak_server:
+                self.tts_queue.put(_res.split("\n\n")[0][:400])
+            return _res
+
         # ── Modelado 3D / holograma: órdenes específicas, ANTES de las
         # habilidades y del bucle de herramientas (que las interceptaban). ──
         try:
@@ -2965,6 +3114,23 @@ class JarvisCore:
             if speak_server:
                 self.tts_queue.put(_r3d)
             return _r3d
+
+        # ── Ojo global (God's Eye View): el globo en vivo. Va aquí porque con
+        # la app abierta se queda con «vuela a X» o «sigue ese avión», que las
+        # habilidades entenderían de otra manera. ──
+        try:
+            _rog = self._orden_ojo_global(text)
+        except Exception as e:
+            self.log(f"[OJO] orden falló: {e}")
+            _rog = None
+        if _rog:
+            self.history.append({"role": "user", "content": text})
+            self.save_to_memory("user", text)
+            self.history.append({"role": "assistant", "content": _rog})
+            self.save_to_memory("assistant", _rog)
+            if speak_server:
+                self.tts_queue.put(_rog.split("\n\n")[0][:400])
+            return _rog
 
         # Habilidades del sistema (Sprint 2): si es un comando ejecutable,
         # responder al instante sin consumir el LLM.
@@ -3337,21 +3503,17 @@ class JarvisCore:
                 try:
                     cliente = self._cliente_llm(b_url, clave)
                     esfuerzo = self._esfuerzo_razonamiento(text)
-                    es_kimi = ("moonshot" in b_url) or modelo.startswith("kimi-k3")
-                    tope = int(os.getenv("JARVIS_MAX_TOKENS", "700"))
-                    if es_kimi:
-                        # Kimi K3 sólo acepta low/high/max (nunca "none"), y el
-                        # razonamiento gasta del mismo presupuesto: sube el tope
-                        # o piensa y se queda sin respuesta.
-                        esfuerzo = {"none": "low", "low": "high"}.get(esfuerzo, esfuerzo)
-                        tope = int(os.getenv("JARVIS_MAX_TOKENS_KIMI", "2048"))
+                    # Claude razona dentro del mismo presupuesto de tokens que
+                    # la respuesta: con los 700 de antes pensaba y se quedaba
+                    # sin turno. El traductor sube el piso, pero se pide ya.
+                    import proveedor_claude as _pc
+                    tope = _pc._entero("JARVIS_MAX_TOKENS_CLAUDE", 2048)
                     self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url} "
                              f"(razonamiento: {esfuerzo})")
                     # El presupuesto de tokens lo comparten el razonamiento y
                     # la respuesta. Con 200 tokens un modelo que piensa se
                     # quedaba SIN respuesta: pensaba y se acababa el turno.
                     comun = dict(model=modelo, messages=msgs,
-                                 temperature=float(os.getenv("JARVIS_TEMPERATURA", "0.5")),
                                  max_tokens=tope, stream=True)
                     try:
                         resp = cliente.chat.completions.create(
@@ -3387,8 +3549,16 @@ class JarvisCore:
                         return presupuesto.aviso_corte()
                     except Exception:
                         pass
-                return ("Señor, todos mis proveedores de cerebro fallaron. "
-                        + (f"({str(ultimo_error)[:100]})" if ultimo_error else ""))
+                if ultimo_error:
+                    try:
+                        from arrancar_ambos import diagnostico_cerebro
+                        que, como = diagnostico_cerebro(str(ultimo_error))
+                        return (f"Señor, mis proveedores de cerebro fallaron: "
+                                f"{que}. Para arreglarlo, {como}.")
+                    except Exception:
+                        return ("Señor, todos mis proveedores de cerebro "
+                                f"fallaron. ({str(ultimo_error)[:100]})")
+                return "Señor, todos mis proveedores de cerebro fallaron."
             
             try:
                 _cronometro.__exit__(None, None, None)
@@ -3397,71 +3567,48 @@ class JarvisCore:
             _t_generacion = time.time()
             full_reply = ""
             buffer = ""
-            think_done = False
+            # Aquí se filtraba el <think>...</think> de Qwen antes de hablar.
+            # Claude razona aparte y su pensamiento nunca llega al texto, así
+            # que se vocaliza desde la primera frase, sin tragarse el arranque.
             first_speech = True
             first_reply_sentence = True
 
             for chunk in resp:
                 content = chunk.choices[0].delta.content or ""
                 buffer += content
+                # Extraer oraciones completas
+                match = re.search(r'([.!?]+)', buffer)
+                if match:
+                    idx = match.end()
+                    sentence = buffer[:idx].strip()
+                    buffer = buffer[idx:]
+                    
+                    if sentence:
+                        if first_reply_sentence:
+                            sentence = self._address_user_as_butler(sentence)
+                            first_reply_sentence = False
 
-                if not think_done:
-                    # Qwen3 emite su razonamiento entre <think>...</think>. Si
-                    # vemos el cierre, descartamos todo lo anterior y nos
-                    # quedamos con la respuesta limpia. Si el modelo no usa
-                    # tags (modo silencioso), pasamos al modo "respuesta
-                    # directa" tras consumir un prefijo razonable.
-                    think_close = buffer.find("</think>")
-                    if think_close != -1:
-                        buffer = buffer[think_close + len("</think>"):]
-                        # Limpia prefijos típicos: saltos de línea, comillas
-                        # de arranque, espacio residual.
-                        buffer = buffer.lstrip(" \n\r\t\"'`")
-                        think_done = True
-                    elif buffer.startswith("<think>"):
-                        # Sigue dentro del bloque de pensamiento: limpiamos lo
-                        # recibido hasta ahora para no acumular ruido.
-                        buffer = ""
-                    else:
-                        # No hay tag de pensamiento. Si ya acumulamos suficiente
-                        # contenido "limpio", empezamos a vocalizar.
-                        if len(buffer) > 30 and "\n" in buffer:
-                            think_done = True
+                        # El tag se procesa y se quita ANTES de acumular la
+                        # respuesta. Antes se acumulaba primero y solo se
+                        # limpiaba la copia que iba a la voz, asi que en el
+                        # movil y en el chat se leia literalmente
+                        # «[OPEN:Bloc de notas]» en vez de una frase.
+                        open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
+                        if open_match:
+                            app_name = open_match.group(1).strip().lower()
+                            sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
+                            self._open_app(app_name)
+                            sentence = self._frase_al_abrir(
+                                sentence, open_match.group(1).strip())
 
-                if think_done:
-                    # Extraer oraciones completas
-                    match = re.search(r'([.!?]+)', buffer)
-                    if match:
-                        idx = match.end()
-                        sentence = buffer[:idx].strip()
-                        buffer = buffer[idx:]
-                        
+                        full_reply += sentence + " "
+                        if first_speech and state_callback:
+                            state_callback("speaking")
+                            first_speech = False
+
                         if sentence:
-                            if first_reply_sentence:
-                                sentence = self._address_user_as_butler(sentence)
-                                first_reply_sentence = False
-
-                            # El tag se procesa y se quita ANTES de acumular la
-                            # respuesta. Antes se acumulaba primero y solo se
-                            # limpiaba la copia que iba a la voz, asi que en el
-                            # movil y en el chat se leia literalmente
-                            # «[OPEN:Bloc de notas]» en vez de una frase.
-                            open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
-                            if open_match:
-                                app_name = open_match.group(1).strip().lower()
-                                sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
-                                self._open_app(app_name)
-                                sentence = self._frase_al_abrir(
-                                    sentence, open_match.group(1).strip())
-
-                            full_reply += sentence + " "
-                            if first_speech and state_callback:
-                                state_callback("speaking")
-                                first_speech = False
-
-                            if sentence:
-                                if speak_server:
-                                    self.tts_queue.put(sentence)
+                            if speak_server:
+                                self.tts_queue.put(sentence)
 
             # Flush remaining buffer
             if buffer.strip():
@@ -3505,7 +3652,19 @@ class JarvisCore:
 
         except Exception as e:
             self.log(f"Error LLM: {e}")
-            return "Señor, tengo un problema de conexión con mi núcleo cognitivo. Verifica que Ollama esté activo."
+            # «Comprueba la clave y la red» mandaba a mirar lo de siempre aunque
+            # el fallo fuese otro (una clave de organización sin workspace, la
+            # cuenta sin saldo, un modelo que esta cuenta no tiene). El mismo
+            # traductor que usa el arranque dice cuál de los tres es.
+            try:
+                from arrancar_ambos import diagnostico_cerebro
+                que, como = diagnostico_cerebro(str(e))
+                return (f"Señor, mi núcleo cognitivo no responde: {que}. "
+                        f"Para arreglarlo, {como}.")
+            except Exception:
+                return ("Señor, tengo un problema de conexión con mi núcleo "
+                        "cognitivo. Comprueba que ANTHROPIC_API_KEY esté puesta "
+                        "y que haya red.")
 
     @staticmethod
     def _frase_al_abrir(resto: str, app: str) -> str:
@@ -3790,6 +3949,11 @@ class JarvisCore:
         try:
             import voz_rapida
             voz_rapida.callar()
+        except Exception:
+            pass
+        try:
+            import jarvis_piper
+            jarvis_piper.callar()      # la voz neuronal también obedece
         except Exception:
             pass
         if HAS_PYGAME:

@@ -33,8 +33,14 @@ _LECTURA = {
     "mirar_pantalla", "ensayar_orden", "ensayar_orden_movil", "leer_archivo",
     "listar_dir", "buscar_en_archivos", "git_estado", "git_diff", "revisar_pr",
     "revisar_correo", "analizar_imagen", "analizar_documento", "buscar_en_memoria",
+    # Navegador: mirar, leer la API y diagnosticar no pulsan nada.
+    "navegador_mirar", "navegador_ensayo", "navegador_datos",
+    "navegador_diagnostico",
     # Ciencias: solo calculan y dejan la lámina en Descargas/JARVIS/Ciencia.
+    # La simulación es lo mismo, pero animada: integra y escribe un .html.
     "resolver_ciencia", "graficar", "formula_fisica", "quimica",
+    "simular_ciencia", "despejar_ecuacion", "convertir_unidades",
+    "vectorizar_documentos",
 }
 
 # Efecto real: se paran y piden confirmación en modo normal.
@@ -45,6 +51,14 @@ _CONFIRMAR = {
     "git_crear_rama", "git_commit", "correr_tests", "pilotar_pantalla",
     "reproducir_musica", "analizar_con_codigo", "delegar_subtarea",
     "procesar_reunion", "automejorar", "mision_larga", "modelar_3d", "holograma",
+    # El escáner enciende la cámara y el prototipo se lleva un rato de cerebro.
+    "escanear_objeto", "prototipo_3d",
+    # La escotilla del ojo global corre JavaScript arbitrario en la página.
+    "ojo_global_js",
+    # El navegador pulsa y rellena en webs reales, con la sesión del señor
+    # dentro. Nunca teclea contraseñas ni paga, pero un clic en una web no
+    # tiene diario de deshacer: se confirma antes.
+    "navegador_tarea",
 }
 
 # Todo lo demás (abrir_app, crear_nota, temporizador, recordatorio, captura,

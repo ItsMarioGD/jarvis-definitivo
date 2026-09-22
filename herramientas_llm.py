@@ -8,8 +8,8 @@ como «organiza la carpeta de descargas y avisame por Telegram cuando acabes»
 recibia una respuesta amable y ni un solo archivo movido: ninguna regex la
 cubria, y el cerebro no tenia manos.
 
-Aqui estan las manos. Qwen (via Ollama) admite `tools` con el formato de
-OpenAI, asi que se le ofrece un juego de herramientas y se ejecuta lo que pida:
+Aqui estan las manos. Claude admite herramientas, y el traductor las
+convierte del formato de OpenAI, asi que se le ofrece un juego y se ejecuta:
 
     usuario  -> «organiza las descargas y avisame por Telegram»
     modelo   -> mover_archivos(...) + enviar_telegram(...)
@@ -33,6 +33,13 @@ import os
 
 MAX_RONDAS = int(os.getenv("JARVIS_TOOLS_RONDAS", "4"))
 _TOPE_CONVERSACION = int(os.getenv("JARVIS_TOOLS_TOPE_CHARS", "24000"))
+
+# Tope de salida de cada ronda. Estaba en 400 y con los modelos que RAZONAN
+# —los de Pollinations y los de Anthropic— eso se queda corto: el razonamiento
+# sale del mismo presupuesto, así que el modelo pensaba, se le acababa el turno
+# y devolvía una respuesta VACÍA. Las tool-calls sí llegaban con 400; lo que se
+# perdía era la respuesta hablada, que es peor porque JARVIS se quedaba mudo.
+MAX_TOKENS = int(os.getenv("JARVIS_TOOLS_MAX_TOKENS", "2048"))
 
 
 def podar_conversacion(conversacion: list, tope: int = _TOPE_CONVERSACION) -> list:
@@ -134,6 +141,46 @@ class Herramientas:
                                   "pantalla cuando ninguna otra herramienta sirve. "
                                   "Es lento: úsala solo como último recurso.",
               {"objetivo": texto}, ["objetivo"]),
+            h("navegador_tarea", "Hace una TAREA COMPLETA en la web: navega, pulsa, "
+                                 "rellena formularios y lee el resultado, mirando la "
+                                 "página de verdad. Para cualquier cosa que exija "
+                                 "moverse por un sitio (consultar un pedido, sacar un "
+                                 "dato de una web, rellenar un formulario). NO escribe "
+                                 "contraseñas ni datos de tarjeta, y NO pulsa botones "
+                                 "de pago: esos pasos los deja al señor.",
+              {"objetivo": {"type": "string",
+                            "description": "el encargo entero, en una frase"},
+               "url": {"type": "string", "description": "dirección de partida, si la hay"}},
+              ["objetivo"]),
+            h("navegador_ensayo", "Ensayo general de una tarea web: dice paso a paso "
+                                  "qué HARÍA sin pulsar nada. Úsala antes de "
+                                  "navegador_tarea cuando la tarea toque una cuenta "
+                                  "del señor o algo con consecuencias.",
+              {"objetivo": texto, "url": texto}, ["objetivo"]),
+            h("navegador_mirar", "Qué hay ahora mismo en la pestaña del navegador de "
+                                 "JARVIS: dirección, texto visible y qué se puede "
+                                 "pulsar. Solo lectura.", {}),
+            h("navegador_datos", "Lee el JSON que la página pide por detrás, en vez "
+                                 "de rascar el texto. Para tablas, listados, "
+                                 "precios, horarios o saldos: el dato sale exacto "
+                                 "y no se rompe con el rediseño. Úsala DESPUÉS de "
+                                 "abrir la página. Sin patrón, lista lo que ha "
+                                 "pedido.",
+              {"patron": {"type": "string",
+                          "description": "trozo de la URL de la API, p. ej. "
+                                         "«/api/pedidos» o «precios»"},
+               "indice": {"type": "integer",
+                          "description": "0 = la respuesta más grande (por defecto)"}}),
+            h("navegador_diagnostico", "Abre o recarga una web y dice QUÉ ESTÁ ROTO: "
+                                       "errores de JavaScript, excepciones y "
+                                       "peticiones fallidas o con 4xx/5xx. Para "
+                                       "depurar la web del señor o entender por qué "
+                                       "otra no funciona.",
+              {"url": {"type": "string",
+                       "description": "dirección; vacío = recarga la pestaña actual"}}),
+            h("navegador_abrir", "Abre una dirección en el navegador de JARVIS y "
+                                 "devuelve el título de la página.",
+              {"url": texto}, ["url"]),
             h("buscar_en_documentos", "Busca dentro del contenido de los documentos "
                                        "del señor y responde citando el archivo.",
               {"pregunta": texto}, ["pregunta"]),
@@ -208,6 +255,68 @@ class Herramientas:
                            "archivo 3D (.blend/.obj/.fbx/.glb/.stl...). Lo abre.",
               {"entrada": {"type": "string", "description": "ruta a un archivo 3D (opcional)"},
                "modo": {"type": "string", "description": "completo o t-pose"}}),
+            h("escanear_objeto", "ESCANEA un objeto real con la cámara (la del PC "
+                                 "o la del teléfono) y lo convierte en un modelo 3D "
+                                 "con las piezas separadas, que se abre como "
+                                 "holograma interactivo. Úsala cuando el señor "
+                                 "quiera digitalizar algo que tiene delante.",
+              {"origen": {"type": "string", "description": "pc (webcam) o telefono (QR)"},
+               "nombre": {"type": "string", "description": "qué es el objeto, si se sabe"}}),
+            h("holograma_vivo", "Abre el visor holográfico interactivo con un "
+                                "escaneo (el último si no se dice cuál). Ahí se le "
+                                "puede hablar y se le puede mandar acciones.",
+              {"id": {"type": "string", "description": "id del escaneo (opcional)"}}),
+            h("holo_accion", "Ejecuta UNA acción en el holograma abierto: desarmar, "
+                             "armar, aislar, mostrar_todo, ocultar, resaltar, girar, "
+                             "vista, zoom, rayos_x, alambre, solido, seccion, medir, "
+                             "etiquetas, color, animar, piramide, comparar, cargar, "
+                             "quitar_modelo, reset, capturar, listar, decir.",
+              {"nombre": {"type": "string", "description": "nombre exacto de la acción"},
+               "argumentos": {"type": "string",
+                              "description": "JSON con los argumentos, p. ej. "
+                                             "{\"pieza\": \"tapa\"}"}},
+              ["nombre"]),
+            h("prototipo_3d", "Diseña un modelo NUEVO derivado del objeto escaneado "
+                              "(una variante, una mejora, otra cosa hecha con sus "
+                              "piezas) y lo pone al lado en el holograma.",
+              {"idea": {"type": "string", "description": "qué prototipo quiere el señor"},
+               "base": {"type": "string", "description": "id del escaneo de partida (opcional)"}},
+              ["idea"]),
+            h("ojo_global", "Maneja God's Eye View: globo 3D fotorrealista con datos "
+                            "públicos EN VIVO (aviones, militares, barcos, satélites, "
+                            "lanzamientos, terremotos, incendios, tráfico, cámaras de "
+                            "calle, radio, cables submarinos, centros de datos). "
+                            "Úsala para abrirlo, cerrarlo, ver su estado, instalarlo o "
+                            "actualizarlo, o pedir el catálogo de funciones.",
+              {"accion": {"type": "string",
+                          "description": "abrir, cerrar, estado, catalogo, instalar o actualizar"}}),
+            h("ojo_global_accion",
+              "Ejecuta UNA función de God's Eye View. Las hay todas: "
+              "fly_to_location, select_nearest_aircraft, adjust_camera_zoom, "
+              "zoom_to_globe, set_layer_visibility, show_data_layers_menu, "
+              "set_panel_open, set_context_mode, control_cockpit, set_visual_style, "
+              "get_entity_context, get_current_view_state, set_hud, set_detection, "
+              "set_map_stack, set_post_processing, control_scene, control_cctv, "
+              "control_radio, track_entity, stop_tracking, frame_overhead, "
+              "annotate_map, clear_annotations, move_camera, fly_route, "
+              "analyst_query, next_iss_pass. Si el ojo global no está abierto, lo "
+              "abre. Pide antes «ojo_global» con accion=catalogo si dudas de los "
+              "argumentos. Para sitios de fuera de EE. UU. conviene pasar latitude "
+              "y longitude: sin clave de Google la búsqueda por texto tira de un "
+              "geocodificador sesgado por la vista actual.",
+              {"nombre": {"type": "string", "description": "nombre exacto de la función"},
+               "argumentos": {"type": "string",
+                              "description": "JSON con los argumentos, p. ej. "
+                                             "{\"query\": \"Kiev\", \"viewMode\": \"close\"}"}},
+              ["nombre"]),
+            h("ojo_global_js", "Escotilla del ojo global: ejecuta JavaScript dentro de "
+                               "la página con `gev` = window.__godsEyeView (viewer de "
+                               "Cesium, dataManager, sceneDirector, anotaciones, "
+                               "mapStackController). Solo para lo que las funciones "
+                               "del catálogo no cubran. Devuelve lo que retorne.",
+              {"codigo": {"type": "string",
+                          "description": "cuerpo de una función async; use return"}},
+              ["codigo"]),
             h("resolver_ciencia", "Resuelve un problema de MATEMÁTICAS, FÍSICA o "
                                   "QUÍMICA dictado en lenguaje normal y, si se "
                                   "pide, lo GRAFICA (2D, superficie 3D girable y "
@@ -222,6 +331,53 @@ class Herramientas:
               {"enunciado": {"type": "string",
                              "description": "el problema tal cual lo dijo el señor"}},
               ["enunciado"]),
+            h("simular_ciencia", "SIMULACIÓN ANIMADA en 3D: no una foto, sino el "
+                                 "sistema moviéndose, con play, barra de tiempo y "
+                                 "las magnitudes vivas. Sistemas: tiro (proyectil "
+                                 "con rozamiento), orbita (N cuerpos), pendulo "
+                                 "(simple y doble), muelle (resonancia), carga "
+                                 "(campo electromagnético), lorenz (caos), cuerda, "
+                                 "membrana, molecula (vibrando) y ecuaciones (las "
+                                 "que dicte el señor, integradas con Runge-Kutta). "
+                                 "Úsala cuando pida ver algo MOVERSE o evolucionar "
+                                 "en el tiempo; para un dibujo quieto, "
+                                 "resolver_ciencia.",
+              {"sistema": {"type": "string",
+                           "description": "tiro, orbita, pendulo, muelle, carga, "
+                                          "lorenz, cuerda, membrana, molecula o "
+                                          "ecuaciones"},
+               "parametros": {"type": "string",
+                              "description": "JSON con los parámetros del sistema, "
+                                             "p. ej. {\"l1\": 1, \"l2\": 0.8} o "
+                                             "{\"ecuaciones\": [\"x'' = -9.8\"]}"}},
+              ["sistema"]),
+            h("despejar_ecuacion", "Despeja CUALQUIER ecuación de física o "
+                                   "ingeniería, con unidades y comprobación "
+                                   "dimensional. No está limitada a un "
+                                   "formulario: vale la ley que sea, la del "
+                                   "libro o la que dictó el profesor. Da la "
+                                   "fórmula despejada y, si hay datos para "
+                                   "todo lo demás, el número con su unidad.",
+              {"ecuacion": {"type": "string",
+                            "description": "con un igual, p. ej. «v = v0 + a*t» "
+                                           "o «E = m*c**2». Respeta mayúsculas: "
+                                           "P y p son cosas distintas"},
+               "datos": {"type": "string",
+                         "description": "JSON con los conocidos y su unidad, "
+                                        "p. ej. {\"a\": \"9.8 m/s^2\", \"t\": \"3 s\"}"},
+               "incognita": {"type": "string",
+                             "description": "qué despejar; vacío si solo falta una"}},
+              ["ecuacion"]),
+            h("vectorizar_documentos", "Completa la búsqueda POR SIGNIFICADO de "
+                                       "los documentos ya indexados que aún no "
+                                       "tienen vector. Úsala si el señor dice "
+                                       "que no encuentra algo que sabe que está "
+                                       "en sus apuntes.", {}),
+            h("convertir_unidades", "Pasa una cantidad de una unidad a otra: "
+                                    "«120 km/h» a «m/s», «3 atm» a «Pa».",
+              {"cantidad": {"type": "string", "description": "p. ej. «120 km/h»"},
+               "a": {"type": "string", "description": "la unidad de destino"}},
+              ["cantidad", "a"]),
             h("graficar", "Dibuja una función o un conjunto de funciones. En 2D "
                           "marca raíces, máximos, mínimos y asíntotas; en 3D "
                           "levanta la superficie z=f(x,y), la exporta a .obj/.stl "
@@ -485,6 +641,10 @@ class Herramientas:
         import indice_documentos
         return indice_documentos.responder(self.core, a.get("pregunta", ""), log=self.log)
 
+    def _t_vectorizar_documentos(self, a):
+        import indice_documentos
+        return indice_documentos.vectorizar_pendientes(log=self.log)
+
     def _t_recados_pendientes(self, a):
         import recados
         return recados.resumen()
@@ -576,6 +736,89 @@ class Herramientas:
         return modelado3d.holograma(self.core, a.get("entrada", ""), modo=modo,
                                     log=self.log)
 
+    def _t_escanear_objeto(self, a):
+        import escaner3d
+        return escaner3d.escanear(self.core, a.get("origen") or "pc",
+                                  nombre=a.get("nombre", ""), log=self.log)
+
+    def _t_holograma_vivo(self, a):
+        import escaner3d
+        ident = a.get("id", "")
+        url = escaner3d.abrir_holograma(ident, log=self.log)
+        if not url:
+            return ("Señor, no tengo ningún escaneo. Dígame «escanea este objeto» "
+                    "y se lo monto.")
+        u = escaner3d.ultima()
+        return f"Holograma abierto, señor: «{u.get('nombre', '')}». {url}"
+
+    def _t_holo_accion(self, a):
+        import escaner3d
+        args = a.get("argumentos") or {}
+        if isinstance(args, str):
+            try:
+                args = __import__("json").loads(args or "{}")
+            except Exception:
+                args = {}
+        return escaner3d.ejecutar([{"nombre": a.get("nombre", ""), "args": args}],
+                                  log=self.log) or "Hecho, señor."
+
+    def _t_prototipo_3d(self, a):
+        import escaner3d
+        return escaner3d.prototipo(self.core, a.get("idea", ""), a.get("base", ""),
+                                   log=self.log)
+
+    # ── navegador ───────────────────────────────────────────────────────────
+    def _t_navegador_tarea(self, a):
+        import navegador
+        return navegador.navegar(a.get("objetivo", ""), core=self.core,
+                                 url_inicial=a.get("url", ""), log=self.log)
+
+    def _t_navegador_ensayo(self, a):
+        import navegador
+        return navegador.navegar(a.get("objetivo", ""), core=self.core, seco=True,
+                                 url_inicial=a.get("url", ""), log=self.log)
+
+    def _t_navegador_mirar(self, a):
+        import navegador
+        return navegador.mirar(log=self.log)
+
+    def _t_navegador_abrir(self, a):
+        import navegador
+        return navegador.abrir(a.get("url", ""), log=self.log)
+
+    def _t_navegador_datos(self, a):
+        import navegador
+        return navegador.datos(a.get("patron", ""), int(a.get("indice") or 0),
+                               log=self.log)
+
+    def _t_navegador_diagnostico(self, a):
+        import navegador
+        return navegador.diagnosticar(a.get("url", ""), log=self.log)
+
+    def _t_ojo_global(self, a):
+        import ojo_global
+        accion = str(a.get("accion") or "abrir").strip().lower()
+        if accion.startswith("cerr") or accion.startswith("apag"):
+            return ojo_global.cerrar(log=self.log)
+        if accion.startswith("estad"):
+            return ojo_global.estado(log=self.log)
+        if accion.startswith("catal") or accion.startswith("func"):
+            return ojo_global.catalogo(log=self.log)
+        if accion.startswith("actualiz"):
+            return ojo_global.instalar(log=self.log, actualizar=True)
+        if accion.startswith("instal"):
+            return ojo_global.instalar(log=self.log)
+        return ojo_global.abrir(self.core, log=self.log)
+
+    def _t_ojo_global_accion(self, a):
+        import ojo_global
+        return ojo_global.accion(a.get("nombre", ""), a.get("argumentos"),
+                                 log=self.log)
+
+    def _t_ojo_global_js(self, a):
+        import ojo_global
+        return ojo_global.js(a.get("codigo", ""), log=self.log)
+
     def _t_resolver_ciencia(self, a):
         import ciencias
         r = ciencias.resolver(self.core, a.get("enunciado", ""), log=self.log)
@@ -584,6 +827,42 @@ class Herramientas:
         return r or ("No he podido convertir ese enunciado en un cálculo. "
                      "Respóndele tú razonándolo, y avísale de que no está "
                      "verificado con sympy.")
+
+    def _t_simular_ciencia(self, a):
+        import simulacion
+        parametros = a.get("parametros") or {}
+        if isinstance(parametros, str):
+            # El modelo manda el JSON como texto más veces de las que lo manda
+            # como objeto. Si viene roto, se sigue con los valores por defecto
+            # en vez de tumbar la simulación entera.
+            try:
+                parametros = json.loads(parametros) if parametros.strip() else {}
+            except Exception:
+                self.log(f"[SIM] Parámetros ilegibles: {str(parametros)[:80]}")
+                parametros = {}
+        r = simulacion.simular(a.get("sistema", ""), parametros, log=self.log)
+        if not r.get("ok"):
+            return " ".join(r.get("pasos") or ["No pude montar esa simulación."])
+        return (f"Simulación abierta en el navegador: "
+                f"{r['datos'].get('titulo', '')}.\n" + "\n".join(r.get("notas") or []))
+
+    def _t_despejar_ecuacion(self, a):
+        import fisica_general as FG
+        datos = a.get("datos") or {}
+        if isinstance(datos, str):
+            try:
+                datos = json.loads(datos) if datos.strip() else {}
+            except Exception:
+                self.log(f"[FISICA] Datos ilegibles: {str(datos)[:80]}")
+                datos = {}
+        r = FG.despejar(a.get("ecuacion", ""), datos, a.get("incognita", ""),
+                        log=self.log)
+        return "\n".join(r.get("pasos") or ["No pude despejar eso."])
+
+    def _t_convertir_unidades(self, a):
+        import fisica_general as FG
+        r = FG.convertir(a.get("cantidad", ""), a.get("a", ""))
+        return "\n".join(r.get("pasos") or ["No pude convertir eso."])
 
     def _t_graficar(self, a):
         import ciencias
@@ -683,7 +962,7 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
     seguir por el camino normal (streaming) como si esto no existiera.
     """
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
     except Exception:
         return None
 
@@ -712,7 +991,7 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
         try:
             resp = cliente.chat.completions.create(
                 model=modelo, messages=conversacion, tools=definiciones,
-                tool_choice="auto", temperature=0.3, max_tokens=400)
+                tool_choice="auto", temperature=0.3, max_tokens=MAX_TOKENS)
         except Exception as e:
             # El modelo no admite herramientas (o el servidor no las expone).
             log(f"[HERRAMIENTAS] {nombre} no las admite ({str(e)[:80]}); sigo sin ellas.")

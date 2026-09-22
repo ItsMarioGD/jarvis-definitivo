@@ -135,26 +135,122 @@ python revisar.py
 
 ## El cerebro
 
-JARVIS y ULTRON piensan con **qwen3:8b** en local, por Ollama: gratis, sin
-cuenta y sin que nada salga del equipo. Ocupa 5,2 GB y cabe en los 6 GB de la
-gráfica; los dos usan el mismo, así que solo hay un modelo cargado en memoria.
+JARVIS puede pensar con tres cerebros, y los usa en el orden que usted mande:
+
+| Cerebro | Velocidad | Coste | Sin internet |
+|---|---|---|---|
+| **Pollinations** (nube abierta) | ~2 s | gratis | no |
+| **Qwen en casa** (Ollama) | ~30 s | gratis | **sí** |
+| **Claude** (Anthropic) | rápido | de pago | no |
+
+### Pollinations: poner la clave
+
+Habla el mismo idioma que OpenAI, así que JARVIS le entiende sin traductor.
+
+**Sin clave** funciona, pero con **un** solo modelo y una petición cada 15
+segundos — y el bucle de herramientas encadena hasta cuatro, así que se hace
+eterno. **Con clave** son **241 modelos** (139 saben usar herramientas, 95 ven
+imágenes), contextos de hasta 1,3 millones de tokens y sin espera impuesta.
+
+> **Ojo con el endpoint.** Las claves `sk_` son del portal nuevo
+> (`gen.pollinations.ai`). El antiguo (`text.pollinations.ai`) las **ignora en
+> silencio**: sigue contestando «anonymous» y enseñando un solo modelo, como si
+> no hubiera clave. JARVIS elige el correcto solo según la tenga o no.
+
+1. Consiga la clave en <https://enter.pollinations.ai> (empieza por `sk_`)
+2. Ábrala el archivo `.env` de esta carpeta y pegue la clave en la línea que ya
+   está esperándola:
+
+   ```
+   POLLINATIONS_API_KEY=
+   ```
+3. Reinicie JARVIS y compruebe con:
+
+   ```bash
+   python proveedor_pollinations.py
+   ```
+
+La clave solo se lee del `.env`. No se copia a `Prefs/cerebro.json` (ahí va por
+referencia, `${POLLINATIONS_API_KEY}`) ni se manda a nadie que no sea
+Pollinations.
+
+### Quién manda
+
+Con `JARVIS_CEREBRO` en el `.env`: `pollinations`, `local` o `claude`.
+**Si lo deja vacío, JARVIS elige solo**: Pollinations cuando hay clave, y el de
+casa cuando no. El de casa **nunca** se cae de la lista, así que si se va
+internet o se acaba el saldo sigue habiendo asistente — que es exactamente lo
+que falló con Anthropic.
+
+De viva voz: «¿qué cerebro estás usando?», «cámbiate a pollinations», «usa el
+cerebro de casa», «prueba pollinations», «¿dónde pongo la clave?».
+
+### Buscar en tus apuntes por SIGNIFICADO
+
+Con la clave de Pollinations puesta, JARVIS busca en tus documentos por lo que
+**quieren decir**, no solo por las palabras que traen. Si el apunte dice «tasa
+de variación instantánea» y preguntas «qué es una derivada», lo encuentra:
+
+```
+«busca en mis apuntes qué es una derivada»
+```
+
+La búsqueda es híbrida: FTS5 para lo literal (un nombre, un número de
+expediente) y vectores para lo que recuerdas con otras palabras.
+
+* «indexa mis documentos» — lee y vectoriza las carpetas habituales
+* «vectoriza» — completa lo que se indexó **antes** de activar el motor
+* Sin clave funciona igual, pero solo por palabras. También vale un motor
+  local: `ollama pull nomic-embed-text`
+
+### Qwen en casa
+
+Servido por Ollama. No pasa factura, no se queda sin saldo, funciona sin
+internet y las conversaciones no salen de casa.
+
+| Modelo | Para qué | Tamaño |
+|---|---|---|
+| `qwen3:8b` | el de trabajo: razona y conversa | ~5 GB |
+| `qwen3:4b-instruct` | el rápido, para lo corto | ~2,5 GB |
+| `qwen2.5vl:3b` | el que **ve**: pantalla, fotos y escáner 3D | ~3 GB |
+
+Instalación: descargue Ollama de <https://ollama.com/download> y luego
+
+```bash
+ollama pull qwen3:8b
+```
+
+```bash
+ollama pull qwen2.5vl:3b
+```
+
+`arrancar_ambos.py` levanta Ollama solo si estaba apagado, comprueba que el
+modelo conteste y lo precarga para que la primera frase no tarde.
 
 Qwen3 razona antes de contestar, y eso trae dos cosas: acierta las cuentas y
-las decisiones, pero tarda unos veinte segundos si piensa en todo. Por eso el
-núcleo **decide por pregunta**: lo cotidiano se responde directo (uno o dos
-segundos) y lo que huele a cálculo, comparación, diagnóstico o código se
-piensa. Se manda con `JARVIS_RAZONAR` en `.env`: `auto` (por defecto),
-`siempre` o `nunca`.
+las decisiones, pero tarda más si piensa en todo. Por eso el núcleo **decide
+por pregunta**: lo cotidiano se responde directo (1-2 s) y lo que huele a
+cálculo, comparación, diagnóstico o código se piensa (10-20 s). Se manda con
+`JARVIS_RAZONAR` en `.env`: `auto` (por defecto), `siempre` o `nunca`. El
+pensamiento del modelo (`<think>…</think>`) nunca se lee en voz alta: se filtra
+antes de hablar.
 
-En `.env` están las tres perillas del cerebro:
+Si el modelo principal falla, el núcleo baja solo: `qwen3:8b` →
+`qwen3:4b-instruct` → Claude (si hay clave con saldo).
 
 | Variable | Para qué |
 |---|---|
-| `QWEN_MODEL` | Qué modelo usa (`qwen3:8b`; `qwen3:4b-instruct` si quiere ir ligero) |
-| `JARVIS_MAX_TOKENS` | Presupuesto de la respuesta (700). El razonamiento sale de aquí: con 200 el modelo pensaba y se quedaba sin turno para contestar |
-| `JARVIS_TEMPERATURA` | 0.5. Más bajo = más literal; más alto = más suelto |
+| `JARVIS_CEREBRO` | `local` (por defecto) o `claude` para forzar la nube |
+| `QWEN_MODEL` | Qué modelo local usa (`qwen3:8b`; `qwen3:4b-instruct` si va justo de VRAM) |
+| `QWEN_VISION_MODEL` | El que mira imágenes (`qwen2.5vl:3b`) |
+| `QWEN_BASE_URL` | Dónde escucha Ollama (`http://localhost:11434/v1`) |
+| `JARVIS_MODELO` | Modelo activo; manda sobre lo anterior |
+| `OLLAMA_CONTEXT_LENGTH` | Ventana de contexto al levantar Ollama (16384). Con los 4096 de fábrica no caben las fotos del escáner |
+| `ANTHROPIC_API_KEY` | Solo para la reserva en la nube. Sin ella no pasa nada |
+| `JARVIS_PRESUPUESTO_USD` | Tope de gasto al día de la nube (1.0). Lo local no cuenta: es gratis |
 
-Para volver al modelo pequeño basta con cambiar `QWEN_MODEL` y reiniciar.
+Para ir más ligero basta con cambiar `QWEN_MODEL` a `qwen3:4b-instruct` y
+reiniciar. Para volver a la nube, `JARVIS_CEREBRO=claude`.
 
 ## Instalación desde cero
 
@@ -162,8 +258,9 @@ Para volver al modelo pequeño basta con cambiar `QWEN_MODEL` y reiniciar.
 instalar.bat
 ```
 
-Deja el equipo listo: Python, dependencias, Ollama, el modelo de IA, los
-accesos directos y (si quieres) el arranque automático.
+Deja el equipo listo: Python, dependencias, el SDK de Anthropic, los accesos
+directos y (si quieres) el arranque automático. La clave de la API la pones
+tú en el `.env`.
 
 Si prefieres hacerlo a mano:
 
@@ -310,6 +407,15 @@ Opciones útiles:
 
 Funciona igual desde el PC o desde el móvil:
 
+- **«Jarvis, papá llegó»** — el interruptor general. Saluda según la hora y
+  **enciende todo lo que estuviera apagado**: la escucha continua, el motor
+  proactivo, los ojos en la pantalla, el vigilante y las luces. Lo que ya
+  estaba en marcha se informa y no se reinicia; lo que no se puede encender se
+  dice y por qué, en vez de fingir que todo fue bien. Valen también «ya
+  llegué», «ya estoy en casa», «he llegado» y «estoy de vuelta».
+- **Simulaciones en 3D** — «simula el péndulo doble», «anima la órbita de la
+  Tierra y la Luna», «quiero ver el efecto mariposa», «simula x'' = -9.8».
+  Ver [CIENCIAS.md](CIENCIAS.md).
 - **Abrir y cerrar programas** — «abre el bloc de notas», «cierra Chrome»
 - **Sonido** — «sube el volumen», «silencia»
 - **Estado del equipo** — «cuánta RAM estoy usando», «cuánta batería queda»
@@ -367,12 +473,27 @@ ULTRON responde a «Ultron» además de a «Jarvis».
 
 ### Ojos, oídos y memoria
 
-- «mira mi pantalla» / «¿qué error me da esto?» — visión local (requiere `ollama pull qwen2.5vl:3b`)
+- «mira mi pantalla» / «¿qué error me da esto?» — lo ve Claude (con el modo privado, solo OCR local)
 - «busca en mis documentos lo de `<tema>`» — busca **dentro** del contenido
 - «indexa mis documentos» — construye el índice (funciona ya, sin descargar nada)
 - «empieza a grabar mi pantalla» — memoria episódica; «¿qué estaba haciendo `<X>`?»
 - «borra la última hora» — el botón de arrepentimiento de la grabación
 - «¿reconoces mi voz?» / «solo obedéceme a mí» — identidad por voz
+
+### Escanear objetos y holograma vivo
+
+- «escanea este objeto» — con la webcam del PC: sale una ventana, ponga el
+  objeto dentro del marco y gírelo despacio mientras dispara solo
+- «escanéalo con el móvil» — enseña un QR; el teléfono abre el escáner y usted
+  da la vuelta al objeto
+- El resultado es un modelo 3D **con las piezas separadas** y el holograma se
+  abre solo. Con el holograma delante: «desármalo», «aísla la tapa»,
+  «córtalo por la mitad», «ponle rayos X», «mídelo», «modo pirámide»
+- «mide 12 cm de alto» — a partir de ahí las medidas salen en centímetros
+- «hazme un prototipo plegable de esto» — diseña un modelo NUEVO a partir del
+  escaneado y lo pone al lado para comparar
+- «exporta esto» / «ábrelo en Blender» — `.glb`, `.obj`, `.stl` y `.blend`
+- Todo en `~/Descargas/JARVIS/Escaneos/`. Detalles en `ESCANER3D.md`
 
 ### Ojos permanentes (sin pedirlo)
 
@@ -472,6 +593,9 @@ Por ADB, con el cable y la depuración USB: nada de cuentas ni servidores.
 | `voz_propia.py` | Voz neuronal local, distinta para JARVIS y para ULTRON |
 | `movil.py` | El teléfono Android como periférico: avisos, apps, WhatsApp |
 | `demostracion.py` | Aprende una rutina viéndole hacerla una vez |
+| `escaner3d.py` | Escanea objetos con la cámara y los despieza en 3D |
+| `holo_puente.py` | El servidor del holograma y el puente con el navegador |
+| `holo_web/` | El escáner del móvil y el visor holográfico (three.js) |
 | `analista.py` | Escribe programas, los ejecuta y corrige sus propios fallos |
 | `mision.py` | Objetivos largos: planifica, ejecuta y replanifica |
 | `verificador.py` | Segundo par de ojos antes de lo que no tiene vuelta atrás |
@@ -561,11 +685,11 @@ Lo que ya está optimizado, con lo medido en este equipo:
 
 | Etapa | Antes | Ahora | Cómo |
 |---|---|---|---|
-| Freno entre respuestas | hasta 2 s | 0 s | El límite de cuota solo se aplica a proveedores de pago, no al modelo local |
+| Freno entre respuestas | hasta 2 s | 0 s | Los topes de cuota vienen apagados: sin reserva local, cortar dejaría a JARVIS mudo |
 | Dictado por frase | 7,9 s | 0,1–1 s | Todos los núcleos, búsqueda greedy y filtro de voz que descarta los silencios |
 | Primera frase dictada | 6,3 s | 0 s | El modelo de dictado se precarga al arrancar |
 | Empezar a hablar | 1,9 s | 3 ms | La voz de Windows va en proceso (SAPI), no arrancando un PowerShell por frase |
-| Primera pregunta tras una pausa | +2,2 s | 0 s | Un ping cada 4 minutos evita que Ollama descargue el modelo |
+| Primera pregunta tras una pausa | +2,2 s | 0 s | Claude está siempre caliente: ya no hay modelo local que recargar |
 | Respuesta del cerebro | 350 tokens | 200 | A 61 tokens/s medidos, cada 100 tokens de más son 1,6 s |
 | Reglas proactivas caras | cada 2 min | 10 min a 6 h | winget y WMI tardan casi un segundo cada uno |
 
