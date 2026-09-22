@@ -428,6 +428,12 @@ class JarvisCore:
         self._ultimo_consejo_descanso = 0.0
         # Historial TTS para el detector de eco (isair echo_detection)
         self._tts_hist = []
+        # Cuándo terminó de hablar y qué dijo: la escucha continua abre la
+        # conversación a partir de aquí (se le contesta sin decir «Jarvis»).
+        self._voz_en_curso = False
+        self._voz_fin = 0.0
+        self._voz_ultima = ""
+        self._voz_externa_hasta = 0.0
         # Antes aquí se precalentaba el modelo local y se le hacía ping cada
         # cuatro minutos para que Ollama no lo descargase. Claude vive en la
         # nube y está siempre caliente: dos hilos menos y ni un token gastado.
@@ -450,19 +456,28 @@ class JarvisCore:
         except Exception as e:
             self.log(f"Motor proactivo desactivado: {e}")
 
-        # Escucha continua con palabra de activación (jarvis_escucha.py).
-        # Es opt-in: necesita micrófono libre, así que solo arranca si el señor
-        # lo pidió («activa la escucha continua») o con JARVIS_ESCUCHA=1.
+        # Escucha continua y conversación (jarvis_escucha.py). JARVIS la
+        # enciende solo al arrancar: el señor quiere hablarle sin tocar ningún
+        # botón. Se apaga con «deja de escucharme» (queda guardado) o con
+        # JARVIS_ESCUCHA=0. ULTRON sigue siendo opt-in: los dos a la vez
+        # pelearían por el mismo micrófono.
         self.escucha = None
         try:
             from jarvis_escucha import EscuchaContinua
+            agente = getattr(self, "nombre_agente", "JARVIS")
             palabras = (os.getenv("JARVIS_PALABRA_ACTIVACION", "").strip() or
-                        ("ultron,jarvis" if getattr(self, "nombre_agente", "JARVIS") == "ULTRON"
-                         else "jarvis")).split(",")
-            self.escucha = EscuchaContinua(self, log=self.log,
-                                           palabras=[p.strip() for p in palabras if p.strip()])
-            if os.getenv("JARVIS_ESCUCHA", "").strip() == "1" or \
-                    (self.get_pref("escucha_continua") or "0") == "1":
+                        ("ultron,jarvis" if agente == "ULTRON" else "jarvis")).split(",")
+            self.escucha = EscuchaContinua(
+                self, log=self.log, palabras=[p.strip() for p in palabras if p.strip()],
+                gracia_s=float(os.getenv("JARVIS_CONVERSACION_S", "20")),
+                pregunta_s=float(os.getenv("JARVIS_PREGUNTA_S", "35")))
+            forzada = os.getenv("JARVIS_ESCUCHA", "").strip()
+            pref = (self.get_pref("escucha_continua") or "").strip()
+            # El bot de Telegram carga su propio núcleo: si oyera también,
+            # cada orden hablada se ejecutaría en dos procesos.
+            hijo_telegram = os.getenv("JARVIS_TELEGRAM_CHILD") == "1"
+            if not hijo_telegram and (forzada == "1" or (forzada != "0" and (
+                    pref == "1" or (pref == "" and agente == "JARVIS")))):
                 ok, motivo = self.escucha.start()
                 if not ok:
                     self.log(f"[ESCUCHA] No pude activarla: {motivo}")
@@ -630,12 +645,17 @@ class JarvisCore:
                 break
             try:
                 if text.strip():
+                    self._voz_en_curso = True
                     self.synthesize_and_play(text)
             except Exception as e:
                 # Un fallo del proveedor de voz nunca debe matar el worker ni impedir
                 # que la interfaz muestre las respuestas posteriores.
                 self.log(f"Error inesperado de audio: {e}")
             finally:
+                if getattr(self, "_voz_en_curso", False):
+                    self._voz_en_curso = False
+                    self._voz_ultima = text
+                    self._voz_fin = time.time()
                 self.tts_queue.task_done()
 
     def shutdown(self):
@@ -1481,7 +1501,22 @@ class JarvisCore:
             self.set_pref("escucha_continua", "1")
             nombres = ", ".join(self.escucha.palabras)
             return (f"Escucha continua activa, {trato}Llámeme por mi nombre ({nombres}) "
-                    "y respondo. Puede interrumpirme cuando quiera.").strip()
+                    "y respondo. Mientras hablamos no hace falta repetirlo, y puede "
+                    "interrumpirme cuando quiera.").strip()
+
+        if re.search(r"atiendeme (tambien )?sin (decir )?(tu |el )?nombre|"
+                     r"atiéndeme (también )?sin (decir )?(tu |el )?nombre|"
+                     r"reconoceme por la voz|reconóceme por la voz", t):
+            self.set_pref("escucha_por_voz", "1")
+            return (f"Hecho, {trato}Si reconozco su voz y me pide algo, le atiendo "
+                    "aunque no me nombre. Las órdenes delicadas seguirán pidiendo "
+                    "mi nombre.").strip()
+
+        if re.search(r"(atiendeme|atiéndeme|responde|respondeme|respóndeme) solo (si digo|por) "
+                     r"(tu|mi) nombre|no me atiendas sin (tu )?nombre", t):
+            self.set_pref("escucha_por_voz", "0")
+            return (f"Entendido, {trato}Fuera de una conversación solo respondo "
+                    "si me llama por mi nombre.").strip()
 
         if re.search(r"(desactiva|apaga|para|deten)( la)? escucha( continua)?|"
                      r"deja de escuchar|no me escuches", t):
@@ -1749,9 +1784,16 @@ class JarvisCore:
 
         # ── Identidad por voz ───────────────────────────────────────────────
         if re.search(r"(registra|aprende|memoriza) mi voz|reconoce mi voz", t):
-            return ("Para registrar su voz necesito varias frases grabadas, señor. "
-                    "Dígamelo desde la interfaz web, donde puedo capturar el audio: "
-                    "allí grabaré tres frases y me quedaré con su huella.")
+            # La web nunca llegó a grabar esas frases: el único sitio donde
+            # hay micrófono propio es la escucha continua.
+            escucha = getattr(self, "escucha", None)
+            ok, motivo = (escucha.registrar_voz(3) if escucha is not None
+                          else (False, "no tengo el módulo de escucha"))
+            if not ok:
+                return (f"No puedo grabar su voz ahora, señor: {motivo}. "
+                        "Active la escucha continua y vuelva a pedírmelo.")
+            return ("De acuerdo, señor. Cuando termine de hablar, dígame tres frases "
+                    "de unos cinco segundos, una tras otra, con su voz normal.")
 
         if re.search(r"reconoces mi voz|estado de (tu )?(identidad|huella) de voz", t):
             import voz_identidad
@@ -3754,7 +3796,8 @@ class JarvisCore:
             self.log("SpeechRecognition no disponible.")
             return None
         try:
-            with sr.Microphone() as src:
+            import microfono      # sin PyAudio, graba con la API de Windows
+            with microfono.abrir() as src:
                 self.log("Calibrando ambiente...")
                 self.rec.adjust_for_ambient_noise(src, duration=0.4)
                 self.log("Escuchando... (habla ahora)")
@@ -3956,12 +3999,45 @@ class JarvisCore:
                 return True
         except Exception:
             pass
+        # La voz de Windows y Piper no pasan por pygame: sin esta marca, con
+        # ellas JARVIS parecía callado mientras hablaba.
+        if getattr(self, "_voz_en_curso", False):
+            return True
+        if time.time() < getattr(self, "_voz_externa_hasta", 0.0):
+            return True
         if HAS_PYGAME:
             try:
                 return bool(pygame.mixer.music.get_busy())
             except Exception:
                 return False
         return False
+
+    def ultima_voz(self) -> tuple:
+        """(cuándo terminó de hablar, qué dijo). La escucha continua abre la
+        conversación desde ese momento, también tras un aviso proactivo."""
+        return getattr(self, "_voz_fin", 0.0), getattr(self, "_voz_ultima", "")
+
+    def voz_externa(self, texto: str):
+        """La interfaz web va a decir esto por los altavoces del navegador.
+
+        Sin avisar al núcleo, el micrófono de la escucha continua oía esa voz
+        como si fuera del señor: el detector de eco no la conocía y JARVIS se
+        respondía a sí mismo.
+        """
+        texto = (texto or "").strip()
+        if not texto:
+            return
+        self._tts_hist = (list(getattr(self, "_tts_hist", [])) + [texto[:300]])[-2:]
+        self._voz_ultima = texto
+        # Tope por si el navegador nunca avisa del final (pestaña cerrada):
+        # unas 14 letras por segundo más lo que tarda en llegar el audio.
+        self._voz_externa_hasta = time.time() + 2.0 + len(texto) / 14.0
+
+    def voz_externa_fin(self):
+        """El navegador terminó de hablar: desde ahora se le contesta sin nombre."""
+        if getattr(self, "_voz_externa_hasta", 0.0):
+            self._voz_externa_hasta = 0.0
+            self._voz_fin = time.time()
 
     def stop_speaking(self):
         """Interrupción (Sprint 2): detiene la voz y descarta frases pendientes."""

@@ -254,6 +254,144 @@ def test_escucha_palabra_activacion():
            "pasada la ventana de gracia vuelve a hacer falta el nombre")
 
 
+# ── 9b. Conversación continua: contestar sin decir «Jarvis» ─────────────────
+def test_escucha_conversacion():
+    print("\n== 9b. CONVERSACION CONTINUA ==")
+    import queue as _q
+    import socket as _s
+    import time as _t
+
+    import jarvis_escucha as je
+
+    class _Nucleo:
+        nombre_agente = "JARVIS"
+
+        def __init__(self):
+            self.voz = (0.0, "")
+            self.ordenes = []
+            self.hablando = False
+            self.callado = False
+            self._tts_hist = []
+            self.tts_queue = _q.Queue()
+
+        def ultima_voz(self):
+            return self.voz
+
+        def esta_hablando(self):
+            return self.hablando
+
+        def stop_speaking(self):
+            self.callado = True
+
+        def _es_eco(self, texto):
+            return False
+
+        def get_pref(self, clave):
+            return None
+
+        def process_text_stream(self, texto):
+            self.ordenes.append(texto)
+
+    n = _Nucleo()
+    e = je.EscuchaContinua(n, log=lambda *a: None, palabras=("jarvis",))
+    ext = lambda frase: e._extraer_orden(je._norm(frase))
+
+    _check(ext("Apaga la luz, Jarvis.") == "apaga la luz", "el nombre también vale al final")
+    _check(ext("Yarvis, pon música") == "pon musica",
+           "entiende el nombre aunque el reconocedor lo oiga mal")
+    _check(ext("¿Jarvis, qué hora es?") == "que hora es",
+           "la puntuación de Whisper no estorba")
+    _check(ext("abre spotify") is None, "sin nombre ni conversación no hace nada")
+
+    n.voz = (_t.time() - 3, "Señor, tiene la reunión en diez minutos.")
+    _check(ext("pospónla media hora") == "posponla media hora",
+           "tras un aviso suyo se le contesta sin decir su nombre")
+    n.voz = (_t.time() - 30, "¿Quiere que apague el equipo?")
+    _check(ext("sí, apágalo") == "si, apagalo",
+           "si lo último fue una pregunta, la ventana dura más")
+    n.voz = (_t.time() - 30, "Hecho, señor.")
+    _check(ext("sí, apágalo") is None,
+           "si no preguntó nada, la ventana se cierra antes")
+
+    _check(je.es_cierre("eso es todo") and je.es_cierre("vale, muchas gracias"),
+           "«eso es todo» y «muchas gracias» cierran la conversación")
+    _check(not je.es_cierre("abre el correo"), "una orden no cierra la conversación")
+    n.voz = (_t.time() - 1, "¿Algo más, señor?")
+    e._cerrar_conversacion()
+    n.voz = (_t.time() + 1, "A su servicio, señor.")     # la despedida
+    _check(ext("pon música") is None,
+           "tras cerrarla, ni la despedida la reabre: vuelve a hacer falta el nombre")
+
+    _check(je.parece_peticion("pon música para estudiar"), "«pon música...» es una petición")
+    _check(je.parece_peticion("¿podrías explicarme las derivadas?"),
+           "«podrías explicarme...» es una petición")
+    _check(not je.parece_peticion("qué tal el examen"), "charlar con otro no es petición")
+    _check(not je.parece_peticion("apaga la tele"),
+           "sin nombre, lo destructivo nunca se toma por petición")
+
+    # Flujo completo, con el micrófono y la huella simulados.
+    def _oye(frase, parecido=None, hablando=False):
+        n.ordenes.clear()
+        n.hablando, n.callado = hablando, False
+        e._transcribir = lambda _a: frase
+        e._parecido_voz = lambda _a: parecido
+        e._procesar_audio(object())
+        for _ in range(50):
+            if n.ordenes:
+                break
+            _t.sleep(0.01)
+        return list(n.ordenes)
+
+    e._ultima_orden, n.voz = 0.0, (0.0, "")
+    _check(_oye("pon música de estudio") == [],
+           "sin huella de voz, fuera de conversación hace falta el nombre")
+    _check(_oye("pon música de estudio", parecido=0.95) == ["pon musica de estudio"],
+           "con su voz reconocida, una petición se atiende sin nombre")
+    e._ultima_orden, n.voz = 0.0, (0.0, "")
+    _check(_oye("apaga el pc", parecido=0.95) == [],
+           "pero apagar el equipo sin nombre, no")
+    _check(_oye("pon música de estudio", parecido=0.30) == [],
+           "otra voz pidiendo lo mismo no se atiende")
+    n.voz = (_t.time() - 2, "¿Abro el temario de física?")
+    _check(_oye("sí, ábrelo", parecido=0.30) == [],
+           "en conversación, una voz claramente ajena se ignora")
+    n._tts_hist = ["Voy a abrir el temario de física ahora mismo, señor."]
+    _check(_oye("el temario de física", hablando=True) == [],
+           "mientras habla, un trozo de su propia frase no se toma por orden")
+    _check(_oye("mejor ponme música", hablando=True) == ["mejor ponme musica"] and n.callado,
+           "si el señor le corta sin nombre, calla y obedece")
+
+    # Un solo micrófono por equipo: la web y el backend no pueden oír los dos.
+    libre = _s.socket()
+    libre.bind(("127.0.0.1", 0))
+    je.PUERTO_CANDADO = libre.getsockname()[1]
+    libre.close()
+    a = je.EscuchaContinua(n, log=lambda *x: None)
+    b = je.EscuchaContinua(n, log=lambda *x: None)
+    _check(a._tomar_microfono() and not b._tomar_microfono(),
+           "si ya hay un JARVIS escuchando, el segundo no abre el micrófono")
+    a._soltar_microfono()
+    _check(b._tomar_microfono(), "al soltarlo, otro puede tomarlo")
+    b._soltar_microfono()
+
+    # El núcleo cuenta cuándo terminó de hablar, también si habló la web.
+    import queue as _cola
+    from jarvis_core import JarvisCore
+    c = JarvisCore.__new__(JarvisCore)
+    c.tts_queue = _cola.Queue()
+    c._tts_hist = []
+    c._voz_en_curso = True
+    _check(c.esta_hablando(), "con la voz de Windows sonando, sabe que está hablando")
+    c._voz_en_curso = False
+    c.voz_externa("¿Le leo el correo nuevo?")
+    _check(c.esta_hablando() and "¿Le leo el correo nuevo?" in c._tts_hist,
+           "la voz del navegador cuenta como suya (y para el detector de eco)")
+    c.voz_externa_fin()
+    fin, dicho = c.ultima_voz()
+    _check(not c.esta_hablando() and abs(_t.time() - fin) < 2 and dicho.endswith("?"),
+           "al acabar la web, se abre la conversación desde ese momento")
+
+
 # ── 10. ULTRON: shell auditado y cadenas de órdenes ─────────────────────────
 def test_arsenal_ultron():
     print("\n== 10. ARSENAL DE ULTRON ==")

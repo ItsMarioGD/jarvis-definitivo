@@ -1293,6 +1293,31 @@ def tts_stop():
     return jsonify({'status': 'stopped'})
 
 
+def _avisar_voz_al_nucleo(texto: str, fin: bool = False):
+    """Cuenta a la escucha continua que el navegador habla (o terminó).
+
+    Solo desde este mismo PC: si la voz suena en el móvil, el micrófono del
+    ordenador no la oye y no debe abrir una conversación sin nombre.
+    """
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        return
+    nucleo = getattr(core, '_c', None)      # sin forzar la carga del núcleo
+    try:
+        if nucleo is not None and fin:
+            nucleo.voz_externa_fin()
+        elif nucleo is not None:
+            nucleo.voz_externa(texto)
+    except Exception as e:
+        print(f"[tts] No pude avisar a la escucha: {e}")
+
+
+@app.route('/api/voz_fin', methods=['POST'])
+def api_voz_fin():
+    """El navegador terminó de hablar: se le puede contestar sin decir «Jarvis»."""
+    _avisar_voz_al_nucleo('', fin=True)
+    return Response(status=204)
+
+
 @app.route('/api/speak', methods=['POST'])
 def api_speak():
     """Sintetiza el texto con ElevenLabs y devuelve el MP3 para reproducir
@@ -1307,6 +1332,7 @@ def api_speak():
     # distinta con la voz neuronal local.
     agente = (data.get('agente') or getattr(core, 'nombre_agente', 'jarvis') or 'jarvis').lower()
     sin_cabecera = {'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'}
+    _avisar_voz_al_nucleo(text)
 
     if key and 'tu_api' not in key and voice:
         # Tono servicial: voz calmada y profesional

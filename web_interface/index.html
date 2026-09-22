@@ -1812,8 +1812,8 @@ function playVoice(t){
         .then(blob=>{
             const url = URL.createObjectURL(blob);
             p.src = url;
-            p.onended = ()=>{ URL.revokeObjectURL(url); resume(); };
-            p.onerror = ()=>{ URL.revokeObjectURL(url); resume(); };
+            p.onended = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
+            p.onerror = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
             return p.play();
         })
         .catch(()=>{ browserSpeak(chunk); resume(); });
@@ -1829,8 +1829,14 @@ function browserSpeak(text){
                 || vs.find(x=>/es[-_]ES/i.test(x.lang))
                 || vs.find(x=>/es/i.test(x.lang));
         if(v) u.voice=v;
+        u.onend = vozFin; u.onerror = vozFin;
         speechSynthesis.speak(u);
-    }catch(e){}
+    }catch(e){ vozFin(); }
+}
+// Avisa a la escucha continua del PC de que JARVIS ya calló: desde ese
+// momento se le contesta sin decir su nombre.
+function vozFin(){
+    try{ fetch('/api/voz_fin',{method:'POST'}).catch(()=>{}); }catch(e){}
 }
 function stopVoice(){
     const p = document.getElementById('ttsPlayer');
