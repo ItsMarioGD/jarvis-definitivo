@@ -203,6 +203,26 @@ expediente) y vectores para lo que recuerdas con otras palabras.
 * Sin clave funciona igual, pero solo por palabras. También vale un motor
   local: `ollama pull nomic-embed-text`
 
+### Modo privado y la nube
+
+Si tiene el **modo privado** activado, manda él: las conversaciones se quedan
+en el cerebro de casa y las capturas de pantalla no salen del equipo, aunque
+haya clave de nube puesta. Antes la preferencia decía «privado» y el cerebro
+mandaba todo fuera igual.
+
+«¿qué sale de este equipo?» hace la auditoría, y ahora delata también a
+Pollinations: antes solo miraba Anthropic y el de casa.
+
+Los ojos siguen siendo los de casa por defecto. No es por pereza: medido sobre
+un enunciado en pantalla, `qwen2.5vl:3b` acierta lo mismo que `gpt-5-nano` y
+solo tarda 1,7 s más, así que mandar una foto de su pantalla a un tercero para
+empatar no sale a cuenta. Para una imagen difícil, `JARVIS_VISION=nube`.
+
+Y «¿por qué tardas?» dice ahora **cuántos tokens han salido del equipo** y
+cuántos se quedaron en casa. No se traduce a euros a propósito: Pollinations
+cobra en «pollen» y Anthropic en dólares por modelo, así que una cifra
+inventada daría falsa sensación de saber lo que se gasta.
+
 ### Qwen en casa
 
 Servido por Ollama. No pasa factura, no se queda sin saldo, funciona sin

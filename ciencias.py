@@ -148,17 +148,11 @@ def plan(core, enunciado: str, log=print) -> dict:
     if core is None:
         return base
     try:
-        from proveedor_claude import cliente as OpenAI
-        _n, url, modelo, clave = core._proveedores()[0]
-        cli = OpenAI(base_url=url, api_key=clave)
-        r = cli.chat.completions.create(
-            model=modelo, temperature=0.1, max_tokens=700,
-            messages=[{"role": "user", "content": _PROMPT + enunciado}])
-        txt = r.choices[0].message.content or ""
-        m = re.search(r"\{.*\}", txt, re.DOTALL)
-        if not m:
-            return base
-        p = json.loads(m.group(0))
+        # Por `pensar` y no a mano: con 700 tokens y un modelo que razona
+        # —qwen3:8b lo hace— el plan volvía VACÍO, se caía a las reglas y nadie
+        # entendía por qué el cerebro «no ayudaba» en los enunciados largos.
+        import pensar
+        p = pensar.estructura(core, _PROMPT, enunciado, tope=1800, log=log)
         if not isinstance(p, dict) or not p.get("accion"):
             return base
         # Las reglas mandan en lo que ellas ven claro (gráfica y 3D del texto).
@@ -698,13 +692,11 @@ def explicar(core, enunciado: str, r: dict, log=print) -> str:
         desarrollo="\n".join(f"  {s}" for s in ([r.get("titular", "")] + pasos))[:3000],
         bloque_latex=bloque, formato=formato)
     try:
-        from proveedor_claude import cliente as OpenAI
-        _n, url, modelo, clave = core._proveedores()[0]
-        cli = OpenAI(base_url=url, api_key=clave)
-        resp = cli.chat.completions.create(
-            model=modelo, temperature=0.2, max_tokens=1600,
-            messages=[{"role": "user", "content": prompt}])
-        return (resp.choices[0].message.content or "").strip()
+        # El tutor redacta largo, así que es justo donde más duele quedarse
+        # sin tokens a mitad de razonamiento y devolver la nada.
+        import pensar
+        return pensar.texto(core, "Eres un profesor que explica con claridad.",
+                            prompt, tope=3000, temperatura=0.2, log=log)
     except Exception as e:
         log(f"[CIENCIAS] el tutor no pudo redactar ({str(e)[:90]}); va el desarrollo seco")
         return ""

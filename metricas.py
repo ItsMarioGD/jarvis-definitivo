@@ -13,7 +13,7 @@ Windows). Aqui se mide lo que importa y se guarda con el resto del registro:
 
 Se usa como cronometro de contexto:
 
-    with metricas.medir("cerebro", modelo="qwen3:4b"):
+    with metricas.medir("cerebro", modelo="claude-opus-5"):
         respuesta = llamar_al_modelo()
 
 El informe responde a la pregunta util: «¿por que tarda?», con la mediana y el
@@ -66,6 +66,40 @@ def contar(clave: str, cantidad: float = 1.0):
     """Contadores acumulados: caracteres hablados, tokens, llamadas."""
     with _lock:
         _contadores[clave] += cantidad
+
+
+def anotar_cerebro(proveedor: str, modelo: str, respuesta, log=print):
+    """Cuántos tokens ha gastado cada cerebro, y si salieron del equipo.
+
+    No se traduce a dinero a propósito. ElevenLabs cobra por carácter y ahí una
+    estimación vale; Pollinations cobra en «pollen» y Anthropic en dólares con
+    precios distintos por modelo, así que una cifra inventada en euros daría
+    una falsa sensación de saber lo que se gasta. Lo que sí se puede decir con
+    certeza es cuántos tokens han salido del equipo y por dónde.
+    """
+    try:
+        uso = getattr(respuesta, "usage", None)
+        if uso is None and isinstance(respuesta, dict):
+            uso = respuesta.get("usage")
+        if not uso:
+            return
+        entrada = int(getattr(uso, "prompt_tokens", 0)
+                      or (uso.get("prompt_tokens", 0) if isinstance(uso, dict) else 0))
+        salida = int(getattr(uso, "completion_tokens", 0)
+                     or (uso.get("completion_tokens", 0) if isinstance(uso, dict) else 0))
+    except Exception:
+        return
+
+    # `base_url` del cliente de OpenAI no es una cadena, es un objeto URL: sin
+    # convertirlo, el `in` lanzaba TypeError y el contador se quedaba mudo
+    # justo donde nadie lo mira.
+    donde_str = str(proveedor or "")
+    local = "localhost" in donde_str or "127.0.0.1" in donde_str
+    donde = "casa" if local else "nube"
+    contar(f"tokens_{donde}_entrada", entrada)
+    contar(f"tokens_{donde}_salida", salida)
+    contar(f"llamadas_{donde}", 1)
+    contar(f"tokens_modelo::{modelo or '?'}", entrada + salida)
 
 
 def caracteres_hablados(texto: str, proveedor: str = "elevenlabs"):
@@ -125,6 +159,17 @@ def informe() -> str:
     if datos["caracteres_elevenlabs"]:
         cola = (f" He gastado {datos['caracteres_elevenlabs']} caracteres de voz "
                 f"en la nube, unos {coste:.2f} dólares estimados.")
+
+    # Dónde ha pensado. Lo importante no es el dinero —que cada proveedor cobra
+    # en su moneda— sino cuánto ha salido del equipo.
+    c = datos["contadores"]
+    nube = int(c.get("tokens_nube_entrada", 0) + c.get("tokens_nube_salida", 0))
+    casa = int(c.get("tokens_casa_entrada", 0) + c.get("tokens_casa_salida", 0))
+    if nube or casa:
+        total = nube + casa
+        cola += (f" De {total} tokens pensados, {casa} se quedaron en el equipo "
+                 f"y {nube} salieron a la nube "
+                 f"({100 * casa // max(total, 1)} % en casa).")
     return "Dónde se va el tiempo, señor — " + "; ".join(partes) + "." + cola
 
 

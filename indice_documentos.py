@@ -456,19 +456,17 @@ def responder(core, pregunta: str, log=print) -> str:
     fuentes = ", ".join(sorted({os.path.basename(r) for r, _t, _p in trozos}))
 
     try:
-        from proveedor_claude import cliente as OpenAI
-        _n, url, modelo, clave = core._proveedores()[0]
-        cliente = OpenAI(base_url=url, api_key=clave)
-        resp = cliente.chat.completions.create(
-            model=modelo, temperature=0.2, max_tokens=350,
-            messages=[
-                {"role": "system", "content":
-                    "Responde en español y SOLO con lo que digan los fragmentos. "
-                    "Si no está ahí, dilo claramente. Cita el archivo del que sale."},
-                {"role": "user", "content": f"Fragmentos:\n{contexto}\n\nPregunta: {pregunta}"}])
-        texto = (resp.choices[0].message.content or "").strip()
-        if "</think>" in texto:
-            texto = texto.split("</think>", 1)[1].strip()
+        # 350 tokens daban de sobra con un modelo que contesta y punto; con uno
+        # que razona, el razonamiento se los comía y la respuesta salía vacía.
+        import pensar
+        texto = pensar.texto(
+            core,
+            "Responde en español y SOLO con lo que digan los fragmentos. "
+            "Si no está ahí, dilo claramente. Cita el archivo del que sale.",
+            f"Fragmentos:\n{contexto}\n\nPregunta: {pregunta}",
+            tope=1500, temperatura=0.2, log=log)
+        if not texto:
+            raise ValueError("el cerebro no devolvió nada")
         return texto + f"\n\n(Fuentes: {fuentes})"
     except Exception as e:
         log(f"[INDICE] El cerebro no pudo responder: {e}")

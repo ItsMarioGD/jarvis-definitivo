@@ -54,6 +54,14 @@ def _llamar(cliente, modelo, mensajes, tope, esfuerzo, temperatura):
         r = cliente.chat.completions.create(**comun)
 
     from proveedor_claude import sin_pensamiento
+    # Se anota aquí porque es el único sitio por el que pasan todas: así el
+    # parte de «cuánto ha salido del equipo» no depende de que cada módulo se
+    # acuerde de contar lo suyo.
+    try:
+        import metricas
+        metricas.anotar_cerebro(getattr(cliente, "base_url", ""), modelo, r)
+    except Exception:
+        pass
     eleccion = r.choices[0]
     return (sin_pensamiento(eleccion.message.content or "").strip(),
             getattr(eleccion, "finish_reason", "") or "")

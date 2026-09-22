@@ -51,7 +51,7 @@ _LECTURA = {
 _CONFIRMAR = {
     "escribir_archivo", "editar_archivo", "mover_archivos", "organizar_descargas",
     "cerrar_app", "cerrar_proceso", "apagar_equipo", "reiniciar_equipo",
-    "bloquear_equipo", "ajustar_volumen", "enviar_telegram", "enviar_correo",
+    "bloquear_equipo", "enviar_telegram", "enviar_correo",
     "git_crear_rama", "git_commit", "correr_tests", "pilotar_pantalla",
     "reproducir_musica", "analizar_con_codigo", "delegar_subtarea",
     "procesar_reunion", "automejorar", "mision_larga", "modelar_3d", "holograma",
@@ -70,6 +70,12 @@ _CONFIRMAR = {
 
 # Todo lo demás (abrir_app, crear_nota, temporizador, recordatorio, captura,
 # deshacer_ultimo, orden_libre, mcp__*...) queda en "directo".
+#
+# `ajustar_volumen` estaba en "confirmar" y contradecía la regla de arriba:
+# "directo = cosas triviales y reversibles". Subir el volumen es exactamente
+# eso, y pedir un «confirma» para cada «sube el volumen» enseña al señor a
+# decir que sí sin leer, que es como una confirmación deja de proteger nada.
+# La prueba de regresión llevaba fallando desde entonces por este motivo.
 
 _POR_DEFECTO = "directo"
 

@@ -2234,3 +2234,219 @@ def test_pensar_rescata():
            "sin cerebro devuelve vacío, no una excepción")
     _check(not pensar.disponible(_SinCerebro()),
            "y se puede preguntar si lo hay antes de intentarlo")
+
+
+# ── 53. El cerebro de la nube llega de verdad al núcleo ────────────────────
+def test_pollinations_llega_al_nucleo():
+    print("\n== 53. CEREBRO: LISTA EFECTIVA ==")
+    import tempfile
+
+    from jarvis_core import JarvisCore
+
+    o = JarvisCore.__new__(JarvisCore)
+    o.log = lambda *a: None
+    o.api_key = ""
+    o.model = ""
+    o.base_url = ""
+
+    guardadas = {k: os.environ.get(k) for k in
+                 ("POLLINATIONS_API_KEY", "JARVIS_CEREBRO", "ANTHROPIC_API_KEY",
+                  "JARVIS_PRIVADO")}
+
+    def _lista(clave="abc123", preferido="", privado="0"):
+        os.environ["POLLINATIONS_API_KEY"] = clave
+        os.environ["JARVIS_CEREBRO"] = preferido
+        os.environ["ANTHROPIC_API_KEY"] = "sk-test"
+        os.environ["JARVIS_PRIVADO"] = privado
+        ruta = os.path.join(tempfile.gettempdir(),
+                            f"cerebro_t53_{abs(hash((clave, preferido, privado)))}.json")
+        if os.path.exists(ruta):
+            os.remove(ruta)
+        o._cerebro_path = ruta
+        o._cerebro = o._cerebro_leer()
+        return [n for n, _u, _m, _c in o._proveedores()]
+
+    try:
+        # ESTE es el fallo gordo: la lista blanca de _proveedores() solo
+        # admitía local o anthropic.com, así que Pollinations aparecía en
+        # cerebro.json, se veía en el panel... y el núcleo NUNCA lo usaba.
+        efectiva = _lista(preferido="pollinations")
+        _check(any(n.startswith("pollinations") for n in efectiva),
+               "Pollinations llega a la lista EFECTIVA, no solo al JSON",
+               f"-> {efectiva}")
+        _check(efectiva[0].startswith("pollinations"),
+               "y cuando se pide, manda", f"-> {efectiva}")
+        _check(any("qwen" in n for n in efectiva),
+               "el de casa sigue de reserva", f"-> {efectiva}")
+
+        # El modo privado manda sobre la comodidad.
+        privada = _lista(preferido="", privado="1")
+        _check("qwen" in privada[0],
+               "con modo privado, el cerebro de casa va primero aunque haya clave",
+               f"-> {privada}")
+
+        # Sin modo privado y con clave, la nube delante. Ojo: `vision.privado()`
+        # lee la preferencia de la BASE DE DATOS, así que poner la variable de
+        # entorno a cero no basta si el señor dejó el modo privado activado.
+        # Se sustituye la función para probar la REGLA, no su estado de hoy.
+        import vision
+        original = vision.privado
+        try:
+            vision.privado = lambda: False
+            normal = _lista(preferido="", privado="0")
+            _check(normal[0].startswith("pollinations"),
+                   "sin modo privado y con clave, la nube va delante",
+                   f"-> {normal}")
+        finally:
+            vision.privado = original
+    finally:
+        for k, v in guardadas.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+# ── 54. Privacidad: lo que sale se delata ──────────────────────────────────
+def test_privacidad_delata_la_nube():
+    print("\n== 54. PRIVACIDAD ==")
+    import privacidad
+
+    class _Core:
+        log = staticmethod(lambda *a: None)
+        elevenlabs_key = ""
+
+        def __init__(self):
+            self._prefs = {}
+
+        def get_pref(self, k):
+            return self._prefs.get(k, "")
+
+        def set_pref(self, k, v):
+            self._prefs[k] = v
+
+        def _voz_piper_activa(self):
+            return True
+
+        def _proveedores(self):
+            return [("pollinations:x", "https://gen.pollinations.ai/v1", "x", "k"),
+                    ("qwen3:8b", "http://localhost:11434/v1", "qwen3:8b", "ollama")]
+
+    salidas = privacidad.auditar(_Core())
+    etiquetas = [s[0] for s in salidas]
+    _check(any("pollinations" in e for e in etiquetas),
+           "la auditoría DELATA el cerebro en la nube", f"-> {etiquetas}")
+    _check(not any("qwen" in e for e in etiquetas),
+           "y no acusa al de casa, que no sale del equipo", f"-> {etiquetas}")
+
+    # El consejo ya no puede ser «no hay alternativa local»: la hay.
+    consejo = " ".join(a for _n, _q, a in salidas)
+    _check("Claude es el unico" not in consejo and "único" not in consejo,
+           "el consejo obsoleto de «Claude es el único cerebro» ya no aparece")
+
+
+# ── 55. Ojos: quién mira y cuándo ──────────────────────────────────────────
+def test_vision_quien_mira():
+    print("\n== 55. OJOS ==")
+    import vision
+
+    guardadas = {k: os.environ.get(k) for k in
+                 ("JARVIS_VISION", "JARVIS_PRIVADO", "JARVIS_CEREBRO")}
+    try:
+        for k in guardadas:
+            os.environ.pop(k, None)
+
+        # El modo privado corta la salida a la nube, pase lo que pase.
+        os.environ["JARVIS_PRIVADO"] = "1"
+        os.environ["JARVIS_VISION"] = "nube"
+        p = vision.proveedor_vision(log=lambda *a: None)
+        _check(not p or "pollinations" not in (p[0] or ""),
+               "con modo privado, la captura NO sale aunque se pida la nube",
+               f"-> {p[0] if p else 'nadie'}")
+
+        os.environ.pop("JARVIS_PRIVADO", None)
+        os.environ.pop("JARVIS_VISION", None)
+        p = vision.proveedor_vision(log=lambda *a: None)
+        _check(bool(p), "sin modo privado hay alguien que mira")
+        if p:
+            _check("localhost" in p[0] or "127.0.0.1" in p[0],
+                   "y por defecto mira el de casa: medido, acierta lo mismo",
+                   f"-> {p[0]}")
+    finally:
+        for k, v in guardadas.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+# ── 56. Métricas: cuánto ha salido del equipo ──────────────────────────────
+def test_metricas_cerebro():
+    print("\n== 56. METRICAS ==")
+    import metricas
+
+    class _Uso:
+        prompt_tokens = 100
+        completion_tokens = 40
+
+    class _Resp:
+        usage = _Uso()
+
+    antes = dict(metricas.resumen()["contadores"])
+    metricas.anotar_cerebro("http://localhost:11434/v1", "qwen3:8b", _Resp())
+    metricas.anotar_cerebro("https://gen.pollinations.ai/v1", "gpt-5-nano", _Resp())
+    c = metricas.resumen()["contadores"]
+
+    def _delta(k):
+        return int(c.get(k, 0) - antes.get(k, 0))
+
+    _check(_delta("tokens_casa_entrada") == 100 and _delta("tokens_casa_salida") == 40,
+           "los tokens del cerebro de casa se cuentan aparte")
+    _check(_delta("tokens_nube_entrada") == 100 and _delta("tokens_nube_salida") == 40,
+           "y los de la nube también")
+    _check(_delta("llamadas_casa") == 1 and _delta("llamadas_nube") == 1,
+           "se cuentan las llamadas de cada lado")
+
+    # `base_url` del cliente de OpenAI es un objeto URL, no una cadena: sin
+    # convertirlo el contador se quedaba mudo sin que nadie se enterara.
+    class _URL:
+        def __str__(self):
+            return "http://localhost:11434/v1"
+
+    previo = _delta("llamadas_casa")
+    metricas.anotar_cerebro(_URL(), "qwen3:8b", _Resp())
+    c = metricas.resumen()["contadores"]
+    _check(int(c.get("llamadas_casa", 0) - antes.get("llamadas_casa", 0)) == previo + 1,
+           "un base_url que no es cadena tampoco rompe el contador")
+
+    # Sin `usage` no se inventa nada.
+    class _Vacia:
+        pass
+    metricas.anotar_cerebro("http://x", "y", _Vacia())
+    _check(True, "una respuesta sin «usage» no revienta ni inventa tokens")
+
+    # El parte necesita al menos una MEDICIÓN de tiempo, no solo contadores:
+    # sin ella contesta «todavía no tengo mediciones» y la comprobación
+    # dependía de que otra prueba hubiera cronometrado algo antes.
+    metricas.anotar("cerebro", 1234.0, modelo="prueba")
+    _check("salieron a la nube" in metricas.informe(),
+           "el parte dice cuánto ha salido del equipo",
+           f"-> {metricas.informe()[-90:]}")
+
+
+# ── 57. Imágenes: de verdad o se avisa ─────────────────────────────────────
+def test_imagenes_avisan():
+    print("\n== 57. IMAGENES ==")
+    import inspect
+
+    import jarvis_generator
+
+    fuente = inspect.getsource(jarvis_generator.JarvisGenerator.gen_image)
+    # Sin clave, el servicio devuelve 500 y la generación caía al dibujo
+    # procedural EN SILENCIO: el señor pedía una imagen de IA y recibía un
+    # dibujo hecho a mano sin que nada se lo dijera.
+    _check("proveedor_pollinations" in fuente,
+           "la generación de imágenes usa la clave del señor")
+    _check("Authorization" in fuente, "y la manda como cabecera Bearer")
+    _check("range(5)" in fuente,
+           "reintenta cinco veces: el servicio falla rápido y acierta lento")
+    _check("procedural" in fuente and "log(" in fuente,
+           "y si acaba en el dibujo de repuesto, lo DICE")

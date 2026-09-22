@@ -1041,33 +1041,15 @@ def _ejecutar(nav: Navegador, accion: dict, seco: bool) -> str:
 def _preguntar(core, sistema: str, vista: str, log) -> str:
     """Una vuelta del cerebro. Texto, no visión: es diez veces más barato.
 
-    Qwen razona en voz alta entre <think>, y cuando el razonamiento se come los
-    tokens la respuesta llega sin JSON. Por eso hay un segundo intento con la
-    orden de contestar a bocajarro: es más barato que perder el paso entero.
+    Va por `pensar.py`, que es donde vive el arreglo bueno. El reintento que
+    había aquí BAJABA el presupuesto de 700 a 400 tokens, y eso es justo al
+    revés de lo que hace falta: si la respuesta vino vacía fue porque el
+    razonamiento se comió el turno, así que con menos sitio vuelve a pasar.
     """
-    from proveedor_claude import cliente as OpenAI, sin_pensamiento
-    try:
-        _n, url, modelo, clave = core._proveedores()[0]
-        cliente = OpenAI(base_url=url, api_key=clave)
-    except Exception as e:
-        log(f"[NAVEGADOR] No hay cerebro al que preguntar: {e}")
-        return ""
-
-    for intento, (tope, empuje) in enumerate(
-            ((700, ""), (400, "\n\nResponde SOLO con el JSON, sin razonar antes."))):
-        try:
-            r = cliente.chat.completions.create(
-                model=modelo, temperature=0.1, max_tokens=tope,
-                messages=[{"role": "system", "content": sistema + empuje},
-                          {"role": "user", "content": vista}])
-            texto = sin_pensamiento((r.choices[0].message.content or "")).strip()
-            if _leer_json(texto) is not None:
-                return texto
-            log(f"[NAVEGADOR] Sin JSON en el intento {intento + 1}; reintento.")
-        except Exception as e:
-            log(f"[NAVEGADOR] El cerebro no contestó: {e}")
-            return ""
-    return ""
+    import pensar
+    datos = pensar.estructura(core, sistema, vista, tope=1500, temperatura=0.1,
+                              log=log)
+    return json.dumps(datos, ensure_ascii=False) if datos is not None else ""
 
 
 def _leer_json(texto: str):

@@ -122,7 +122,7 @@ def _pedir_codigo(core, peticion: str, error_previo: str = "", codigo_previo: st
                   log=print) -> str:
     """Le pide el programa al modelo. Si hay error previo, se lo da para corregir."""
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         _n, url, modelo, clave = core._proveedores()[0]
         cliente = (core._cliente_llm(url, clave) if hasattr(core, "_cliente_llm")
                    else OpenAI(base_url=url, api_key=clave))
@@ -135,7 +135,7 @@ def _pedir_codigo(core, peticion: str, error_previo: str = "", codigo_previo: st
         else:
             usuario = f"Tarea: {peticion}"
         resp = cliente.chat.completions.create(
-            model=modelo, temperature=0.15, max_tokens=1200,
+            model=modelo, temperature=0.15, max_tokens=3000,
             messages=[{"role": "system", "content": sistema},
                       {"role": "user", "content": usuario}])
         texto = resp.choices[0].message.content or ""

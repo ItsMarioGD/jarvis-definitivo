@@ -2,9 +2,9 @@
 """
 privacidad.py - Modo privado verificable
 ========================================
-El proyecto ya tenia todas las piezas para funcionar sin nube (Piper para la
-voz, faster-whisper para el dictado, Ollama para el cerebro), pero la
-privacidad dependia de que cada preferencia estuviera bien puesta en su sitio,
+El proyecto ya tenia piezas para funcionar sin nube (Piper para la voz,
+faster-whisper para el dictado, OCR para la vision), pero la privacidad
+dependia de que cada preferencia estuviera bien puesta en su sitio,
 y no habia forma de comprobarlo de un vistazo. «¿Sale mi voz del equipo?» no
 tenia respuesta: tenia siete respuestas repartidas por el codigo.
 
@@ -18,6 +18,12 @@ Aqui hay dos cosas:
 El modo privado no borra nada ni rompe nada: fuerza los caminos locales que ya
 existian. Si algo no tiene alternativa local (ElevenLabs, por ejemplo), se
 desactiva y se dice cual es el coste, en lugar de fingir que sigue igual.
+
+El CEREBRO es la excepcion desde que JARVIS usa solo Anthropic: antes habia un
+modelo local (Ollama) al que caerse, y ya no. Claude vive en la nube, asi que el
+modo privado NO puede hacerlo local. Lo dice claro en la auditoria y apaga lo
+que si puede (vision por nube, memoria en la nube, mensajeria) en vez de dejar a
+JARVIS mudo fingiendo privacidad.
 """
 import json
 import os
@@ -67,11 +73,21 @@ def auditar(core) -> list:
                            for p in (getattr(core, "_cerebro", {}) or {}).get("proveedores", [])]
         except Exception:
             proveedores = []
+    # Desde que Qwen vive en casa, un cerebro en la nube YA tiene alternativa
+    # local. El consejo de antes («sin alternativa: Claude es el único») se
+    # quedó obsoleto y, peor, desanimaba a arreglar algo que sí se arregla.
+    hay_local = False
+    try:
+        import cerebro_local
+        hay_local = bool(cerebro_local.modelos_instalados())
+    except Exception:
+        pass
     for nombre, url in proveedores:
         if url and "localhost" not in url and "127.0.0.1" not in url:
             salidas.append((f"cerebro ({nombre})",
                             f"las conversaciones viajan a {url}",
-                            "usar solo Ollama local"))
+                            "el cerebro de casa (Qwen por Ollama)" if hay_local
+                            else "descargue el cerebro de casa: ollama pull qwen3:8b"))
 
     # 4. Memoria semantica
     if os.getenv("MEM0_API_KEY", "").strip():
@@ -125,6 +141,7 @@ def activar(core) -> str:
         "stt_local": core.get_pref("stt_local") or "",
         "voz_windows": core.get_pref("voz_windows") or "",
         "voz_piper": core.get_pref("voz_piper") or "",
+        "vision_nube": core.get_pref("vision_nube") or "",
         "cerebro": getattr(core, "_cerebro", {}),
     }
     try:
@@ -147,20 +164,36 @@ def activar(core) -> str:
     core.set_pref("stt_local", "1")
     cambios.append("el dictado se queda en el equipo")
 
-    # Cerebro: solo proveedores locales.
+    # Cerebro: AHORA SÍ se puede. Cuando esto se escribió, Claude era el único
+    # y dejarlo sin proveedores habría sido apagar a JARVIS diciéndole al señor
+    # que seguía funcionando. Con Qwen en casa por Ollama ya hay alternativa
+    # local de verdad, así que el modo privado la fuerza: es lo que el señor
+    # cree que está pidiendo cuando dice «modo privado».
     try:
-        proveedores = (core._cerebro.get("proveedores") or [])
-        locales = [p for p in proveedores
-                   if "localhost" in (p.get("url") or "") or "127.0.0.1" in (p.get("url") or "")]
-        if not locales:
-            locales = [{"nombre": "ollama", "url": core.base_url,
-                        "modelo": core.model, "clave": core.api_key}]
-        if len(locales) != len(proveedores):
-            cambios.append("el cerebro usa solo el modelo local")
-        core._cerebro = dict(core._cerebro or {})
-        core._cerebro["proveedores"] = locales
+        import cerebro_local
+        if cerebro_local.vivo() or cerebro_local.arrancar(log=core.log):
+            os.environ["JARVIS_CEREBRO"] = "local"
+            core.set_pref("cerebro_preferido", "local")
+            try:
+                core._cerebro = core._cerebro_leer()
+            except Exception:
+                pass
+            cambios.append("las conversaciones se quedan en el equipo "
+                           f"({cerebro_local.MODELO})")
+        else:
+            cambios.append("OJO: el cerebro de casa no arranca, así que las "
+                           "conversaciones siguen saliendo a la nube")
     except Exception as e:
-        core.log(f"[PRIVADO] Cerebro: {e}")
+        core.log(f"[PRIVADO] No pude forzar el cerebro local: {e}")
+
+    # La VISION por nube se cierra igual: el modelo con ojos de casa mira sin
+    # que la captura salga, y medido acierta lo mismo en pantallas.
+    try:
+        core.set_pref("vision_nube", "0")
+        os.environ["JARVIS_PRIVADO"] = "1"
+        cambios.append("las capturas de pantalla no salen del equipo")
+    except Exception as e:
+        core.log(f"[PRIVADO] Vision: {e}")
 
     core.set_pref(CLAVE_ACTIVO, "1")
     try:
@@ -174,8 +207,14 @@ def activar(core) -> str:
     pendientes = auditar(core)
     aviso = ""
     if pendientes:
+        # Lo que queda abierto son RESERVAS: el cerebro de casa va primero,
+        # pero las claves de la nube siguen en el .env por si se cae. Decir
+        # «no tiene alternativa local» ya no es cierto y confundía.
         aviso = (" Quedan abiertas: "
-                 + ", ".join(n for n, _q, _a in pendientes) + ".")
+                 + ", ".join(n for n, _q, _a in pendientes)
+                 + ". Son reservas, no la vía principal; si quiere cerrarlas "
+                   "del todo, quite esas claves del .env "
+                   "(POLLINATIONS_API_KEY, ANTHROPIC_API_KEY).")
     return ("Modo privado activado, señor: " + (", ".join(cambios) or "todo ya era local")
             + "." + aviso)
 
@@ -191,14 +230,25 @@ def desactivar(core) -> str:
 
     if anterior.get("elevenlabs_key"):
         core.elevenlabs_key = anterior["elevenlabs_key"]
-    for clave in ("stt_local", "voz_windows", "voz_piper"):
+    for clave in ("stt_local", "voz_windows", "voz_piper", "vision_nube"):
         if anterior.get(clave) != "":
             try:
                 core.set_pref(clave, anterior.get(clave, ""))
             except Exception:
                 pass
     if anterior.get("cerebro"):
-        core._cerebro = anterior["cerebro"]
+        # El estado guardado puede ser de antes de retirar Kimi/Ollama: restaurar
+        # esos proveedores dejaria a JARVIS apuntando a un localhost vacio. Se
+        # restaura solo lo que sigue siendo valido, y si no queda nada se deja el
+        # cerebro actual, que ya es el bueno.
+        guardados = [p for p in (anterior["cerebro"].get("proveedores") or [])
+                     if "anthropic.com" in (p.get("url") or "").lower()]
+        if guardados:
+            core._cerebro = dict(anterior["cerebro"])
+            core._cerebro["proveedores"] = guardados
+    # Vuelven los ojos: sin esto la vision se quedaba en OCR para siempre.
+    core.set_pref("vision_nube", anterior.get("vision_nube") or "1")
+    os.environ.pop("JARVIS_PRIVADO", None)
 
     core.set_pref(CLAVE_ACTIVO, "0")
     try:

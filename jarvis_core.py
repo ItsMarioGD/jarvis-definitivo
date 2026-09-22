@@ -1040,6 +1040,17 @@ class JarvisCore:
         # porque el nivel anónimo va a una petición cada 15 segundos.
         preferido = (os.getenv("JARVIS_CEREBRO") or "").strip().lower()
         if not preferido:
+            # El modo privado manda sobre la comodidad. Si el señor lo dejó
+            # puesto, sus conversaciones no salen del equipo aunque haya clave
+            # de nube: una preferencia que dice «privado» y un cerebro que
+            # manda todo fuera es justo lo que nadie espera.
+            try:
+                import vision as _vision
+                if _vision.privado():
+                    preferido = "local"
+            except Exception:
+                pass
+        if not preferido:
             preferido = "pollinations" if _poll.hay_clave() else "local"
 
         def _familia(p) -> str:
@@ -1111,8 +1122,17 @@ class JarvisCore:
             if not (url and modelo):
                 continue
             import cerebro_local as _local
+            import proveedor_pollinations as _poll
             if _local.es_local(url):
                 proveedores.append((nombre, url, modelo, clave or _local.CLAVE))
+            elif _poll.es_pollinations(url):
+                # Pollinations se caía aquí EN SILENCIO: la lista blanca solo
+                # admitía local o anthropic.com, así que el proveedor aparecía
+                # en cerebro.json, se veía en el panel... y el núcleo nunca lo
+                # usaba. Peor todavía: la auditoría de privacidad mira esta
+                # misma lista, así que una salida a la nube no se delataba.
+                # Sin clave no sirve de nada, pero el nivel anónimo sí existe.
+                proveedores.append((nombre, url, modelo, clave or "anonimo"))
             elif clave and "anthropic.com" in url.lower():
                 proveedores.append((nombre, url, modelo, clave))
         if not proveedores and self.api_key:

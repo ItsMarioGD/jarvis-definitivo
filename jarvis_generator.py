@@ -20,28 +20,20 @@ def _safe_name(text, maxlen=40):
 class JarvisGenerator:
     def __init__(self, log=print):
         self.log = log
-        self._ollama_url = "http://localhost:11434/api/generate"
-        self._llm_model = "llama3.2:1b"
 
     def _llm_generate(self, system_prompt, user_prompt, max_tokens=1024):
-        """Llama 3 via Ollama para contenido inteligente"""
+        """Claude para el contenido inteligente (antes era Llama 3 por Ollama)."""
         try:
-            import requests as _req
-            resp = _req.post(self._ollama_url, json={
-                "model": self._llm_model,
-                "system": system_prompt,
-                "prompt": user_prompt,
-                "stream": False,
-                "options": {"num_predict": max_tokens, "temperature": 0.7}
-            }, timeout=60)
-            resp.raise_for_status()
-            return resp.json().get("response", "").strip()
+            import proveedor_claude
+            return proveedor_claude.responder(
+                user_prompt, sistema=system_prompt, max_tokens=max_tokens,
+                timeout=90, log=self.log)
         except Exception as e:
-            self.log(f"Error Llama 3: {e}")
+            self.log(f"Error Claude: {e}")
             return ""
 
     def _llm_sections(self, prompt, n_sections=5):
-        """Genera secciones de contenido usando Llama 3"""
+        """Genera secciones de contenido usando Claude"""
         sys = (
             "Eres un escritor profesional experto. Genera contenido ORIGINAL, detallado y de alta calidad. "
             "Responde SOLO con un JSON valido: [{\"title\": \"...\", \"body\": \"...\"}, ...] "
@@ -127,10 +119,26 @@ class JarvisGenerator:
 
             url = f"https://image.pollinations.ai/p/{quote(enhanced)}?width=1024&height=1024&seed={seed}&model=flux&nologo=true"
 
+            # La clave del señor, si la tiene. SIN ella este endpoint devuelve
+            # 500 desde hace un tiempo, así que la generación caía al dibujo
+            # procedural de repuesto y parecía que la IA «dibujaba raro»: no
+            # dibujaba nada. Con clave contesta 200 y una imagen de verdad.
+            cabeceras = {}
+            try:
+                import proveedor_pollinations as _poll
+                if _poll.hay_clave():
+                    cabeceras["Authorization"] = f"Bearer {_poll.clave()}"
+            except Exception:
+                pass
+
+            # Cinco intentos y no tres: medido, el servicio devuelve 500 a
+            # menudo y falla RÁPIDO (1,7 s), mientras que el acierto tarda casi
+            # un minuto. Reintentar sale casi gratis y es lo que decide entre
+            # una imagen de verdad y el dibujo de repuesto.
             resp = None
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
-                    resp = _req.get(url, timeout=120)
+                    resp = _req.get(url, headers=cabeceras, timeout=180)
                     ct = resp.headers.get("Content-Type", "")
                     if resp.status_code == 200 and "image" in ct:
                         break
@@ -143,7 +151,20 @@ class JarvisGenerator:
                     import time as _t; _t.sleep(2)
 
             if resp is None or resp.status_code != 200 or "image" not in resp.headers.get("Content-Type", ""):
-                return self._gen_image_procedural(prompt)
+                # Caer al dibujo procedural está bien; hacerlo EN SILENCIO no.
+                # El señor pedía una imagen de IA y recibía un dibujo hecho a
+                # mano sin que nada se lo dijera.
+                if not cabeceras:
+                    self.log("[IMAGEN] Sin clave de Pollinations el servicio "
+                             "devuelve 500. Ponga POLLINATIONS_API_KEY en el "
+                             ".env; mientras, va el dibujo de repuesto.")
+                else:
+                    self.log("[IMAGEN] Pollinations no devolvió imagen; va el "
+                             "dibujo de repuesto.")
+                salida = self._gen_image_procedural(prompt)
+                if isinstance(salida, dict):
+                    salida["procedural"] = True
+                return salida
 
             fname = _safe_name(prompt, 30) + "_ai.png"
             path = _out("Imagenes", fname)

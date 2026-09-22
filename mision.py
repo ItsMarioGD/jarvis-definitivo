@@ -80,12 +80,12 @@ class Mision:
 def planificar(core, objetivo: str, log=print, max_pasos: int = MAX_PASOS) -> list:
     """Convierte un objetivo en pasos ejecutables."""
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         _n, url, modelo, clave = core._proveedores()[0]
         cliente = (core._cliente_llm(url, clave) if hasattr(core, "_cliente_llm")
                    else OpenAI(base_url=url, api_key=clave))
         resp = cliente.chat.completions.create(
-            model=modelo, temperature=0.3, max_tokens=400,
+            model=modelo, temperature=0.3, max_tokens=1600,
             messages=[{"role": "system",
                        "content": INSTRUCCIONES.replace("{max_pasos}", str(max_pasos))},
                       {"role": "user", "content": f"Objetivo: {objetivo}"}])
@@ -162,13 +162,13 @@ class Piloto:
     def _replantear(self, paso: str, error: str) -> str:
         """Una alternativa cuando un paso falla. Solo se pide una vez."""
         try:
-            from openai import OpenAI
+            from proveedor_claude import cliente as OpenAI
             _n, url, modelo, clave = self.core._proveedores()[0]
             cliente = (self.core._cliente_llm(url, clave)
                        if hasattr(self.core, "_cliente_llm")
                        else OpenAI(base_url=url, api_key=clave))
             resp = cliente.chat.completions.create(
-                model=modelo, temperature=0.4, max_tokens=90,
+                model=modelo, temperature=0.4, max_tokens=900,
                 messages=[{"role": "system", "content":
                            "Reescribe la orden para que el asistente pueda cumplirla. "
                            "Responde SOLO con la orden nueva, en una línea, en español."},
@@ -279,13 +279,13 @@ class PilotoLargo(Piloto):
 
     def fases(self, objetivo: str) -> list:
         try:
-            from openai import OpenAI
+            from proveedor_claude import cliente as OpenAI
             _n, url, modelo, clave = self.core._proveedores()[0]
             cli = (self.core._cliente_llm(url, clave)
                    if hasattr(self.core, "_cliente_llm")
                    else OpenAI(base_url=url, api_key=clave))
             r = cli.chat.completions.create(
-                model=modelo, temperature=0.3, max_tokens=300,
+                model=modelo, temperature=0.3, max_tokens=1200,
                 messages=[{"role": "system",
                            "content": _INSTR_FASES.replace("{max_fases}", str(MAX_FASES))},
                           {"role": "user", "content": f"Objetivo: {objetivo}"}])

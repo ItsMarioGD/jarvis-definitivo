@@ -33,7 +33,7 @@ _CORE_REF = [None]     # último core, para el aviso por voz al terminar
 
 def _correr(core, tarea: str, sid: int, log=print):
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         import herramientas_llm
         import json as _j
     except Exception as e:
@@ -69,7 +69,7 @@ def _correr(core, tarea: str, sid: int, log=print):
         try:
             resp = cliente.chat.completions.create(
                 model=modelo, messages=conversacion, tools=definiciones,
-                tool_choice="auto", temperature=0.2, max_tokens=500)
+                tool_choice="auto", temperature=0.2, max_tokens=2000)
         except Exception as e:
             _fin(sid, f"el modelo falló: {str(e)[:120]}", log)
             return
