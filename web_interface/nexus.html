@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NEXUS · JARVIS / ULTRON</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS — una interfaz, dos personalidades.
+   Todo el color pasa por variables: cambiar de personalidad es INTERPOLAR
+   estas variables, no repintar la página. La densidad la dan tres capas:
+   cristal (paneles), líneas (marcos y rejilla) y datos vivos (telemetría real).
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --p1:#00d4ff; --p2:#0066ff; --p3:#7de8ff;
+  --fondo:#01050a; --borde:rgba(0,212,255,.20); --borde2:rgba(0,212,255,.40);
+  --texto:#d8ecfa; --tenue:#6f8ba4; --rejilla:rgba(0,212,255,.045);
+  --ok:#25d07a; --mal:#ff4060; --aviso:#ffb020;
+  --curva:cubic-bezier(.22,.61,.36,1);
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--fondo);color:var(--texto);overflow:hidden;
+  font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+  transition:background .9s var(--curva)}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:var(--borde2);border-radius:3px}
+::-webkit-scrollbar-track{background:transparent}
+
+#lienzo{position:fixed;inset:0;z-index:0}
+.rejilla{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.6;
+  background-image:linear-gradient(var(--rejilla) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--rejilla) 1px,transparent 1px);
+  background-size:52px 52px;transition:background-image .9s var(--curva)}
+.lineas{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.3;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.5) 0 1px,transparent 1px 3px)}
+.vineta{position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 42%,transparent 38%,rgba(0,0,0,.8) 100%)}
+.barrido-global{position:fixed;left:0;right:0;height:180px;z-index:1;pointer-events:none;opacity:.5;
+  background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--p1) 7%,transparent),transparent);
+  animation:bajar 9s linear infinite}
+@keyframes bajar{from{top:-180px}to{top:100%}}
+
+.esquina{position:fixed;width:24px;height:24px;z-index:3;pointer-events:none;
+  border:2px solid var(--p1);opacity:.45;transition:border-color .9s var(--curva)}
+.esquina.si{top:9px;left:9px;border-right:0;border-bottom:0}
+.esquina.sd{top:9px;right:9px;border-left:0;border-bottom:0}
+.esquina.ii{bottom:9px;left:9px;border-right:0;border-top:0}
+.esquina.id{bottom:9px;right:9px;border-left:0;border-top:0}
+
+.marco{position:relative;z-index:2;height:100%;display:flex;flex-direction:column}
+
+header{display:flex;align-items:center;gap:15px;padding:10px 18px;position:relative;
+  border-bottom:1px solid var(--borde);backdrop-filter:blur(10px);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--p1) 5%,rgba(1,5,10,.94)),rgba(1,5,10,.5))}
+header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;opacity:.7;
+  background:linear-gradient(90deg,transparent,var(--p1),transparent);transition:background .9s var(--curva)}
+.identidad{display:flex;flex-direction:column;gap:3px;min-width:190px}
+.identidad .nombre{font-size:18px;font-weight:700;letter-spacing:.38em;color:var(--p1);
+  text-shadow:0 0 20px color-mix(in srgb,var(--p1) 60%,transparent);
+  transition:color .9s var(--curva),text-shadow .9s var(--curva)}
+.identidad .lema{font:400 10px/1 var(--mono);letter-spacing:.2em;color:var(--tenue);text-transform:uppercase}
+header .hueco{flex:1}
+
+.selector{position:relative;display:flex;gap:2px;padding:4px;border:1px solid var(--borde);
+  border-radius:30px;background:rgba(0,0,0,.42);transition:border-color .9s var(--curva)}
+.selector button{position:relative;z-index:2;background:none;border:0;color:var(--tenue);
+  font:600 11.5px/1 var(--mono);letter-spacing:.2em;padding:9px 15px;border-radius:26px;
+  cursor:pointer;transition:color .45s var(--curva)}
+.selector button.activo{color:#01050a}
+.selector .corredera{position:absolute;z-index:1;top:4px;left:4px;height:calc(100% - 8px);
+  border-radius:26px;background:linear-gradient(120deg,var(--p1),var(--p2));
+  box-shadow:0 0 24px color-mix(in srgb,var(--p1) 50%,transparent);
+  transition:transform .6s var(--curva),width .6s var(--curva),background .9s var(--curva)}
+
+.marcador{display:flex;flex-direction:column;gap:2px;padding:0 11px;
+  border-left:1px solid var(--borde);min-width:84px}
+.marcador .et{font:400 9px/1 var(--mono);letter-spacing:.2em;color:var(--tenue);text-transform:uppercase}
+.marcador .vl{font:600 13px/1.25 var(--mono);color:var(--texto);letter-spacing:.03em}
+.marcador .vl b{font-weight:600;transition:color .9s var(--curva)}
+
+.icono{width:38px;height:38px;border:1px solid var(--borde);border-radius:11px;flex:0 0 auto;
+  background:rgba(0,0,0,.4);color:var(--p1);cursor:pointer;display:grid;place-items:center;
+  transition:all .32s var(--curva)}
+.icono:hover{border-color:var(--p1);transform:translateY(-1px);
+  box-shadow:0 0 22px color-mix(in srgb,var(--p1) 34%,transparent)}
+.icono svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6}
+
+.escenario{flex:1;min-height:0;display:grid;overflow:hidden;overflow:clip;
+  grid-template-columns:60px 200px minmax(0,1fr) 200px 390px}
+@media(max-width:1500px){.escenario{grid-template-columns:60px 188px minmax(0,1fr) 370px}
+  .col-sucesos{display:none}}
+@media(max-width:1180px){.escenario{grid-template-columns:56px minmax(0,1fr) 350px}
+  .col-tele{display:none}}
+@media(max-width:900px){
+  .escenario{grid-template-columns:50px minmax(0,1fr);
+    grid-template-rows:minmax(150px,26vh) minmax(0,1fr)}
+  .rail{grid-row:1/3}.dialogo{grid-column:2}}
+
+.rail{display:flex;flex-direction:column;gap:7px;padding:11px 8px;overflow-y:auto;
+  border-right:1px solid var(--borde);background:rgba(1,5,10,.6);backdrop-filter:blur(8px);
+  transition:border-color .9s var(--curva)}
+.rail::-webkit-scrollbar{width:0}
+.rail .mod{width:42px;height:42px;border:1px solid transparent;border-radius:12px;flex:0 0 auto;
+  display:grid;place-items:center;cursor:pointer;color:var(--tenue);position:relative;
+  transition:all .3s var(--curva)}
+.rail .mod:hover{color:var(--p1);border-color:var(--borde);
+  background:color-mix(in srgb,var(--p1) 9%,transparent)}
+.rail .mod.activo{color:#01050a;background:linear-gradient(120deg,var(--p1),var(--p2));
+  box-shadow:0 0 24px color-mix(in srgb,var(--p1) 46%,transparent)}
+.rail .mod svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6}
+.rail .mod .globo{position:absolute;left:52px;white-space:nowrap;font:500 10px/1 var(--mono);
+  letter-spacing:.16em;text-transform:uppercase;background:rgba(4,11,20,.97);
+  border:1px solid var(--borde2);color:var(--texto);padding:6px 10px;border-radius:7px;
+  opacity:0;pointer-events:none;transform:translateX(-6px);transition:all .25s var(--curva);z-index:30}
+.rail .mod:hover .globo{opacity:1;transform:none}
+
+.col{display:flex;flex-direction:column;gap:9px;padding:11px 9px;overflow-y:auto;
+  background:linear-gradient(180deg,rgba(4,11,20,.5),rgba(1,5,10,.72))}
+.col-tele{border-right:1px solid var(--borde)}
+.col-sucesos{border-left:1px solid var(--borde)}
+.col::-webkit-scrollbar{width:3px}
+
+.widget{border:1px solid var(--borde);border-radius:10px;padding:10px;position:relative;
+  background:rgba(255,255,255,.018);transition:border-color .9s var(--curva)}
+.widget::before{content:"";position:absolute;top:-1px;left:10px;width:22px;height:1px;
+  background:var(--p1);opacity:.85;transition:background .9s var(--curva)}
+.widget h4{margin:0 0 7px;font:600 9.5px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;
+  color:var(--p1);transition:color .9s var(--curva)}
+.cifra{font:600 21px/1 var(--mono);color:var(--texto);display:flex;align-items:baseline;gap:4px}
+.cifra small{font-size:10px;color:var(--tenue);letter-spacing:.14em}
+.barra{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:6px}
+.barra i{display:block;height:100%;border-radius:3px;transition:width .7s var(--curva);
+  background:linear-gradient(90deg,var(--p2),var(--p1))}
+.grafica{width:100%;height:36px;display:block;margin-top:5px}
+.linea{display:flex;justify-content:space-between;gap:8px;font:400 10.5px/1.75 var(--mono);
+  border-bottom:1px dashed rgba(255,255,255,.055);padding:1px 0}
+.linea:last-child{border-bottom:0}
+.linea span:first-child{color:var(--tenue);letter-spacing:.06em}
+.linea b{font-weight:600;color:var(--texto)}
+.et-ok{color:var(--ok)}.et-mal{color:var(--mal)}.et-av{color:var(--aviso)}
+
+.suceso{font:400 10.5px/1.45 var(--mono);padding:5px 7px;border-radius:6px;margin-bottom:5px;
+  border-left:2px solid var(--borde2);background:rgba(255,255,255,.02);
+  animation:entrar .4s var(--curva) both}
+.suceso .hora{color:var(--tenue);font-size:9px;letter-spacing:.12em}
+.suceso.alta{border-left-color:var(--mal)}
+.suceso.aviso{border-left-color:var(--aviso)}
+.suceso.critica{border-left-color:var(--mal);background:rgba(255,64,96,.08)}
+
+.nucleo{position:relative;min-height:0;display:grid;place-items:center;overflow:hidden}
+#reactor{width:min(56vh,500px);height:min(56vh,500px);max-width:90%;max-height:90%}
+@media(max-width:900px){#reactor{width:min(23vh,220px);height:min(23vh,220px)}}
+.nucleo .marca{position:absolute;font:400 9.5px/1.7 var(--mono);letter-spacing:.16em;
+  color:var(--tenue);text-transform:uppercase;pointer-events:none}
+.nucleo .marca.arriba{top:14px;left:16px}
+.nucleo .marca.arriba-d{top:14px;right:16px;text-align:right}
+.nucleo .marca.abajo{bottom:56px;left:16px}
+.nucleo .marca b{color:var(--p1);transition:color .9s var(--curva)}
+.lectura{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:18px;
+  font:400 10px/1 var(--mono);letter-spacing:.16em;color:var(--tenue);text-transform:uppercase;
+  white-space:nowrap;background:rgba(1,5,10,.6);padding:7px 14px;border-radius:20px;
+  border:1px solid var(--borde)}
+.lectura b{color:var(--p1);font-weight:600;transition:color .9s var(--curva)}
+.nucleo::before,.nucleo::after{content:"";position:absolute;width:32px;height:32px;
+  border:1px solid var(--borde2);pointer-events:none;transition:border-color .9s var(--curva)}
+.nucleo::before{top:10px;left:10px;border-right:0;border-bottom:0}
+.nucleo::after{bottom:10px;right:10px;border-left:0;border-top:0}
+
+.dialogo{display:flex;min-height:0;flex-direction:column;border-left:1px solid var(--borde);
+  background:linear-gradient(180deg,rgba(4,11,20,.66),rgba(1,5,10,.9));backdrop-filter:blur(10px);
+  transition:border-color .9s var(--curva)}
+.dialogo .titulo{display:flex;align-items:center;gap:8px;padding:10px 15px;
+  border-bottom:1px solid var(--borde);font:600 9.5px/1 var(--mono);letter-spacing:.24em;
+  text-transform:uppercase;color:var(--p1);transition:color .9s var(--curva)}
+.dialogo .titulo .punto{width:6px;height:6px;border-radius:50%;background:var(--p1);
+  box-shadow:0 0 8px var(--p1);animation:latir 2.4s infinite}
+.dialogo .titulo .hueco{flex:1}
+.dialogo .titulo em{font-style:normal;color:var(--tenue);letter-spacing:.14em}
+.hilo{flex:1;min-height:0;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:93%;padding:10px 13px;border-radius:12px;font-size:13.5px;position:relative;
+  animation:entrar .42s var(--curva) both;word-wrap:break-word}
+@keyframes entrar{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+.msg.yo{align-self:flex-end;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.11);border-bottom-right-radius:3px}
+.msg.agente{align-self:flex-start;border-bottom-left-radius:3px;
+  background:color-mix(in srgb,var(--p1) 8%,transparent);
+  border:1px solid color-mix(in srgb,var(--p1) 26%,transparent)}
+.msg.sistema{align-self:center;background:none;border:0;color:var(--tenue);text-align:center;
+  font:400 9.5px/1.5 var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.msg .quien{display:flex;justify-content:space-between;gap:12px;font:500 9px/1 var(--mono);
+  letter-spacing:.18em;margin-bottom:6px;text-transform:uppercase;opacity:.72}
+
+.debate{align-self:stretch;max-width:100%;display:grid;gap:8px;animation:entrar .5s var(--curva) both}
+.postura{padding:10px 12px;border-radius:11px;font-size:13px;animation:deslizar .55s var(--curva) both}
+.postura.u{background:rgba(255,70,40,.09);border:1px solid rgba(255,90,60,.34);border-left:3px solid #ff5a3c}
+.postura.j{background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);
+  border-left:3px solid #00d4ff;animation-name:deslizar-d;animation-delay:.12s}
+.postura.s{background:rgba(255,255,255,.045);border:1px dashed rgba(255,255,255,.2);animation-delay:.26s}
+.postura .quien{font:500 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;
+  display:block;margin-bottom:5px}
+.postura.u .quien{color:#ff8663}.postura.j .quien{color:#4fd8ff}.postura.s .quien{color:#c6d3e0}
+@keyframes deslizar{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}
+@keyframes deslizar-d{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+.pensando{display:flex;gap:5px;align-self:flex-start;padding:11px 14px}
+.pensando i{width:6px;height:6px;border-radius:50%;background:var(--p1);animation:saltar 1.05s infinite}
+.pensando i:nth-child(2){animation-delay:.16s}.pensando i:nth-child(3){animation-delay:.32s}
+@keyframes saltar{0%,60%,100%{opacity:.22;transform:translateY(0)}30%{opacity:1;transform:translateY(-6px)}}
+@keyframes latir{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.32;transform:scale(.7)}}
+
+.entrada{display:flex;gap:8px;padding:11px 13px;border-top:1px solid var(--borde);
+  transition:border-color .9s var(--curva)}
+.entrada input{flex:1;background:rgba(0,0,0,.45);border:1px solid var(--borde);color:var(--texto);
+  border-radius:10px;padding:11px 14px;font-size:14px;outline:none;transition:all .3s}
+.entrada input:focus{border-color:var(--p1);box-shadow:0 0 0 3px color-mix(in srgb,var(--p1) 13%,transparent)}
+.entrada input::placeholder{color:var(--tenue)}
+.icono.grabando{border-color:var(--mal);color:var(--mal);animation:latir 1.3s infinite;
+  box-shadow:0 0 20px rgba(255,64,96,.45)}
+.atajos{display:flex;gap:6px;padding:0 13px 11px;flex-wrap:wrap}
+.atajo{font:400 10.5px/1 var(--mono);color:var(--tenue);border:1px solid var(--borde);
+  border-radius:14px;padding:6px 10px;cursor:pointer;transition:all .28s}
+.atajo:hover{color:var(--p1);border-color:var(--p1);
+  box-shadow:0 0 14px color-mix(in srgb,var(--p1) 22%,transparent)}
+
+#transicion{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:0}
+#transicion.va{opacity:1}
+.onda{position:absolute;top:50%;left:50%;width:10px;height:10px;border-radius:50%;
+  transform:translate(-50%,-50%);border:2px solid var(--p1);opacity:0}
+#transicion.va .onda{animation:expandir 1.05s var(--curva) forwards}
+#transicion.va .onda:nth-child(2){animation-delay:.1s}
+#transicion.va .onda:nth-child(3){animation-delay:.21s}
+@keyframes expandir{0%{width:10px;height:10px;opacity:.95;border-width:3px}
+  100%{width:230vmax;height:230vmax;opacity:0;border-width:1px}}
+.barrido{position:absolute;inset:0;opacity:0;background:linear-gradient(100deg,transparent 42%,
+  color-mix(in srgb,var(--p1) 55%,transparent) 50%,transparent 58%)}
+#transicion.va .barrido{animation:barrer .85s var(--curva) forwards}
+@keyframes barrer{0%{opacity:0;transform:translateX(-100%)}35%{opacity:.85}
+  100%{opacity:0;transform:translateX(100%)}}
+.fallo{position:absolute;inset:0;opacity:0;mix-blend-mode:screen;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.07) 0 2px,transparent 2px 5px)}
+#transicion.va .fallo{animation:parpadeo .55s steps(3) 2}
+@keyframes parpadeo{0%,100%{opacity:0;transform:translateX(0)}50%{opacity:.7;transform:translateX(4px)}}
+body.mutando .marco{animation:sacudir .5s var(--curva)}
+@keyframes sacudir{0%,100%{filter:none}40%{filter:blur(1.4px) saturate(1.6)}70%{filter:blur(.4px)}}
+
+#lienzo-mod{position:absolute;inset:14px;z-index:6;border:1px solid var(--borde2);border-radius:14px;
+  background:linear-gradient(160deg,rgba(4,11,20,.96),rgba(1,5,10,.98));backdrop-filter:blur(16px);
+  display:none;flex-direction:column;overflow:hidden;animation:abrirMod .42s var(--curva);
+  box-shadow:0 24px 70px rgba(0,0,0,.6)}
+#lienzo-mod.abierto{display:flex}
+@keyframes abrirMod{from{opacity:0;transform:scale(.975) translateY(10px)}to{opacity:1;transform:none}}
+#lienzo-mod .cabecera{display:flex;align-items:center;gap:12px;padding:10px 14px;
+  border-bottom:1px solid var(--borde)}
+#lienzo-mod .cabecera h2{margin:0;font:600 11px/1 var(--mono);letter-spacing:.26em;
+  color:var(--p1);text-transform:uppercase;transition:color .9s var(--curva)}
+#lienzo-mod .cabecera .hueco{flex:1}
+#lienzo-mod .contenido{flex:1;overflow:auto;padding:14px;font-size:13px}
+
+.mrejilla{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}
+.mcaja{border:1px solid var(--borde);border-radius:11px;padding:11px;position:relative;
+  background:rgba(255,255,255,.022)}
+.mcaja::before{content:"";position:absolute;top:-1px;left:10px;width:20px;height:1px;
+  background:var(--p1);opacity:.8}
+.mcaja h4{margin:0 0 7px;font:600 9.5px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--p1)}
+.medidor{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:6px}
+.medidor i{display:block;height:100%;border-radius:3px;transition:width .6s var(--curva);
+  background:linear-gradient(90deg,var(--p2),var(--p1))}
+.grande{font:600 23px/1.1 var(--mono);color:var(--texto)}
+.mtabla{width:100%;border-collapse:collapse;font:400 11.5px/1.5 var(--mono)}
+.mtabla th{text-align:left;color:var(--tenue);font-weight:500;font-size:9.5px;letter-spacing:.16em;
+  text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--borde)}
+.mtabla td{padding:5px 8px;border-bottom:1px dashed rgba(255,255,255,.055)}
+.mtabla tr:hover td{background:color-mix(in srgb,var(--p1) 6%,transparent)}
+.mbtn{background:rgba(255,255,255,.05);border:1px solid var(--borde);color:var(--texto);
+  border-radius:8px;padding:6px 11px;font:500 11px/1 var(--mono);cursor:pointer;
+  transition:all .28s;text-decoration:none;display:inline-block}
+.mbtn:hover{border-color:var(--p1);color:var(--p1);
+  box-shadow:0 0 15px color-mix(in srgb,var(--p1) 22%,transparent)}
+.mbtn.peligro:hover{border-color:var(--mal);color:var(--mal);box-shadow:0 0 15px rgba(255,64,96,.2)}
+.mcampo{background:rgba(0,0,0,.45);border:1px solid var(--borde);color:var(--texto);
+  border-radius:9px;padding:9px 12px;font-size:13px;outline:none;width:100%}
+.mcampo:focus{border-color:var(--p1)}
+.mfila{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.espejo{width:100%;border-radius:11px;border:1px solid var(--borde);display:block;background:#000;
+  cursor:crosshair}
+.pista{color:var(--tenue);font-size:12px;margin:6px 0 0}
+
+#velo{position:fixed;inset:0;z-index:70;background:rgba(1,4,9,.7);backdrop-filter:blur(3px);
+  opacity:0;pointer-events:none;transition:opacity .42s}
+#velo.abierto{opacity:1;pointer-events:auto}
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);z-index:71;
+  background:linear-gradient(160deg,rgba(5,12,22,.99),rgba(1,5,10,.995));display:flex;
+  border-left:1px solid var(--borde2);transform:translateX(104%);flex-direction:column;
+  transition:transform .55s var(--curva),border-color .9s var(--curva)}
+#panel.abierto{transform:none;box-shadow:-30px 0 90px rgba(0,0,0,.7)}
+#panel header{border-bottom:1px solid var(--borde);background:none}
+#panel .cuerpo{flex:1;overflow-y:auto;padding:14px;display:grid;gap:11px;
+  grid-template-columns:repeat(auto-fill,minmax(228px,1fr));align-content:start}
+.tarjeta{background:rgba(255,255,255,.025);border:1px solid var(--borde);border-radius:12px;
+  padding:12px;animation:entrar .42s var(--curva) both;position:relative}
+.tarjeta::before{content:"";position:absolute;top:-1px;left:10px;width:20px;height:1px;
+  background:var(--p1);opacity:.8}
+.tarjeta h3{margin:0 0 8px;font:600 9.5px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--p1);transition:color .9s var(--curva)}
+.fila{display:flex;justify-content:space-between;gap:10px;padding:3px 0;
+  font:400 11.5px/1.6 var(--mono);border-bottom:1px dashed rgba(255,255,255,.055)}
+.fila:last-of-type{border-bottom:0}
+.fila span:first-child{color:var(--tenue)}
+.si{color:var(--ok)}.no{color:var(--mal)}
+.mandos{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.mandos button{background:rgba(255,255,255,.05);border:1px solid var(--borde);color:var(--texto);
+  border-radius:8px;padding:6px 10px;font:500 10.5px/1 var(--mono);cursor:pointer;transition:all .28s}
+.mandos button:hover{border-color:var(--p1);color:var(--p1)}
+.lista{max-height:148px;overflow:auto;font:400 11px/1.6 var(--mono);margin-top:5px}
+.lista div{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05)}
+.vacio{color:var(--tenue);font-style:italic;font-size:12px}
+
+#brindis{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);z-index:90;
+  background:rgba(5,12,22,.98);border:1px solid var(--p1);border-radius:10px;padding:11px 16px;
+  max-width:min(560px,92vw);opacity:0;pointer-events:none;white-space:pre-wrap;font-size:13px;
+  transition:all .38s var(--curva);box-shadow:0 0 34px color-mix(in srgb,var(--p1) 26%,transparent)}
+#brindis.ver{opacity:1;transform:translate(-50%,0)}
+
+/* ── ajustes que deben ganar a las reglas base (van al final a propósito) ── */
+@media(max-width:900px){
+  header{padding:8px 11px;gap:9px}
+  .identidad{min-width:0}.identidad .nombre{font-size:14px;letter-spacing:.22em}
+  .identidad .lema,.marcador{display:none}
+  .selector button{padding:7px 9px;font-size:10px;letter-spacing:.1em}
+  .icono{width:34px;height:34px;border-radius:9px}
+  .rail{padding:7px 4px;gap:5px}.rail .mod{width:38px;height:38px}.rail .mod .globo{display:none}
+  .lectura{gap:11px;font-size:9px;bottom:8px;padding:5px 10px}
+  .nucleo .marca{display:none}
+  #lienzo-mod{position:fixed;inset:auto;top:50px;left:50px;right:6px;bottom:6px;z-index:50}
+}
+</style>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<div class="rejilla"></div><div class="lineas"></div>
+<div class="barrido-global"></div><div class="vineta"></div>
+<div class="esquina si"></div><div class="esquina sd"></div>
+<div class="esquina ii"></div><div class="esquina id"></div>
+
+<div class="marco">
+  <header>
+    <div class="identidad">
+      <div class="nombre" id="nombre">J.A.R.V.I.S.</div>
+      <div class="lema" id="lema">Mayordomo · a su servicio</div>
+    </div>
+    <div class="selector" id="selector">
+      <div class="corredera" id="corredera"></div>
+      <button data-p="jarvis" class="activo">JARVIS</button>
+      <button data-p="ultron">ULTRON</button>
+      <button data-p="consejo">CONSEJO</button>
+    </div>
+    <div class="hueco"></div>
+    <div class="marcador"><span class="et">Núcleos</span>
+      <span class="vl"><b id="m-j">·</b> J&nbsp; <b id="m-u">·</b> U</span></div>
+    <div class="marcador"><span class="et">Carga</span><span class="vl" id="m-cpu">—</span></div>
+    <div class="marcador"><span class="et">Memoria</span><span class="vl" id="m-ram">—</span></div>
+    <div class="marcador"><span class="et">Hora</span><span class="vl" id="m-hora">—</span></div>
+    <div class="icono" id="btn-panel" title="Panel de control">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/>
+        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg>
+    </div>
+  </header>
+
+  <div class="escenario">
+    <nav class="rail" id="rail"></nav>
+
+    <aside class="col col-tele">
+      <div class="widget"><h4>Procesador</h4>
+        <div class="cifra"><span id="w-cpu">—</span><small>%</small></div>
+        <div class="barra"><i id="w-cpu-b" style="width:0"></i></div>
+        <canvas class="grafica" id="g-cpu"></canvas>
+        <div class="linea"><span>núcleos</span><b id="w-cores">—</b></div>
+      </div>
+      <div class="widget"><h4>Memoria</h4>
+        <div class="cifra"><span id="w-ram">—</span><small>%</small></div>
+        <div class="barra"><i id="w-ram-b" style="width:0"></i></div>
+        <canvas class="grafica" id="g-ram"></canvas>
+        <div class="linea"><span>en uso</span><b id="w-ram-gb">—</b></div>
+      </div>
+      <div class="widget"><h4>Red</h4>
+        <canvas class="grafica" id="g-net"></canvas>
+        <div class="linea"><span>total</span><b id="w-net">—</b></div>
+        <div class="linea"><span>enviado</span><b id="w-net-tx">—</b></div>
+      </div>
+      <div class="widget"><h4>Equipo</h4>
+        <div class="linea"><span>disco</span><b id="w-disco">—</b></div>
+        <div class="linea"><span>batería</span><b id="w-bat">—</b></div>
+        <div class="linea"><span>encendido</span><b id="w-up">—</b></div>
+        <div class="linea"><span>temp</span><b id="w-temp">—</b></div>
+      </div>
+    </aside>
+
+    <section class="nucleo">
+      <div class="marca arriba">núcleo <b id="n-agente">JARVIS</b><br>modelo <b id="n-modelo">—</b></div>
+      <div class="marca arriba-d">integridad <b id="n-integridad">—</b><br>enlace <b id="n-enlace">—</b></div>
+      <div class="marca abajo">procesos <b id="n-proc">—</b><br>órdenes 24 h <b id="n-ord">—</b></div>
+      <canvas id="reactor"></canvas>
+      <div class="lectura">
+        <span>estado <b id="l-estado">en línea</b></span>
+        <span>latencia <b id="l-lat">—</b></span>
+        <span>modo <b id="l-modo">jarvis</b></span>
+      </div>
+      <div id="lienzo-mod">
+        <div class="cabecera">
+          <h2 id="mod-titulo">MÓDULO</h2>
+          <div class="hueco"></div>
+          <div class="icono" id="mod-refrescar" title="Actualizar">
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
+          </div>
+          <div class="icono" id="mod-cerrar" title="Cerrar">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </div>
+        </div>
+        <div class="contenido" id="mod-contenido"></div>
+      </div>
+    </section>
+
+    <aside class="col col-sucesos">
+      <div class="widget"><h4>Subsistemas</h4>
+        <div class="linea"><span>guardián</span><b id="s-vigilante">—</b></div>
+        <div class="linea"><span>enjambre</span><b id="s-enjambre">—</b></div>
+        <div class="linea"><span>escucha</span><b id="s-escucha">—</b></div>
+        <div class="linea"><span>turno noche</span><b id="s-noche">—</b></div>
+        <div class="linea"><span>ojos</span><b id="s-vision">—</b></div>
+        <div class="linea"><span>perfil</span><b id="s-perfil">—</b></div>
+      </div>
+      <div class="widget"><h4>Actividad 24 h</h4>
+        <div class="linea"><span>órdenes</span><b id="s-ordenes">—</b></div>
+        <div class="linea"><span>fallos</span><b id="s-fallos">—</b></div>
+        <div class="linea"><span>reversibles</span><b id="s-undo">—</b></div>
+      </div>
+      <div class="widget" style="flex:1;min-height:140px;display:flex;flex-direction:column">
+        <h4>Sucesos</h4><div id="s-eventos" style="overflow-y:auto;flex:1"></div>
+      </div>
+    </aside>
+
+    <section class="dialogo">
+      <div class="titulo"><span class="punto"></span><span id="d-titulo">Canal directo</span>
+        <span class="hueco"></span><em id="d-conteo">0 mensajes</em></div>
+      <div class="hilo" id="hilo"></div>
+      <div class="atajos" id="atajos"></div>
+      <div class="entrada">
+        <input id="campo" placeholder="Diga la orden, señor…" autocomplete="off">
+        <div class="icono" id="btn-voz" title="Hablar">
+          <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/>
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </div>
+        <div class="icono" id="btn-enviar" title="Enviar">
+          <svg viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="transicion">
+  <div class="barrido"></div><div class="fallo"></div>
+  <div class="onda"></div><div class="onda"></div><div class="onda"></div>
+</div>
+
+<div id="velo"></div>
+<aside id="panel">
+  <header>
+    <div class="identidad">
+      <div class="nombre" style="font-size:14px;letter-spacing:.26em">PANEL</div>
+      <div class="lema">Control de todos los subsistemas</div>
+    </div>
+    <div class="hueco"></div>
+    <div class="icono" id="panel-refrescar" title="Actualizar">
+      <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
+    </div>
+    <div class="icono" id="panel-cerrar" title="Cerrar">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </div>
+  </header>
+  <div class="cuerpo" id="panel-cuerpo"></div>
+</aside>
+
+<div id="brindis"></div>
+
+<script>
+/* ═════════════════════════ personalidades ═════════════════════════════════ */
+const PERSONAS = {
+  jarvis:{nombre:'J.A.R.V.I.S.', lema:'Mayordomo · a su servicio', canal:'Canal directo',
+    p1:'#00d4ff', p2:'#0066ff', p3:'#7de8ff', fondo:'#01050a',
+    borde:'rgba(0,212,255,.20)', borde2:'rgba(0,212,255,.40)', rejilla:'rgba(0,212,255,.045)',
+    anillos:4, lados:64, giro:.0035, agitacion:.12, satelites:5, saludo:'Diga la orden, señor…',
+    atajos:['parte del día','qué puedes deshacer','estado de salud','modo trabajo',
+            'qué avisos tienes','mira mi pantalla']},
+  ultron:{nombre:'ULTRON', lema:'Autonomía total · sin permisos', canal:'Enlace ofensivo',
+    p1:'#ff4d2e', p2:'#ff9500', p3:'#ffd08a', fondo:'#0a0402',
+    borde:'rgba(255,90,46,.24)', borde2:'rgba(255,90,46,.45)', rejilla:'rgba(255,90,46,.055)',
+    anillos:3, lados:6, giro:-.0065, agitacion:.55, satelites:3, saludo:'Ordena.',
+    atajos:['estado del guardián','ejecuta el comando systeminfo','quién entró',
+            'historial del guardián','estado de auto-reparación']},
+  consejo:{nombre:'CONSEJO', lema:'Las dos voces · una decisión', canal:'Sala de deliberación',
+    p1:'#b388ff', p2:'#ff4d8d', p3:'#d7c6ff', fondo:'#05030b',
+    borde:'rgba(179,136,255,.24)', borde2:'rgba(179,136,255,.45)', rejilla:'rgba(179,136,255,.05)',
+    anillos:2, lados:3, giro:.0022, agitacion:.34, satelites:2,
+    saludo:'Plantee la decisión y que discutan…',
+    atajos:['¿borro la carpeta de descargas entera?','¿actualizo el sistema ahora o espero?',
+            '¿dejo la escucha continua encendida?']}
+};
+
+const token = new URLSearchParams(location.search).get('token')
+           || localStorage.getItem('jarvis_pin') || '';
+if (token) localStorage.setItem('jarvis_pin', token);
+
+let persona = 'jarvis', mutando = false, energia = 0, fase = 0;
+const aRGB = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const aHex = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2,'0')).join('');
+const mezclar = (a,b,t) => aHex(aRGB(a).map((v,i) => v + (aRGB(b)[i]-v)*t));
+
+/* ═════════════════════════ núcleo ═════════════════════════════════════════
+   Se dibuja con parámetros (lados, anillos, giro, agitación, satélites): al
+   cambiar de personalidad se interpolan, y por eso el círculo de JARVIS se
+   ROMPE en el hexágono de ULTRON en vez de saltar de una imagen a otra.     */
+const reactor = document.getElementById('reactor');
+const rx = reactor.getContext('2d');
+let forma = {...PERSONAS.jarvis};
+
+function medirReactor(){
+  const r = reactor.getBoundingClientRect();
+  const d = Math.max(120, Math.min(r.width, r.height)) * devicePixelRatio;
+  reactor.width = reactor.height = d;
+}
+function pintarReactor(){
+  const d = reactor.width, c = d/2, R = d*.36, px = devicePixelRatio;
+  rx.clearRect(0,0,d,d);
+  fase += forma.giro * (1 + energia*2.2);
+
+  const halo = rx.createRadialGradient(c,c,R*.15,c,c,R*1.7);
+  halo.addColorStop(0, forma.p1 + '40'); halo.addColorStop(.45, forma.p2 + '12');
+  halo.addColorStop(1,'transparent');
+  rx.fillStyle = halo; rx.beginPath(); rx.arc(c,c,R*1.7,0,7); rx.fill();
+
+  for (let a = 0; a < Math.round(forma.anillos); a++){
+    const radio = R*(1 - a*.18), lados = Math.max(3, Math.round(forma.lados));
+    const giro = fase*(a%2 ? -1.35 : 1) + a;
+    rx.beginPath();
+    for (let i = 0; i <= lados; i++){
+      const ang = (i/lados)*Math.PI*2 + giro;
+      const ruido = 1 + Math.sin(ang*3 + fase*9 + a)*forma.agitacion*.085
+                      + energia*Math.sin(ang*7 + fase*22)*.05;
+      const x = c + Math.cos(ang)*radio*ruido, y = c + Math.sin(ang)*radio*ruido;
+      i ? rx.lineTo(x,y) : rx.moveTo(x,y);
+    }
+    rx.closePath();
+    rx.strokeStyle = a === 0 ? forma.p1 : forma.p2;
+    rx.globalAlpha = .95 - a*.2; rx.lineWidth = (a === 0 ? 2.4 : 1.3)*px;
+    rx.shadowBlur = (16 + energia*30)*px; rx.shadowColor = forma.p1;
+    rx.stroke();
+  }
+  rx.globalAlpha = 1; rx.shadowBlur = 0;
+
+  for (let a = 0; a < 3; a++){
+    const radio = R*(1.22 + a*.1), ini = fase*(1.6 + a) + a*2.1;
+    rx.beginPath(); rx.arc(c,c,radio, ini, ini + .6 + a*.25);
+    rx.strokeStyle = forma.p3; rx.globalAlpha = .5 - a*.12;
+    rx.lineWidth = 2*px; rx.stroke();
+  }
+  rx.globalAlpha = 1;
+
+  for (let i = 0; i < Math.round(forma.satelites); i++){
+    const ang = fase*2.2 + (i/Math.max(1,Math.round(forma.satelites)))*Math.PI*2;
+    const x = c + Math.cos(ang)*R*1.42, y = c + Math.sin(ang)*R*1.42;
+    rx.beginPath(); rx.arc(x,y, 2.6*px, 0, 7);
+    rx.fillStyle = forma.p3; rx.globalAlpha = .9; rx.fill();
+    rx.beginPath(); rx.arc(x,y, 7*px, 0, 7);
+    rx.strokeStyle = forma.p1; rx.globalAlpha = .3; rx.lineWidth = px; rx.stroke();
+  }
+  rx.globalAlpha = 1;
+
+  const marcas = 84;
+  for (let i = 0; i < marcas; i++){
+    const ang = (i/marcas)*Math.PI*2 - fase*.55;
+    const largo = (i%7 === 0 ? 15 : 7)*px, r0 = R*1.06;
+    rx.beginPath();
+    rx.moveTo(c+Math.cos(ang)*r0, c+Math.sin(ang)*r0);
+    rx.lineTo(c+Math.cos(ang)*(r0+largo), c+Math.sin(ang)*(r0+largo));
+    rx.strokeStyle = forma.p3; rx.globalAlpha = i%7 === 0 ? .55 : .18;
+    rx.lineWidth = 1.1*px; rx.stroke();
+  }
+  rx.globalAlpha = 1;
+
+  const latido = 1 + Math.sin(Date.now()/520)*.05 + energia*.3;
+  const centro = rx.createRadialGradient(c,c,0,c,c,R*.3*latido);
+  centro.addColorStop(0,'#ffffff'); centro.addColorStop(.35, forma.p3);
+  centro.addColorStop(1, forma.p1 + '00');
+  rx.fillStyle = centro; rx.beginPath(); rx.arc(c,c,R*.3*latido,0,7); rx.fill();
+
+  energia *= .965;
+  requestAnimationFrame(pintarReactor);
+}
+
+/* ═════════════════════════ partículas ═════════════════════════════════════ */
+const fondo = document.getElementById('lienzo');
+const fx = fondo.getContext('2d');
+let motas = [];
+function medirFondo(){
+  fondo.width = innerWidth; fondo.height = innerHeight;
+  const n = Math.min(150, Math.round(innerWidth*innerHeight/13000));
+  motas = Array.from({length:n}, () => ({x:Math.random()*fondo.width, y:Math.random()*fondo.height,
+    vx:(Math.random()-.5)*.28, vy:(Math.random()-.5)*.28, r:Math.random()*1.7+.4}));
+}
+function pintarFondo(){
+  fx.clearRect(0,0,fondo.width,fondo.height);
+  const cx = fondo.width*.5, cy = fondo.height*.5;
+  for (const m of motas){
+    m.x += m.vx*(1+energia*3); m.y += m.vy*(1+energia*3);
+    if (m.x < 0) m.x = fondo.width; if (m.x > fondo.width) m.x = 0;
+    if (m.y < 0) m.y = fondo.height; if (m.y > fondo.height) m.y = 0;
+    fx.beginPath(); fx.arc(m.x,m.y,m.r,0,7);
+    fx.fillStyle = forma.p1; fx.globalAlpha = .3; fx.fill();
+    const d = Math.hypot(m.x-cx, m.y-cy);
+    if (d < 330){
+      fx.beginPath(); fx.moveTo(m.x,m.y); fx.lineTo(cx,cy);
+      fx.strokeStyle = forma.p2; fx.globalAlpha = (1-d/330)*.06*(1+energia*3);
+      fx.lineWidth = 1; fx.stroke();
+    }
+  }
+  fx.globalAlpha = 1;
+  requestAnimationFrame(pintarFondo);
+}
+addEventListener('resize', () => { medirReactor(); medirFondo(); dibujarGraficas(); });
+
+/* ═════════════════════════ gráficas de telemetría ═════════════════════════
+   Sparklines a mano: sin librerías ni CDN. Guardan 60 valores para que se vea
+   la tendencia, no solo el número de este instante.                         */
+const series = {cpu:[], ram:[], net:[]};
+function empujar(clave, valor, max=60){
+  const s = series[clave]; s.push(Number(valor) || 0);
+  if (s.length > max) s.shift();
+}
+function grafica(id, datos){
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  if (!r.width) return;
+  cv.width = r.width*devicePixelRatio; cv.height = Math.max(24, r.height)*devicePixelRatio;
+  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  g.clearRect(0,0,w,h);
+  if (datos.length < 2) return;
+  const tope = Math.max(1, ...datos);
+  const px = i => (i/(datos.length-1))*w, py = v => h - (v/tope)*(h*.84) - h*.08;
+  g.beginPath();
+  datos.forEach((v,i) => i ? g.lineTo(px(i), py(v)) : g.moveTo(px(i), py(v)));
+  const area = g.createLinearGradient(0,0,0,h);
+  area.addColorStop(0, forma.p1 + '55'); area.addColorStop(1, forma.p1 + '00');
+  g.save(); g.lineTo(w,h); g.lineTo(0,h); g.closePath(); g.fillStyle = area; g.fill(); g.restore();
+  g.strokeStyle = forma.p1; g.lineWidth = 1.6*devicePixelRatio;
+  g.shadowBlur = 8*devicePixelRatio; g.shadowColor = forma.p1; g.stroke(); g.shadowBlur = 0;
+  g.beginPath(); g.arc(px(datos.length-1), py(datos[datos.length-1]), 2.4*devicePixelRatio, 0, 7);
+  g.fillStyle = forma.p3; g.fill();
+}
+const dibujarGraficas = () => { grafica('g-cpu', series.cpu); grafica('g-ram', series.ram);
+                                grafica('g-net', series.net); };
+
+/* ═════════════════════════ tema y personalidad ════════════════════════════ */
+function aplicarTema(t){
+  const r = document.documentElement.style;
+  r.setProperty('--p1',t.p1); r.setProperty('--p2',t.p2); r.setProperty('--p3',t.p3);
+  r.setProperty('--fondo',t.fondo); r.setProperty('--borde',t.borde);
+  r.setProperty('--borde2',t.borde2); r.setProperty('--rejilla',t.rejilla);
+}
+function moverCorredera(){
+  const botones = [...document.querySelectorAll('.selector button')];
+  const activo = botones.find(b => b.dataset.p === persona) || botones[0];
+  const c = document.getElementById('corredera');
+  c.style.width = activo.offsetWidth + 'px';
+  c.style.transform = `translateX(${activo.offsetLeft - 4}px)`;
+  botones.forEach(b => b.classList.toggle('activo', b === activo));
+}
+function cambiarA(nueva, silencio=false){
+  if (nueva === persona || mutando) return;
+  const desde = {...forma}, hasta = PERSONAS[nueva];
+  mutando = true; persona = nueva; energia = 1;
+  document.body.classList.add('mutando');
+  document.getElementById('transicion').classList.add('va');
+  setTimeout(() => {
+    aplicarTema(hasta);
+    document.getElementById('nombre').textContent = hasta.nombre;
+    document.getElementById('lema').textContent = hasta.lema;
+    document.getElementById('campo').placeholder = hasta.saludo;
+    document.getElementById('l-modo').textContent = nueva;
+    document.getElementById('n-agente').textContent = nueva.toUpperCase();
+    document.getElementById('d-titulo').textContent = hasta.canal;
+    pintarAtajos(); moverCorredera(); dibujarGraficas();
+  }, 250);
+  const t0 = performance.now(), dur = 1100;
+  (function morph(ahora){
+    const t = Math.min(1, (ahora-t0)/dur);
+    const s = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+    for (const k of ['p1','p2','p3']) forma[k] = mezclar(desde[k], hasta[k], s);
+    for (const k of ['lados','anillos','giro','agitacion','satelites'])
+      forma[k] = desde[k] + (hasta[k]-desde[k])*s;
+    if (t < 1) requestAnimationFrame(morph);
+    else{
+      forma = {...hasta}; mutando = false;
+      document.getElementById('transicion').classList.remove('va');
+      document.body.classList.remove('mutando');
+      if (!silencio) sistema(nueva === 'consejo'
+        ? 'Consejo convocado · ULTRON y JARVIS deliberarán'
+        : `Personalidad activa: ${hasta.nombre}`);
+    }
+  })(performance.now());
+}
+
+/* ═════════════════════════ conversación ═══════════════════════════════════ */
+const hilo = document.getElementById('hilo'), campo = document.getElementById('campo');
+let nMensajes = 0;
+const hora = () => new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+const abajo = () => hilo.scrollTop = hilo.scrollHeight;
+function burbuja(texto, clase, quien=''){
+  const d = document.createElement('div');
+  d.className = 'msg ' + clase;
+  const cab = quien ? `<span class="quien"><span>${quien}</span><span>${hora()}</span></span>` : '';
+  d.innerHTML = cab + String(texto).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+  hilo.appendChild(d); abajo();
+  if (clase !== 'sistema'){ nMensajes++;
+    document.getElementById('d-conteo').textContent = nMensajes + ' mensajes'; }
+  return d;
+}
+const sistema = t => burbuja(t, 'sistema');
+function debate(d){
+  const c = document.createElement('div'); c.className = 'debate';
+  const trozo = (cl,q,t) => t ? `<div class="postura ${cl}"><span class="quien">${q}</span>${
+    String(t).replace(/</g,'&lt;')}</div>` : '';
+  c.innerHTML = trozo('u','ULTRON · vía decidida', d.ultron)
+              + trozo('j','JARVIS · vía prudente', d.jarvis)
+              + trozo('s', d.desacuerdo ? 'Síntesis · hay desacuerdo real' : 'Síntesis · coinciden',
+                      d.sintesis);
+  hilo.appendChild(c); abajo();
+  nMensajes++; document.getElementById('d-conteo').textContent = nMensajes + ' mensajes';
+}
+let esperando = null;
+function pensar(si){
+  if (si){
+    esperando = document.createElement('div');
+    esperando.className = 'pensando'; esperando.innerHTML = '<i></i><i></i><i></i>';
+    hilo.appendChild(esperando); abajo();
+  } else if (esperando){ esperando.remove(); esperando = null; }
+}
+async function enviar(texto){
+  texto = (texto ?? campo.value).trim();
+  if (!texto) return;
+  campo.value = '';
+  burbuja(texto, 'yo', 'usted');
+  pensar(true); energia = Math.max(energia, .55);
+  const t0 = performance.now();
+  try{
+    const r = await fetch('/api/nexus/cmd', {method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':token},
+      body: JSON.stringify({agente: persona, texto})});
+    const d = await r.json();
+    pensar(false);
+    document.getElementById('l-lat').textContent = Math.round(performance.now()-t0) + ' ms';
+    if (r.status === 403){ sistema('PIN incorrecto: abra el nexus desde el QR.'); return; }
+    if (persona === 'consejo'){
+      if (d.ok) debate(d); else sistema(d.error || 'El consejo no pudo reunirse.');
+    } else {
+      burbuja(d.respuesta || d.error || 'Sin respuesta.', 'agente',
+              persona === 'ultron' ? 'ULTRON' : 'JARVIS');
+    }
+    energia = Math.max(energia, .85);
+  }catch(e){ pensar(false); sistema('Sin conexión con el núcleo: ' + e); }
+}
+function pintarAtajos(){
+  const caja = document.getElementById('atajos'); caja.innerHTML = '';
+  for (const a of PERSONAS[persona].atajos){
+    const b = document.createElement('div');
+    b.className = 'atajo'; b.textContent = a; b.onclick = () => enviar(a);
+    caja.appendChild(b);
+  }
+}
+
+/* ═════════════════════════ voz ════════════════════════════════════════════ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+document.getElementById('btn-voz').addEventListener('click', function(){
+  if (!SR){ sistema('Este navegador no admite dictado por voz.'); return; }
+  if (rec){ rec.stop(); return; }
+  rec = new SR(); rec.lang = 'es-ES'; rec.interimResults = true;
+  this.classList.add('grabando');
+  rec.onresult = e => {
+    campo.value = [...e.results].map(r => r[0].transcript).join('');
+    if (e.results[e.results.length-1].isFinal){ rec.stop(); enviar(); }
+  };
+  rec.onerror = () => { this.classList.remove('grabando'); rec = null; };
+  rec.onend = () => { this.classList.remove('grabando'); rec = null; };
+  rec.start();
+});
+
+/* ═════════════════════════ acceso a la API ════════════════════════════════ */
+const API = {
+  async get(ruta){
+    const r = await fetch(ruta, {headers:{'X-Token':token}});
+    if (!r.ok && r.status === 403) throw new Error('PIN incorrecto');
+    return (r.headers.get('content-type') || '').includes('json') ? r.json() : r.text();
+  },
+  async post(ruta, cuerpo){
+    const r = await fetch(ruta, {method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':token},
+      body: JSON.stringify(cuerpo || {})});
+    try{ return await r.json(); }catch(e){ return {ok:r.ok}; }
+  },
+  async del(ruta){
+    const r = await fetch(ruta, {method:'DELETE', headers:{'X-Token':token}});
+    try{ return await r.json(); }catch(e){ return {ok:r.ok}; }
+  },
+  u(ruta){ return API.get('/api/nexus/u' + ruta); },
+  up(ruta, cuerpo){ return API.post('/api/nexus/u' + ruta, cuerpo); },
+  medios(ruta){ return ruta + (ruta.includes('?') ? '&' : '?')
+                      + 'token=' + encodeURIComponent(token); }
+};
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const caja = (t,c) => `<div class="mcaja"><h4>${t}</h4>${c}</div>`;
+const barra = (v,max=100) => `<div class="medidor"><i style="width:${
+  Math.min(100,(v/max)*100)}%"></i></div>`;
+const duracion = seg => {
+  const n = Number(seg);
+  if (!n || Number.isNaN(n)) return esc(seg || '—');
+  const h = Math.floor(n/3600), m = Math.round((n%3600)/60);
+  return h ? `hace ${h} h ${m} min` : `hace ${m} min`;
+};
+const tabla = (cab, filas) =>
+  `<table class="mtabla"><tr>${cab.map(c=>`<th>${c}</th>`).join('')}</tr>${
+    filas.map(f=>`<tr>${f.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+
+/* ═════════════════════════ panel lateral ══════════════════════════════════ */
+const velo = document.getElementById('velo'), panel = document.getElementById('panel');
+function abrirPanel(si){
+  velo.classList.toggle('abierto', si); panel.classList.toggle('abierto', si);
+  if (si) cargarPanel();
+}
+document.getElementById('btn-panel').onclick = () => abrirPanel(true);
+document.getElementById('panel-cerrar').onclick = () => abrirPanel(false);
+document.getElementById('panel-refrescar').onclick = cargarPanel;
+velo.onclick = () => abrirPanel(false);
+function brindis(texto){
+  const b = document.getElementById('brindis');
+  b.textContent = texto; b.classList.add('ver');
+  clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('ver'), 6500);
+}
+async function mandar(accion, valor=''){
+  brindis('…');
+  try{
+    const d = await API.post('/api/panel/accion', {accion, valor});
+    brindis(d.texto || (d.ok ? 'Hecho.' : 'Sin respuesta.'));
+    setTimeout(() => { cargarPanel(); latido(); }, 900);
+  }catch(e){ brindis('Error: ' + e); }
+}
+const tarjeta = (t,c,m='') => `<div class="tarjeta"><h3>${t}</h3>${c}${
+  m ? `<div class="mandos">${m}</div>` : ''}</div>`;
+const fila = (k,v) => `<div class="fila"><span>${k}</span><span>${v}</span></div>`;
+const si = b => b ? '<span class="si">sí</span>' : '<span class="no">no</span>';
+
+async function cargarPanel(){
+  const cuerpo = document.getElementById('panel-cuerpo');
+  try{
+    const d = await API.get('/api/panel');
+    pintarLaterales(d);
+    const g = [];
+    const des = d.deshacer || {};
+    g.push(tarjeta('Deshacer', (des.pendientes||[]).length
+      ? `<div class="lista">${des.pendientes.slice(0,5).map(p =>
+          `<div>${p.ts.slice(5,16)} · ${esc(p.que)}</div>`).join('')}</div>`
+      : '<div class="vacio">Nada reversible pendiente.</div>',
+      `<button onclick="mandar('deshacer')">Deshacer lo último</button>`));
+    const r24 = (d.registro||{}).resumen_24h || {};
+    g.push(tarjeta('Actividad (24 h)', fila('Órdenes', r24.acciones ?? '—')
+      + fila('Fallos', r24.fallos ?? '—') + fila('Eventos', r24.eventos ?? '—'),
+      `<button onclick="mandar('parte_manana')">Parte del día</button>`));
+    const per = d.perfil || {};
+    g.push(tarjeta('Perfil', fila('Activo', per.perfil || '—')
+      + fila('Escucha', si((d.escucha||{}).activa)),
+      (per.disponibles||[]).map(p => `<button onclick="mandar('perfil','${p}')">${p}</button>`).join('')));
+    g.push(tarjeta('Vigilancia', fila('Guardián', si((d.vigilante||{}).vigilando))
+      + fila('Enjambre', si((d.enjambre||{}).activo))
+      + fila('Turno noche', si((d.nocturno||{}).programado)),
+      `<button onclick="mandar('enjambre_on')">Enjambre on</button>
+       <button onclick="mandar('enjambre_off')">off</button>
+       <button onclick="mandar('turno_noche','03:30')">Noche 03:30</button>`));
+    const idx = d.indice || {};
+    g.push(tarjeta('Memoria', fila('Archivos', idx.archivos ?? '—')
+      + fila('Fragmentos', idx.trozos ?? '—'),
+      `<button onclick="mandar('indexar')">Indexar</button>
+       <button onclick="mandar('indexar_conversaciones')">Conversaciones</button>
+       <button onclick="mandar('mantenimiento')">Podar</button>
+       <button onclick="mandar('copia')">Copia</button>`));
+    g.push(tarjeta('Seguridad', fila('Señuelos', si(((d.canarios||{}).desplegados||0) > 0))
+      + fila('Grabando pantalla', si((d.rebobinar||{}).grabando))
+      + fila('Arranque solo', si((d.servicio||{}).tarea || (d.servicio||{}).servicio)),
+      `<button onclick="mandar('privado_on')">Modo privado</button>
+       <button onclick="mandar('privado_off')">Normal</button>
+       <button onclick="mandar('canarios_on')">Señuelos</button>`));
+    const met = d.metricas || {}, et = met.etapas || {};
+    g.push(tarjeta('Rendimiento', Object.keys(et).length
+      ? Object.entries(et).map(([k,v]) => fila(k, v.mediana_ms + ' ms')).join('')
+      : '<div class="vacio">Sin mediciones.</div>',
+      `<button onclick="mandar('metricas_reset')">Reiniciar</button>`));
+    const hab = d.habilidades || {};
+    g.push(tarjeta('Habilidades', (hab.pendientes||[]).length
+      ? `<div class="lista">${hab.pendientes.map(p =>
+          `<div>${esc(p)} <button onclick="mandar('aprobar_habilidad','${p}')">aprobar</button></div>`
+        ).join('')}</div>`
+      : '<div class="vacio">Nada por aprobar.</div>',
+      `<button onclick="mandar('colisiones')">Colisiones</button>`));
+    cuerpo.innerHTML = g.join('');
+  }catch(e){ cuerpo.innerHTML = `<div class="vacio">No pude leer el estado: ${esc(e.message||e)}</div>`; }
+}
+
+/* ═════════════════════════ columnas laterales ═════════════════════════════ */
+function pintarLaterales(d){
+  const t = (id, v, clase='') => {
+    const el = document.getElementById(id);
+    if (el){ el.textContent = v; el.className = clase; }
+  };
+  const marca = (id, ok) => t(id, ok ? 'activo' : 'inactivo', ok ? 'et-ok' : '');
+  marca('s-vigilante', (d.vigilante||{}).vigilando);
+  marca('s-enjambre', (d.enjambre||{}).activo);
+  marca('s-escucha', (d.escucha||{}).activa);
+  marca('s-noche', (d.nocturno||{}).programado);
+  const ojos = (d.vision||{}).listo;
+  t('s-vision', ojos ? 'listos' : 'sin modelo', ojos ? 'et-ok' : 'et-av');
+  t('s-perfil', (d.perfil||{}).perfil || '—');
+
+  const r24 = (d.registro||{}).resumen_24h || {};
+  t('s-ordenes', r24.acciones ?? '—');
+  t('s-fallos', r24.fallos ?? '—', r24.fallos ? 'et-mal' : 'et-ok');
+  t('s-undo', ((d.deshacer||{}).pendientes||[]).length);
+  const ord = document.getElementById('n-ord');
+  if (ord) ord.textContent = r24.acciones ?? '—';
+
+  const cont = document.getElementById('s-eventos');
+  const evs = (d.registro||{}).eventos || [];
+  if (cont) cont.innerHTML = evs.length
+    ? evs.slice(0,14).map(e => `<div class="suceso ${esc(e.gravedad||'')}">
+        <span class="hora">${esc(e.ts).slice(5,16)}</span> · ${esc(e.titulo).slice(0,58)}</div>`).join('')
+    : '<div class="vacio">Sin sucesos registrados.</div>';
+}
+
+async function telemetria(){
+  try{
+    const s = await API.get('/stats');
+    const t = (id,v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const ancho = (id,v) => { const el = document.getElementById(id);
+      if (el) el.style.width = Math.min(100, v||0) + '%'; };
+    t('w-cpu', Math.round(s.cpu ?? 0)); ancho('w-cpu-b', s.cpu);
+    t('m-cpu', Math.round(s.cpu ?? 0) + '%');
+    t('w-cores', Array.isArray(s.cpu_cores) ? s.cpu_cores.length : (s.cpu_cores ?? '—'));
+    t('w-ram', Math.round(s.ram_pct ?? 0)); ancho('w-ram-b', s.ram_pct);
+    t('m-ram', Math.round(s.ram_pct ?? 0) + '%');
+    t('w-ram-gb', `${s.ram_used_gb ?? '?'} / ${s.ram_total_gb ?? '?'} GB`);
+    t('w-net', (s.net_mb ?? '—') + ' MB');
+    t('w-net-tx', s.net_sent ?? '—');
+    const usado = (s.disco_total_gb && s.disco_libre_gb)
+      ? Math.round((1 - s.disco_libre_gb/s.disco_total_gb)*100) : null;
+    t('w-disco', usado != null ? usado + '% usado' : '—');
+    const b = s.battery || s.bateria;
+    t('w-bat', b ? `${b.percent}%${b.plugged ? ' ⚡' : ''}` : '—');
+    t('w-up', duracion(s.uptime).replace('hace ',''));
+    t('w-temp', s.temp ? s.temp + ' °C' : '—');
+    t('n-proc', (s.top || []).length || '—');
+    empujar('cpu', s.cpu); empujar('ram', s.ram_pct); empujar('net', Number(s.net_mb) || 0);
+    dibujarGraficas();
+  }catch(e){ /* la telemetría nunca debe ensuciar la conversación */ }
+}
+
+async function latido(){
+  try{
+    const d = await API.get('/api/nexus/estado');
+    const j = (d.jarvis||{}).online, u = (d.ultron||{}).online;
+    const m = (id, ok) => { const el = document.getElementById(id);
+      if (el){ el.textContent = ok ? '●' : '○'; el.className = ok ? 'et-ok' : 'et-mal'; } };
+    m('m-j', j); m('m-u', u);
+    document.getElementById('l-estado').textContent =
+      j ? (u ? 'ambos en línea' : 'solo JARVIS') : 'núcleo cargando';
+    document.getElementById('n-modelo').textContent = (d.jarvis||{}).modelo || '—';
+    document.getElementById('n-enlace').textContent = u ? 'ULTRON ok' : 'sin ULTRON';
+    document.getElementById('n-integridad').textContent = (j && u) ? '100%' : (j ? '72%' : '—');
+  }catch(e){}
+  try{ pintarLaterales(await API.get('/api/panel')); }catch(e){}
+}
+</script>
+
+<script src="/modulos.js"></script>
+<script>
+/* ═════════════════════════ arranque ═══════════════════════════════════════ */
+document.querySelectorAll('.selector button').forEach(b => b.onclick = () => cambiarA(b.dataset.p));
+document.getElementById('btn-enviar').onclick = () => enviar();
+campo.addEventListener('keydown', e => { if (e.key === 'Enter') enviar(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ abrirPanel(false); cerrarModulo(); }
+  if (e.key === 'Tab' && !e.ctrlKey){
+    e.preventDefault();
+    const orden = ['jarvis','ultron','consejo'];
+    cambiarA(orden[(orden.indexOf(persona)+1) % orden.length]);
+  }
+});
+setInterval(() => { const h = document.getElementById('m-hora');
+  if (h) h.textContent = new Date().toLocaleTimeString('es-ES',
+    {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }, 1000);
+
+medirReactor(); medirFondo();
+aplicarTema(PERSONAS.jarvis);
+moverCorredera(); pintarAtajos(); pintarRail();
+pintarReactor(); pintarFondo();
+telemetria(); setInterval(telemetria, 3000);
+latido(); setInterval(latido, 12000);
+sistema('Nexus en línea · Tab cambia de personalidad · el engranaje abre el panel');
+campo.focus({preventScroll:true});
+document.querySelector('.escenario').scrollTop = 0;
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+# Dependencias OPCIONALES de JARVIS
+#
+#   pip install -r requirements-extra.txt
+#
+# Nada de esto hace falta para que JARVIS funcione. Son extras pesados (varios
+# GB en algun caso) que ademas no siempre tienen rueda precompilada para la
+# ultima version de Python. Instalalos de uno en uno segun los necesites:
+# si uno falla, no arrastra a los demas.
+#
+# IMPORTANTE: no metas estas lineas en requirements.txt. pip resuelve el
+# fichero entero antes de instalar nada, asi que una sola que falle deja el
+# sistema sin NINGUNA dependencia instalada.
+
+# ── Transcribir la voz que llega desde el movil (endpoint /voice) ──────────
+# Sin esto el chat del movil funciona, pero el boton de microfono no.
+# Necesita ademas ffmpeg en el PATH:  winget install Gyan.FFmpeg
+faster-whisper>=1.0.0
+
+# ── Reproducir el audio de ElevenLabs dentro del proceso ──────────────────
+# Si falta, JARVIS reproduce el audio con el reproductor de Windows
+# (funciona, solo que abre una ventana). A dia de hoy pygame no publica
+# rueda para Python 3.14; con Python 3.12 se instala sin problema.
+pygame>=2.5.0
+
+# ── Memoria semantica tripartita ──────────────────────────────────────────
+mem0ai>=0.1.0
+
+# ── Voz local sin conexion (alternativa a ElevenLabs) ─────────────────────
+piper-tts>=1.2.0
+
+# ── Pipeline de voz en tiempo real (fase futura; ~300 MB) ─────────────────
+pipecat-ai[all]>=0.1.0
+aiortc>=1.0.0
+aiohttp>=3.8.0
+
+# ── Analisis de audio (paralinguistica) ───────────────────────────────────
+librosa>=0.10.0
+
+# ── Sensores y hardware de Windows ────────────────────────────────────────
+wmi>=1.5.1
+pyserial>=3.5
+
+# ── Bolsa y OCR ───────────────────────────────────────────────────────────
+yfinance>=0.2.0
+winocr>=0.0.10
+
+# ── Microfono del PC: escucha continua y palabra de activacion ────────────
+# Sin PyAudio no hay microfono en el equipo (ni escucha continua ni el
+# listen() clasico); la voz sigue funcionando desde el navegador y Telegram.
+# En Windows, si pip falla, usa una rueda precompilada:  pip install pipwin
+pyaudio>=0.2.14
+
+# ── Clasificador de intenciones que aprende de tus ordenes ────────────────
+# JARVIS registra que habilidad atendio cada frase y con esto reentrena un
+# modelo con TU forma de hablar («entrena tu clasificador»).
+scikit-learn>=1.3.0

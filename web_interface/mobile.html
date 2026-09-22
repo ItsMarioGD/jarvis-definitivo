@@ -280,7 +280,13 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
       b.className = 'quick-btn'; b.textContent = parts[0];
       const spec = parts[1] || '';
       b.addEventListener('click', function () {
-        if (spec.indexOf('open:') === 0) window.open(spec.slice(5), '_blank');
+        if (spec.indexOf('open:') === 0) {
+          // Cámara, pantalla y touchpad ya exigen el PIN en el servidor, así
+          // que hay que llevárselo en la URL o responden 403.
+          var destino = spec.slice(5);
+          if (token) destino += (destino.indexOf('?') < 0 ? '?' : '&') + 'token=' + encodeURIComponent(token);
+          window.open(destino, '_blank');
+        }
         else if (spec.indexOf('cmd:') === 0) { msgInput.value = spec.slice(4); send(); }
         else if (spec === 'mode') toggleUltronMode();
       });
@@ -551,10 +557,15 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
       const msg = (err && err.message) || String(err);
       if (/rejected|invalid/i.test(msg)) {
         connected = false;
-        localStorage.removeItem(TOKEN_KEY);
         if (socket) { socket.disconnect(); socket = null; }
-        showLogin();
-        loginError.textContent = 'PIN incorrecto. Compruébalo en /pair de tu PC.';
+        // Antes esto mandaba directo al login. Si este teléfono ya está
+        // emparejado, el PC le da el PIN nuevo y sigue como si nada.
+        renovarPin().then(function (ok) {
+          if (ok) return;
+          localStorage.removeItem(TOKEN_KEY);
+          showLogin();
+          loginError.textContent = 'PIN incorrecto. Compruébalo en /pair de tu PC.';
+        });
       } else if (agente === 'jarvis') setStatus(false, 'Sin conexión al PC');
     });
     socket.on('disconnect', function () {
@@ -596,6 +607,60 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
   const saved = localStorage.getItem(TOKEN_KEY_REF);
   if (saved) tokenInput.value = saved;
 
+  /* El QR ya trae el PIN: quien escanea no tiene que teclearlo ni pulsar nada.
+     Se comprueba contra el servidor antes de entrar; si ya no vale (el PIN
+     caduca), se enseña el login en vez de dejar la pantalla colgada. */
+  async function entrarSolo(t) {
+    if (!/^\d{6}$/.test(t || '')) return false;
+    try {
+      const r = await fetch('/token_ok?token=' + encodeURIComponent(t));
+      const d = await r.json().catch(function () { return {}; });
+      if (d.bloqueado) {
+        showLogin();
+        loginError.textContent = 'Demasiados intentos. Vuelve a probar en ' +
+          (d.minutos || 15) + ' min.';
+        return true;   // ya se ha dicho lo que pasa: no seguir intentando
+      }
+      if (!d.ok) return await renovarPin();
+      localStorage.setItem(TOKEN_KEY_REF, t);
+      startChat(t);
+      recordarEsteAparato(t);
+      return true;
+    } catch (e) {
+      /* No llega la petición: el PC está apagado, se cayó el WiFi o estamos
+         fuera de la red privada. Eso NO es un PIN malo, y decir «PIN caducado»
+         manda a teclear un PIN que ya es correcto. Se entra igual y la propia
+         pantalla dirá «sin conexión al PC» hasta que vuelva. */
+      startChat(t);
+      return true;
+    }
+  }
+
+  /* El PIN se renueva cada 30 días. Si este teléfono ya estaba emparejado, el
+     PC le da el nuevo y no hay que volver a escanear nada. */
+  async function renovarPin() {
+    try {
+      const r = await fetch('/pin_actual');
+      if (!r.ok) return false;
+      const d = await r.json();
+      if (!d.pin) return false;
+      localStorage.setItem(TOKEN_KEY_REF, d.pin);
+      tokenInput.value = d.pin;
+      startChat(d.pin);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* Darse de alta solo: así el PC sabe que este teléfono está emparejado y
+     sigue dejándole entrar aunque cambie el PIN. */
+  function recordarEsteAparato(t) {
+    fetch('/allow_my_ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': t },
+      body: JSON.stringify({ token: t })
+    }).catch(function () {});
+  }
+
   function showLogin() { chatView.classList.add('hidden'); loginView.classList.remove('hidden'); }
   function startChat(t) {
     token = t;
@@ -611,6 +676,7 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     loginError.textContent = '';
     localStorage.setItem(TOKEN_KEY_REF, t);
     startChat(t);
+    recordarEsteAparato(t);
   });
   tokenInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') loginBtn.click(); });
 
@@ -625,7 +691,20 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     showLogin();
   });
 
-  if (saved) startChat(saved);
+  /* Entrar solo, pero comprobando: antes se entraba con el PIN guardado sin
+     mirar si seguía valiendo, y cuando caducaba la pantalla se quedaba muerta
+     sin decir por qué. */
+  if (saved) {
+    // Sin parpadeo: mientras se comprueba el PIN no se enseña el formulario,
+    // que solo invita a teclear un PIN que ya tenemos.
+    loginView.classList.add('hidden');
+    entrarSolo(saved).then(function (ok) {
+      if (!ok) {
+        showLogin();
+        loginError.textContent = 'El PIN ha caducado. Vuelve a escanear el QR del PC.';
+      }
+    });
+  }
 
   /* ═══════ PWA ═══════ */
   let deferredPrompt = null;

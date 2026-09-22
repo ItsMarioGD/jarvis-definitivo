@@ -27,7 +27,7 @@ if exist ".env" (
 :: ── Defaults razonables (no pisan lo del .env) ─────────────────────────────
 if "%JARVIS_PORT%"=="" set "JARVIS_PORT=5000"
 if "%JARVIS_HOST%"=="" set "JARVIS_HOST=0.0.0.0"
-if "%QWEN_MODEL%"=="" set "QWEN_MODEL=qwen3:4b-instruct"
+if "%QWEN_MODEL%"=="" set "QWEN_MODEL=qwen3:8b"
 
 :: ── Verificar Flask + requests ─────────────────────────────────────────────
 "%PYTHON%" -c "import flask" >nul 2>&1

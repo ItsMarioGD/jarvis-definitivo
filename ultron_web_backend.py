@@ -118,7 +118,7 @@ class UltronHandler(BaseHTTPRequestHandler):
             self._json(200, {
                 "ok": True,
                 "agent": "ULTRON",
-                "llm": os.getenv("ULTRON_MODEL") or os.getenv("QWEN_MODEL", "qwen3:4b-instruct"),
+                "llm": os.getenv("ULTRON_MODEL") or os.getenv("QWEN_MODEL", "qwen3:8b"),
                 "mode": "OFENSIVA" if (core and getattr(core, "_modo_agresivo", False)) else "NORMAL",
                 "core_loaded": bool(core),
             })

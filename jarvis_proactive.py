@@ -53,6 +53,16 @@ class ProactiveEngine:
         self._lock = threading.Lock()
         self._rules: List[Callable[[], List[ProactiveEvent]]] = []
 
+        # Cada cuánto puede correr cada regla cara, en segundos.
+        self._RITMO = {
+            "_check_updates": 6 * 3600,     # winget tarda ~0,7 s
+            "_check_thermal": 900,          # PowerShell/WMI, ~0,4 s
+            "_check_disk_space": 1800,
+            "_check_security": 600,
+            "_check_network": 600,
+        }
+        self._ultima_regla = {}
+
         # Registrar reglas built-in
         self._register_builtin_rules()
 
@@ -67,6 +77,7 @@ class ProactiveEngine:
             self._check_routine,
             self._check_security,
             self._check_updates,
+            self._check_entregas,
         ])
 
     def start(self):
@@ -90,6 +101,16 @@ class ProactiveEngine:
             try:
                 new_events = []
                 for rule in self._rules:
+                    # Las reglas caras (winget, PowerShell, WMI) tardan casi un
+                    # segundo cada una y se lanzaban en CADA pasada. Ahora cada
+                    # una tiene su propio ritmo: lo barato sigue cada vuelta,
+                    # lo caro cada media hora o cada seis.
+                    espera = self._RITMO.get(rule.__name__, 0)
+                    if espera:
+                        ultima = self._ultima_regla.get(rule.__name__, 0)
+                        if time.time() - ultima < espera:
+                            continue
+                        self._ultima_regla[rule.__name__] = time.time()
                     try:
                         events = rule()
                         if events:
@@ -120,6 +141,16 @@ class ProactiveEngine:
 
     def _notify(self, event: ProactiveEvent):
         """Notifica evento via callback del core (TTS, web, etc)."""
+        # Persistir siempre: un aviso que solo se dice en voz alta se pierde si
+        # el señor no estaba delante. En el almacén queda consultable después.
+        try:
+            from storage import get_storage
+            get_storage(log=self.log).registrar_evento(
+                tipo=f"proactivo:{event.category}", titulo=event.title,
+                detalle=event.message, gravedad=event.priority.name.lower(),
+                agente=getattr(self.core, "nombre_agente", "JARVIS"))
+        except Exception:
+            pass
         try:
             # Callback TTS si está disponible
             if hasattr(self.core, 'tts_queue') and event.priority.value >= ProactivePriority.MEDIUM.value:
@@ -189,6 +220,45 @@ class ProactiveEngine:
                                 suggested_action="notify",
                                 action_data={"event_id": ev["id"]}
                             ))
+        except Exception:
+            pass
+        return events
+
+    def _check_entregas(self) -> List[ProactiveEvent]:
+        """Entregas del campus que vencen pronto.
+
+        Solo mira lo YA leído del portal, sin entrar a la web: un motor que
+        corre cada dos minutos no puede abrir un navegador cada vez. Quien
+        refresca es «mira el campus», que el señor pide o programa aparte.
+        """
+        events = []
+        try:
+            import portal_academico as portal
+        except Exception:
+            return events
+        try:
+            for t in portal.urgentes():
+                faltan = t["vence"] - time.time()
+                horas = int(faltan / 3600)
+                # Mientras más cerca, más alto grita. Una entrega que vence hoy
+                # no es lo mismo que una de dentro de tres días.
+                if horas <= 24:
+                    prioridad = ProactivePriority.HIGH
+                    cuando = f"en {horas} horas" if horas > 1 else "en menos de una hora"
+                else:
+                    prioridad = ProactivePriority.MEDIUM
+                    cuando = f"en {int(faltan // 86400)} días"
+                titulo = str(t.get("titulo") or "")[:70]
+                events.append(ProactiveEvent(
+                    id=f"entrega_{abs(hash(titulo + str(int(t['vence']))))%10**8}",
+                    priority=prioridad,
+                    category="estudios",
+                    title=f"Entrega {cuando}",
+                    message=(f"«{titulo}»"
+                             + (f" de {t['curso']}" if t.get("curso") else "")
+                             + f" vence {cuando}, señor."),
+                    suggested_action="notify",
+                    action_data={"url": t.get("url", "")}))
         except Exception:
             pass
         return events
@@ -295,18 +365,20 @@ class ProactiveEngine:
         events = []
         try:
             import requests
-            # Test latencia a Ollama
-            r = requests.get("http://localhost:11434/api/tags", timeout=3)
+            # Latencia hasta la API de Anthropic, que es donde vive el cerebro.
+            # Un HEAD a la raiz basta: no gasta tokens y mide la red.
+            r = requests.head("https://api.anthropic.com", timeout=5)
             latency = r.elapsed.total_seconds() * 1000
-            if latency > 5000:
+            if latency > 3000:
                 events.append(ProactiveEvent(
                     id=f"net_{int(time.time())}",
                     priority=ProactivePriority.MEDIUM,
                     category="network",
-                    title="Latencia alta al modelo local",
-                    message=f"Ollama responde en {latency:.0f}ms. ¿Reinicio servicio?",
-                    suggested_action="ask_confirmation",
-                    action_data={"confirm_text": "reinicie Ollama", "command": "restart_ollama"}
+                    title="Latencia alta al cerebro",
+                    message=f"Anthropic responde en {latency:.0f}ms; "
+                            "las respuestas iran lentas.",
+                    suggested_action="notify",
+                    action_data={}
                 ))
         except Exception:
             pass

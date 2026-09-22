@@ -18,7 +18,11 @@ class HomeAssistantSkill:
         r"\b(abre|cierra|bloquea|desbloquea)\s+(la\s+)?(puerta|cerradura)",
         r"\b(enciende|apaga)\s+(el\s+)?(switch|interruptor|enchufe)",
         r"\b(reproduce|pausa|siguiente|anterior|volumen)\s+(en\s+)?(spotify|sonos|media)",
-        r"\bnotifica|avisa|mandame\s+(un\s+)?mensaje",
+        # Antes bastaba con la palabra «avisa» en cualquier punto de la
+        # frase, así que «organiza las descargas y avísame» se la llevaba
+        # la domótica. Ahora hace falta decir QUÉ se notifica o POR DÓNDE.
+        r"\b(?:notifica|avisa|mandame)\s+(?:un\s+|el\s+)?(?:mensaje|aviso|notificacion|notificación)\b",
+        r"\b(?:notifica|avisa)\s+(?:a|en|por)\s+\w+",
     ]
     priority = 10
     description = "Control Home Assistant: luces, clima, cerraduras, media, notificaciones"

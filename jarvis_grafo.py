@@ -176,6 +176,62 @@ def contexto(limite: int = 10) -> str:
         return ""
 
 
+def olvidar(dias: int = 45, minimo_veces: int = 2) -> dict:
+    """Olvida lo que el señor dejó de usar. Devuelve cuánto se podó.
+
+    Por qué existe: el grafo solo crecía. Un conocimiento que se acumula sin
+    caducar acaba inyectando contexto irrelevante en cada consulta, gastando
+    ventana del modelo y empeorando las respuestas. Aquí se imita el olvido
+    humano: lo que no se toca pierde peso, y lo que pierde todo el peso se va.
+
+    dias: cuánto tiempo sin usarse hace que un nodo pierda un punto de peso.
+    minimo_veces: los nodos con al menos este uso nunca se borran del todo en
+    una sola pasada (bajan de peso, pero sobreviven a la poda inmediata).
+    """
+    from datetime import timedelta
+    corte = (datetime.now() - timedelta(days=dias)).isoformat(timespec="seconds")
+    resumen = {"debilitados": 0, "nodos_borrados": 0, "aristas_borradas": 0}
+    try:
+        with _lock:
+            con = _con()
+            try:
+                cur = con.execute(
+                    "UPDATE nodos SET veces = veces - 1 "
+                    "WHERE ultimo < ? AND veces > 0", (corte,))
+                resumen["debilitados"] = cur.rowcount or 0
+                cur = con.execute(
+                    "DELETE FROM nodos WHERE ultimo < ? AND veces < ?",
+                    (corte, minimo_veces))
+                resumen["nodos_borrados"] = cur.rowcount or 0
+                # Aristas huérfanas: sin sus dos nodos no significan nada.
+                cur = con.execute(
+                    "DELETE FROM aristas WHERE origen NOT IN (SELECT id FROM nodos) "
+                    "OR destino NOT IN (SELECT id FROM nodos)")
+                resumen["aristas_borradas"] = cur.rowcount or 0
+                con.execute("UPDATE aristas SET peso = peso - 1 WHERE peso > 1")
+                con.commit()
+            finally:
+                con.close()
+    except Exception:
+        pass
+    return resumen
+
+
+def estadisticas() -> dict:
+    """Tamaño actual del grafo, para saber si el olvido está haciendo algo."""
+    try:
+        with _lock:
+            con = _con()
+            try:
+                nodos = con.execute("SELECT COUNT(*) FROM nodos").fetchone()[0]
+                aristas = con.execute("SELECT COUNT(*) FROM aristas").fetchone()[0]
+                return {"nodos": nodos, "aristas": aristas}
+            finally:
+                con.close()
+    except Exception:
+        return {"nodos": 0, "aristas": 0}
+
+
 def limpiar() -> str:
     try:
         with _lock:

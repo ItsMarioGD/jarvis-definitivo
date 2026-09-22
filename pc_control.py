@@ -34,6 +34,10 @@ import ctypes
 import unicodedata
 from datetime import datetime, timedelta
 
+import energia
+import ejecutor
+import deshacer
+
 # ── aplicaciones conocidas → IDs winget ──────────────────────────────────────
 WINGET_MAP = {
     "chrome": "Google.Chrome", "google chrome": "Google.Chrome",
@@ -143,8 +147,8 @@ class PCControl:
             video, canal = m.group(1).strip(), m.group(2).strip()
             import urllib.parse
             query = urllib.parse.quote(f"{video} canal {canal}")
-            subprocess.Popen(f"start https://www.youtube.com/results?search_query={query}",
-                             shell=True, creationflags=0x08000000)
+            ejecutor.lanzar(f"start https://www.youtube.com/results?search_query={query}",
+                            origen="youtube", orden=t, log=self.log)
             return f"Buscando «{video}» en el canal «{canal}», señor. Abriendo YouTube."
         # "abre el canal Y en youtube" / "busca el canal Y"
         m = re.search(r"(?:abre|busca)\s+(?:el\s+)?canal\s+(.+?)(?:\s+en\s+youtube)?$", t)
@@ -152,8 +156,8 @@ class PCControl:
             canal = m.group(1).strip().rstrip(".")
             import urllib.parse
             query = urllib.parse.quote(f"canal {canal}")
-            subprocess.Popen(f"start https://www.youtube.com/results?search_query={query}",
-                             shell=True, creationflags=0x08000000)
+            ejecutor.lanzar(f"start https://www.youtube.com/results?search_query={query}",
+                            origen="youtube", orden=t, log=self.log)
             return f"Abriendo el canal «{canal}» en YouTube, señor."
         return None
 
@@ -255,12 +259,13 @@ class PCControl:
                 n = int(m.group(1))
                 unidad = m.group(2)
                 seg = n * (60 if unidad.startswith("min") else (1 if unidad.startswith("seg") else 3600))
-                cmds = {"apaga": "shutdown /s /t", "reinicia": "shutdown /r /t"}
                 modo = "apaga" if "apaga" in t else "reinicia"
                 if self.safe:
                     return f"{'Apagaré' if modo == 'apaga' else 'Reiniciaré'} el equipo en {n} {unidad}(s), señor. (modo seguro: no ejecutado)"
-                subprocess.Popen(f"{cmds[modo]} {seg} /c \"Jarvis por orden del señor\"",
-                                 shell=True, creationflags=0x08000000)
+                ok, error = energia.programar(seg, reinicio=(modo == "reinicia"),
+                                              motivo="Jarvis por orden del señor", log=self.log)
+                if not ok:
+                    return f"Señor, Windows rechazó la orden: {error}"
                 return f"{'Apagaré' if modo == 'apaga' else 'Reiniciaré'} el equipo en {n} {unidad}(s), señor. Dígame «cancela el apagado» si cambia de idea."
             if m2:
                 hh, mm = int(m2.group(1)), int(m2.group(2))
@@ -271,25 +276,33 @@ class PCControl:
                 seg = int((objetivo - ahora).total_seconds())
                 if self.safe:
                     return f"Equipo programado para las {hh:02d}:{mm:02d}, señor. (modo seguro: no ejecutado)"
-                subprocess.Popen(f"shutdown /s /t {seg} /c \"Jarvis apagado programado\"",
-                                 shell=True, creationflags=0x08000000)
+                ok, error = energia.apagar(seg, "Jarvis apagado programado", self.log)
+                if not ok:
+                    return f"Señor, Windows rechazó el apagado: {error}"
                 return f"Apagaré el equipo a las {hh:02d}:{mm:02d}, señor. Dígame «cancela el apagado» si cambia de idea."
         # suspender / hibernar / cerrar sesión (poder total: ejecución inmediata)
         if re.search(r"suspende (el pc|el equipo|la computadora)|ponlo a dormir|suspender el", t):
             if self.safe:
                 return "Equipo suspendido, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
-                             shell=True, creationflags=0x08000000)
+            ok, error, _ = ejecutor.lanzar("rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
+                                           origen="suspender", orden=t, log=self.log)
+            if not ok:
+                return f"Señor, no pude suspender el equipo: {error[:120]}"
             return "Suspendiendo el equipo, señor. Hasta pronto."
         if re.search(r"hiberna (el pc|el equipo)|hibernacion", t):
             if self.safe:
                 return "Equipo hibernado, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("shutdown /h", shell=True, creationflags=0x08000000)
+            res = ejecutor.ejecutar("shutdown /h", origen="hibernar", orden=t, log=self.log)
+            if not res["ok"]:
+                return f"Señor, Windows rechazó la hibernación: {res['error'][:120]}"
             return "Hibernando el equipo, señor. Lo reanudaré a su regreso."
         if re.search(r"cierra (la )?sesion|cerrar sesion|cerrar la sesion", t):
             if self.safe:
                 return "Sesión cerrada, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("shutdown /l", shell=True, creationflags=0x08000000)
+            ok, error, _ = ejecutor.lanzar("shutdown /l", origen="cerrar_sesion",
+                                           orden=t, log=self.log)
+            if not ok:
+                return f"Señor, no pude cerrar la sesión: {error[:120]}"
             return "Cerrando la sesión, señor. Sus programas quedarán en espera."
         return None
 
@@ -548,10 +561,20 @@ class PCControl:
             if not os.path.isdir(dst):
                 os.makedirs(dst, exist_ok=True)
             mover = 0
+            movimientos = []
             for f in os.listdir(src):
                 if f.lower().endswith("." + ext.lower()):
-                    shutil.move(os.path.join(src, f), os.path.join(dst, f))
+                    origen_f = os.path.join(src, f)
+                    destino_f = os.path.join(dst, f)
+                    shutil.move(origen_f, destino_f)
+                    movimientos.append([origen_f, destino_f])
                     mover += 1
+            # Un movimiento en lote mal dirigido era irreversible: ahora queda
+            # anotado y basta con decir «deshaz eso».
+            if movimientos:
+                deshacer.anotar("mover_archivos",
+                                f"moví {mover} archivos .{ext} a {os.path.basename(dst.rstrip(chr(92)+chr(47)))}",
+                                {"movimientos": movimientos}, log=self.log)
             return (f"Moví {mover} archivos .{ext} de {os.path.basename(src.rstrip('\\/'))} a "
                     f"{os.path.basename(dst.rstrip('\\/'))}, señor." if mover
                     else f"Señor, no había archivos .{ext} en {os.path.basename(src.rstrip('\\/'))}.")
@@ -565,6 +588,7 @@ class PCControl:
             prefijo = datetime.now().strftime("%Y-%m-%d_") if "fecha" in modo else None
             m2 = re.search(r"reemplazando\s+«?([^»]+)»?\s+por\s+«?([^»]+)»?", t)
             cambiados = 0
+            renombrados = []
             for f in os.listdir(carpeta):
                 ruta = os.path.join(carpeta, f)
                 if not os.path.isfile(ruta) or f.startswith("~"):
@@ -577,10 +601,16 @@ class PCControl:
                     continue
                 if nuevo != f:
                     try:
-                        os.rename(ruta, os.path.join(carpeta, nuevo))
+                        ruta_nueva = os.path.join(carpeta, nuevo)
+                        os.rename(ruta, ruta_nueva)
+                        renombrados.append([ruta, ruta_nueva])
                         cambiados += 1
                     except OSError:
                         pass
+            if renombrados:
+                deshacer.anotar("renombrar", f"renombré {cambiados} archivos en "
+                                f"{os.path.basename(carpeta.rstrip(chr(92)+chr(47)))}",
+                                {"cambios": renombrados}, log=self.log)
             return (f"Renombré {cambiados} archivos en {os.path.basename(carpeta.rstrip('\\/'))}, señor." if cambiados
                     else "Señor, no había nada que renombrar allí.")
         # comprimir: "comprime la carpeta descargas" / "comprime C:\ruta"
@@ -817,10 +847,15 @@ class PCControl:
                 return f"Tarea «{accion}»: copia de seguridad de Documentos completada."
             if "abre " in a or "abrir " in a:
                 app = re.sub(r"^(abre|abrir|la aplicacion)\s+", "", accion.strip())
-                subprocess.Popen(f"start {app}", shell=True, creationflags=0x08000000)
+                ok, error, _ = ejecutor.lanzar(f"start {app}", origen="tarea_programada",
+                                               orden=accion, verificar_ms=400, log=self.log)
+                if not ok:
+                    return f"Tarea «{accion}»: no pude abrir {app}: {error[:120]}"
                 return f"Tarea «{accion}»: abrí {app}."
             if "apaga" in a:
-                subprocess.Popen("shutdown /s /t 60", shell=True, creationflags=0x08000000)
+                ok, error = energia.apagar(60, "Jarvis tarea programada", self.log)
+                if not ok:
+                    return f"Tarea «{accion}»: Windows rechazó el apagado: {error}"
                 return f"Tarea «{accion}»: el equipo se apagará en un minuto."
             return f"Tarea «{accion}» ejecutada."
         except Exception as e:

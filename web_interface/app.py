@@ -10,9 +10,12 @@ JARVIS Web Server - Acceso móvil + chat en tiempo real (Fase 1+2)
 """
 import sys
 import os
+import ctypes
+import subprocess
 import threading
 import time
 import json
+import urllib.request
 import socket
 import secrets
 import requests
@@ -39,6 +42,18 @@ if os.path.exists(_ENV_PATH):
 
 from flask import Flask, jsonify, send_from_directory, request, send_file, render_template_string, Response
 
+try:
+    from calendar_engine import calendar_engine
+except Exception as _ce:
+    print(f"[JARVIS-WEB] calendar_engine no disponible: {_ce}")
+    calendar_engine = None
+
+try:
+    import herramientas.pc_tactical as pc_tactical
+except Exception as _pt:
+    print(f"[JARVIS-WEB] pc_tactical no disponible: {_pt}")
+    pc_tactical = None
+
 # ── Agencia de especialistas (índice en memoria, se carga una sola vez) ──
 _AGENTES_IA = None
 def _agentes_ia():
@@ -57,21 +72,47 @@ from flask_socketio import SocketIO, emit
 AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.jarvis_auth')
 
 
-def get_token():
-    try:
-        with open(AUTH_FILE, 'r', encoding='utf-8') as f:
-            t = f.read().strip()
-            if t and t.isdigit() and len(t) == 6:
-                return t
-    except Exception:
-        pass
-    t = f"{secrets.randbelow(1000000):06d}"
+# Vida del PIN: un codigo de 6 digitos que abre el control total del PC no
+# deberia ser eterno. Pasados JARVIS_PIN_DIAS se genera uno nuevo al arrancar
+# (0 = nunca caduca, para quien prefiera el comportamiento antiguo).
+PIN_DIAS = int(os.getenv("JARVIS_PIN_DIAS", "30"))
+
+
+def _guardar_token(t: str):
     try:
         with open(AUTH_FILE, 'w', encoding='utf-8') as f:
-            f.write(t)
+            json.dump({"token": t, "creado": time.time()}, f)
     except Exception:
         pass
     return t
+
+
+def _nuevo_token() -> str:
+    return _guardar_token(f"{secrets.randbelow(1000000):06d}")
+
+
+def get_token():
+    """PIN actual. Rota solo si caduco; si no, se conserva el emparejamiento."""
+    try:
+        with open(AUTH_FILE, 'r', encoding='utf-8') as f:
+            bruto = f.read().strip()
+        if bruto.startswith("{"):
+            datos = json.loads(bruto)
+            t, creado = str(datos.get("token", "")), float(datos.get("creado", 0))
+        else:
+            # Formato antiguo: solo el PIN. Se migra conservandolo.
+            t, creado = bruto, 0.0
+        if t and t.isdigit() and len(t) == 6:
+            if PIN_DIAS <= 0:
+                return t if creado else _guardar_token(t)
+            if creado and (time.time() - creado) < PIN_DIAS * 86400:
+                return t
+            if not creado:
+                return _guardar_token(t)   # migracion: la cuenta empieza hoy
+            print(f"[auth] PIN caducado tras {PIN_DIAS} dias: genero uno nuevo.")
+    except Exception:
+        pass
+    return _nuevo_token()
 
 
 AUTH_TOKEN = get_token()
@@ -79,7 +120,18 @@ AUTH_TOKEN = get_token()
 
 def _local_ip():
     """IP de la red local real (Wi-Fi/Ethernet). Evita la IP virtual de
-    Tailscale (100.x): el teléfono sin la app no puede alcanzarla."""
+    Tailscale (100.x): el teléfono sin la app no puede alcanzarla.
+
+    Se pregunta cada vez, sin cachear: el router reparte IPs nuevas y un QR con
+    la IP de ayer es exactamente por lo que el teléfono se queda cargando.
+    """
+    try:
+        import red_movil
+        ip = red_movil.mejor_ip()
+        if ip and ip != "127.0.0.1":
+            return ip
+    except Exception:
+        pass
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -117,33 +169,120 @@ def _tailscale_dns():
 
 
 def _pair_url():
-    """URL pública para el teléfono. Prioriza la red local (mismo Wi-Fi);
-    Tailscale HTTPS solo si la LAN no responde (p. ej. fuera de casa)."""
-    ip = _local_ip()
-    port = jarvis_config.PORT
+    """URL para el teléfono: la de la red local, siempre recién calculada.
+
+    Antes esto comprobaba la URL abriéndola desde el propio PC, lo cual pasa
+    siempre aunque el teléfono no llegue: no probaba nada. Ahora se devuelve la
+    mejor dirección local y las alternativas se ofrecen aparte, en /pair_info.
+    """
+    # Si el servidor esta publicado en la red privada, esa es LA direccion: la
+    # misma vale en casa y en la calle, y ademas por HTTPS (sin HTTPS el
+    # navegador del telefono apaga el microfono).
     try:
-        import urllib.request
-        urllib.request.urlopen(f"http://{ip}:{port}/mobile", timeout=3)
-        return f"http://{ip}:{port}/mobile"
+        import remoto
+        for u in remoto.urls():
+            if u.get("segura"):
+                return u["url"].rstrip("/") + "/mobile"
     except Exception:
         pass
+    return f"http://{_local_ip()}:{jarvis_config.PORT}/mobile"
+
+
+def _pair_urls():
+    """Todas las direcciones por las que el teléfono podría entrar."""
+    port = jarvis_config.PORT
+    salida = []
     try:
-        import urllib.request
+        import red_movil
+        for e in red_movil.ips_lan():
+            salida.append({"url": f"http://{e['ip']}:{port}/mobile",
+                           "ip": e["ip"], "via": e["interfaz"] or "red local",
+                           "perfil": e.get("perfil", "")})
+        ts = red_movil.tailscale_ip()
+        if ts:
+            salida.append({"url": f"http://{ts}:{port}/mobile", "ip": ts,
+                           "via": "Tailscale (hasta con datos móviles)", "perfil": ""})
+    except Exception:
+        salida.append({"url": _pair_url(), "ip": _local_ip(), "via": "red local",
+                       "perfil": ""})
+    # Lo remoto va DELANTE cuando esta publicado por HTTPS: es la unica
+    # direccion que funciona fuera de casa, y ademas deja usar el microfono.
+    try:
+        import remoto
+        remotas = [{"url": u["url"].rstrip("/") + ("" if u["url"].endswith("/mobile")
+                                                   else "/mobile"),
+                    "ip": u["url"].split("//")[-1].split("/")[0],
+                    "via": u["via"], "perfil": "", "remota": True,
+                    "segura": u.get("segura", False)}
+                   for u in remoto.urls()]
+        seguras = [u for u in remotas if u["segura"]]
+        salida = seguras + salida + [u for u in remotas if not u["segura"]]
+        # La misma direccion puede llegar por dos caminos (red_movil y remoto):
+        # en el QR eso solo confunde.
+        vistas, unicas = set(), []
+        for u in salida:
+            if u["url"] in vistas:
+                continue
+            vistas.add(u["url"])
+            unicas.append(u)
+        salida = unicas
+    except Exception:
         dns = _tailscale_dns()
         if dns:
-            try:
-                urllib.request.urlopen(f"https://{dns}/mobile", timeout=3)
-                return f"https://{dns}/mobile"
-            except Exception:
-                pass
-        urllib.request.urlopen(f"https://{ip}/mobile", timeout=3)
-        return f"https://{ip}/mobile"
-    except Exception:
-        return f"http://{ip}:{port}/mobile"
+            salida.append({"url": f"https://{dns}/mobile", "ip": dns,
+                           "via": "Tailscale por nombre", "perfil": ""})
+    return salida
 
 
-def _auth_ok(token):
-    return token == AUTH_TOKEN
+# Seis cifras se prueban muy deprisa. Mientras JARVIS vivia solo dentro de casa
+# daba igual; ahora que se puede entrar desde fuera, no.
+INTENTOS_MAX = int(os.getenv("JARVIS_PIN_INTENTOS", "6"))
+CASTIGO_SEG = int(os.getenv("JARVIS_PIN_CASTIGO", "900"))     # 15 minutos
+_fallos = {}          # ip -> [cuantos, momento_del_ultimo]
+
+
+LOCALES = ("127.0.0.1", "::1", "localhost")
+
+
+def _bloqueado(ip: str) -> float:
+    """Segundos que le quedan a esta IP castigada. 0 si puede probar."""
+    if ip in LOCALES:
+        return 0.0          # el propio PC no se castiga a si mismo
+    cuantos, ultimo = _fallos.get(ip, (0, 0.0))
+    if cuantos < INTENTOS_MAX:
+        return 0.0
+    restan = CASTIGO_SEG - (time.time() - ultimo)
+    if restan <= 0:
+        _fallos.pop(ip, None)
+        return 0.0
+    return restan
+
+
+def _anotar_fallo(ip: str):
+    if ip in LOCALES:
+        return
+    cuantos, _ = _fallos.get(ip, (0, 0.0))
+    _fallos[ip] = (cuantos + 1, time.time())
+    if cuantos + 1 == INTENTOS_MAX:
+        print(f"[auth] {ip} ha fallado el PIN {INTENTOS_MAX} veces: "
+              f"bloqueada {CASTIGO_SEG // 60} minutos.")
+
+
+def _auth_ok(token, ip: str = ""):
+    """¿Vale el PIN? Con freno para el que lo esta adivinando a lo bruto."""
+    if not ip:
+        try:
+            ip = request.remote_addr or ""
+        except Exception:
+            ip = ""          # fuera de una peticion (socket, hilos) no hay IP
+    if ip and _bloqueado(ip):
+        return False
+    vale = token == AUTH_TOKEN
+    if vale:
+        _fallos.pop(ip, None)
+    elif ip and token:
+        _anotar_fallo(ip)
+    return vale
 
 
 # ── NÚCLEO JARVIS (carga perezosa + autocurable) ─────────────────────────────
@@ -208,12 +347,49 @@ app.config['SECRET_KEY'] = AUTH_TOKEN
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
-def _allowed_ips():
+ALLOWED_IPS_FILE = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS",
+                                "Prefs", "allowed_ips.json")
+# Un emparejamiento no caduca nunca era un problema real: la IP de un movil
+# vuelve al pool DHCP y acaba en otro aparato de la casa, que hereda el permiso.
+PAIR_DIAS = int(os.getenv("JARVIS_PAIR_DIAS", "30"))
+
+
+def _cargar_ips():
+    """Lista cruda: admite el formato viejo (['1.2.3.4']) y el nuevo con fecha."""
     try:
-        return json.load(open(os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS",
-                                           "Prefs", "allowed_ips.json"), encoding="utf-8")) or []
+        datos = json.load(open(ALLOWED_IPS_FILE, encoding="utf-8")) or []
     except Exception:
         return []
+    normal = []
+    for e in datos:
+        if isinstance(e, str):
+            normal.append({"ip": e, "ts": 0.0})
+        elif isinstance(e, dict) and e.get("ip"):
+            normal.append({"ip": e["ip"], "ts": float(e.get("ts", 0) or 0)})
+    return normal
+
+
+def _guardar_ips(lista):
+    try:
+        os.makedirs(os.path.dirname(ALLOWED_IPS_FILE), exist_ok=True)
+        with open(ALLOWED_IPS_FILE, "w", encoding="utf-8") as f:
+            json.dump(lista, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[auth] No pude guardar la lista de IPs: {e}")
+
+
+def _allowed_ips():
+    """IPs emparejadas que siguen vigentes (las caducadas se olvidan solas)."""
+    lista = _cargar_ips()
+    if PAIR_DIAS <= 0:
+        return [e["ip"] for e in lista]
+    limite = time.time() - PAIR_DIAS * 86400
+    vigentes = [e for e in lista if not e["ts"] or e["ts"] >= limite]
+    if len(vigentes) != len(lista):
+        caducadas = [e["ip"] for e in lista if e not in vigentes]
+        print(f"[auth] Emparejamientos caducados: {', '.join(caducadas)}")
+        _guardar_ips(vigentes)
+    return [e["ip"] for e in vigentes]
 
 
 @app.before_request
@@ -267,19 +443,50 @@ def mobile():
 
 @app.route('/pair_info')
 def pair_info():
-    """Datos para el modal de emparejamiento de la interfaz del PC."""
-    return jsonify({
+    """Datos para el modal de emparejamiento de la interfaz del PC.
+
+    La página los pide cada pocos segundos: si el router cambia la IP, el QR se
+    rehace solo y el que estaba en pantalla deja de ser una trampa.
+    """
+    datos = {
         'pin': AUTH_TOKEN,
         'url': _pair_url(),
+        'urls': _pair_urls(),
         'dns': _tailscale_dns() or '',
-    })
+    }
+    try:
+        import remoto
+        datos['remoto'] = remoto.estado()
+    except Exception as e:
+        datos['remoto'] = {'instalado': False, 'error': str(e)[:80]}
+    try:
+        import red_movil
+        datos['firewall'] = red_movil.firewall()
+        datos['diagnostico'] = red_movil.diagnostico(jarvis_config.PORT)
+    except Exception as e:
+        datos['firewall'] = {'error': str(e)[:80]}
+        datos['diagnostico'] = []
+    return jsonify(datos)
+
+
+@app.route('/abrir_puerto', methods=['POST'])
+def abrir_puerto():
+    """Crea la regla del cortafuegos. Solo desde el propio PC."""
+    if (request.remote_addr or '') not in ('127.0.0.1', '::1'):
+        return jsonify({'error': 'esto se hace desde el PC'}), 403
+    try:
+        import red_movil
+        return jsonify({'texto': red_movil.abrir_firewall(log=print),
+                        'firewall': red_movil.firewall()})
+    except Exception as e:
+        return jsonify({'error': str(e)[:150]}), 500
 
 
 @app.route('/notify', methods=['POST'])
 def notify_push():
     """Push interno: reenvía avisos de Jarvis al móvil conectado."""
     remote = request.remote_addr or ''
-    if remote not in ('127.0.0.1', '::1', jarvis_config.LOCAL_IP):
+    if remote not in ('127.0.0.1', '::1', jarvis_config.ip_actual()):
         return jsonify({'error': 'forbidden'}), 403
     try:
         data = request.get_json() or {}
@@ -316,34 +523,181 @@ def webhook_entrada(clave):
 
 @app.route('/clipboard', methods=['POST'])
 def clipboard_entrada():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     datos = request.get_json(silent=True) or {}
     texto = (datos.get('texto') or '').strip()
     if not texto:
         return jsonify({'ok': False, 'error': 'texto vacío'}), 400
     def _copiar():
+        # `subprocess` no estaba importado en este ámbito: el hilo moría con un
+        # NameError silencioso y el portapapeles nunca se llenaba.
+        import subprocess
         try:
-            script = "Set-Clipboard -Value @'" + texto + "'@"
+            script = "Set-Clipboard -Value @'\n" + texto + "\n'@"
             subprocess.Popen(["powershell", "-NoProfile", "-Command", script],
                              creationflags=0x08000000)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[clipboard] no pude copiar: {e}")
     threading.Thread(target=_copiar, daemon=True).start()
     return jsonify({'ok': True})
 
 
+# ── API REST: AGENDA Y CALENDARIO HÍBRIDO ─────────────────────────────────────
+@app.route("/api/calendar/status", methods=["GET"])
+def api_calendar_status():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    return jsonify(calendar_engine.get_status())
+
+
+@app.route("/api/calendar/events", methods=["GET"])
+def api_calendar_events():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    t_min = request.args.get("time_min")
+    t_max = request.args.get("time_max")
+    q = request.args.get("q")
+    days = int(request.args.get("days", 14))
+    if not t_min:
+        now_dt = datetime.now()
+        t_min = now_dt.strftime("%Y-%m-%dT00:00:00")
+        t_max = (now_dt + timedelta(days=days)).strftime("%Y-%m-%dT23:59:59")
+    events = calendar_engine.list_events(time_min=t_min, time_max=t_max, query=q)
+    return jsonify({"events": events, "count": len(events)})
+
+
+@app.route("/api/calendar/today", methods=["GET"])
+def api_calendar_today():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    events = calendar_engine.get_today_events()
+    return jsonify({"events": events, "count": len(events)})
+
+
+@app.route("/api/calendar/events", methods=["POST"])
+def api_calendar_create():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    data = request.get_json(silent=True) or {}
+    summary = (data.get("summary") or data.get("titulo") or "").strip()
+    start = (data.get("start") or data.get("inicio") or "").strip()
+    end = (data.get("end") or data.get("fin") or "").strip() or None
+    description = (data.get("description") or data.get("descripcion") or "").strip()
+    location = (data.get("location") or data.get("ubicacion") or "").strip()
+    if not summary or not start:
+        return jsonify({"error": "summary y start son obligatorios"}), 400
+    ev = calendar_engine.create_event(summary, start, end, description=description, location=location)
+    return jsonify({"ok": True, "event": ev})
+
+
+@app.route("/api/calendar/events/<event_id>", methods=["DELETE"])
+def api_calendar_delete(event_id):
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    ok = calendar_engine.delete_event(event_id)
+    return jsonify({"ok": ok, "deleted_id": event_id})
+
+
+@app.route("/api/calendar/reschedule", methods=["POST"])
+def api_calendar_reschedule():
+    if not calendar_engine:
+        return jsonify({"error": "calendar_engine no cargado"}), 503
+    data = request.get_json(silent=True) or {}
+    event_id = data.get("event_id")
+    new_start = data.get("new_start")
+    new_end = data.get("new_end")
+    if not event_id or not new_start:
+        return jsonify({"error": "event_id y new_start son obligatorios"}), 400
+    ev = calendar_engine.reschedule_event(event_id, new_start, new_end)
+    return jsonify({"ok": ev is not None, "event": ev})
+
+
+# ── API REST: ARSENAL TÁCTICO DEL SISTEMA ────────────────────────────────────
+@app.route("/api/system/processes", methods=["GET"])
+def api_system_processes():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    limit = int(request.args.get("limit", 15))
+    sort_by = request.args.get("sort", "cpu")
+    procs = pc_tactical.list_top_processes(limit=limit, sort_by=sort_by)
+    return jsonify({"processes": procs, "count": len(procs)})
+
+
+@app.route("/api/system/kill", methods=["POST"])
+def api_system_kill():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    data = request.get_json(silent=True) or {}
+    target = data.get("target") or data.get("pid") or data.get("name")
+    if not target:
+        return jsonify({"error": "target no especificado"}), 400
+    res = pc_tactical.kill_process(target)
+    return jsonify(res)
+
+
+@app.route("/api/system/clean_ram", methods=["POST"])
+def api_system_clean_ram():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    res = pc_tactical.clean_ram()
+    return jsonify(res)
+
+
+@app.route("/api/system/lockdown", methods=["POST"])
+def api_system_lockdown():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    res = pc_tactical.lockdown_station()
+    return jsonify(res)
+
+
+@app.route("/api/system/network_radar", methods=["GET"])
+def api_system_network_radar():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    conns = pc_tactical.scan_network_connections(limit=25)
+    return jsonify({"connections": conns, "count": len(conns)})
+
+
+# ── API REST: PROTOCOLO INTER-AGENTES ────────────────────────────────────────
+@app.route("/api/agent/peer_status", methods=["GET"])
+def api_agent_peer_status():
+    if not pc_tactical:
+        return jsonify({"online": False, "error": "pc_tactical no disponible"}), 503
+    st = pc_tactical.get_peer_status("ultron")
+    return jsonify(st)
+
+
+@app.route("/api/agent/delegate", methods=["POST"])
+def api_agent_delegate():
+    if not pc_tactical:
+        return jsonify({"error": "pc_tactical no disponible"}), 503
+    data = request.get_json(silent=True) or {}
+    msg = data.get("message") or data.get("text")
+    if not msg:
+        return jsonify({"error": "message requerido"}), 400
+    res = pc_tactical.delegate_to_peer("ultron", msg)
+    return jsonify(res)
+
+
 @app.route('/camera')
 def camera_view():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     html = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>JARVIS - Cámara</title>
 <style>body{background:#05070d;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
 img{max-width:100vw;max-height:100vh;border:3px solid #00d4ff55;border-radius:8px}
 .hint{position:fixed;bottom:10px;left:0;right:0;text-align:center;color:#5a7a95;font-size:12px}</style></head>
-<body><img src="/camera_feed" alt="Cámara JARVIS"><div class="hint">JARVIS - vista en vivo de la cámara</div></body></html>"""
+<body><img id="feed" alt="Cámara JARVIS"><div class="hint">JARVIS - vista en vivo de la cámara</div><script>document.getElementById("feed").src="/camera_feed?token="+encodeURIComponent(new URLSearchParams(location.search).get("token")||"");</script></body></html>"""
     return render_template_string(html)
 
 
 @app.route('/camera_feed')
 def camera_feed():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     def gen():
         import cv2
         cap = None
@@ -374,17 +728,21 @@ def camera_feed():
 # ── ESCRIBIR IO (pantalla en vivo) ─────────────────────────────────────────────
 @app.route('/screen')
 def screen_view():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     html = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>JARVIS - Escritorio</title>
 <style>body{background:#05070d;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
 img{max-width:100vw;max-height:100vh;border:3px solid #00d4ff55;border-radius:8px}
 .hint{position:fixed;bottom:10px;left:0;right:0;text-align:center;color:#5a7a95;font-size:12px}</style></head>
-<body><img src="/screen_feed" alt="Escritorio JARVIS"><div class="hint">JARVIS - su escritorio en vivo</div></body></html>"""
+<body><img id="feed" alt="Escritorio JARVIS"><div class="hint">JARVIS - su escritorio en vivo</div><script>document.getElementById("feed").src="/screen_feed?token="+encodeURIComponent(new URLSearchParams(location.search).get("token")||"");</script></body></html>"""
     return render_template_string(html)
 
 
 @app.route('/screen_feed')
 def screen_feed():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     def gen():
         try:
             from PIL import ImageGrab
@@ -404,6 +762,8 @@ def screen_feed():
 # ── TOUCHPAD VIRTUAL ───────────────────────────────────────────────────────────
 @app.route('/touchpad')
 def touchpad_view():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     html = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>JARVIS - Touchpad</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
@@ -449,17 +809,93 @@ function clic(tipo) { post({ action: 'click', tipo: tipo }); }
 function rueda(d) { post({ action: 'scroll', delta: d }); }
 function tecla(k) { post({ action: 'key', key: k }); }
 function escribir() { post({ action: 'type', text: document.getElementById('txt').value }); document.getElementById('txt').value = ''; }
-function post(datos) { fetch('/mouse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) }); }
+// El PIN llega en la URL con la que se abrió esta página y hay que reenviarlo
+// en cada acción: /mouse lo exige.
+var TOKEN = new URLSearchParams(location.search).get('token') || '';
+function post(datos) {
+  fetch('/mouse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Token': TOKEN },
+    body: JSON.stringify(datos)
+  });
+}
 </script></body></html>"""
     return render_template_string(html)
 
 
+# Estructuras de SendInput. La version anterior montaba el INPUT a mano con un
+# buffer de 24 bytes y un layout inventado, asi que Windows rechazaba cada
+# pulsacion y escribir desde el movil no hacia absolutamente nada. Estas son
+# las estructuras reales (en x64 sizeof(INPUT) = 40).
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("u", _INPUTUNION)]
+
+
+_INPUT_KEYBOARD = 1
+_KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_UNICODE = 0x0004
+
+# Teclas con nombre que el movil puede pedir. Antes solo habia cuatro y el
+# resto de botones del touchpad no hacian nada.
+_TECLAS = {
+    'enter': 0x0D, 'backspace': 0x08, 'esc': 0x1B, 'escape': 0x1B,
+    'tab': 0x09, 'space': 0x20, 'delete': 0x2E, 'supr': 0x2E,
+    'up': 0x26, 'down': 0x28, 'left': 0x25, 'right': 0x27,
+    'home': 0x24, 'end': 0x23, 'pageup': 0x21, 'pagedown': 0x22,
+    'win': 0x5B, 'f5': 0x74, 'f11': 0x7A,
+    'volup': 0xAF, 'voldown': 0xAE, 'mute': 0xAD,
+    'play': 0xB3, 'next': 0xB0, 'prev': 0xB1,
+}
+
+
+def _enviar_unicode(texto):
+    """Escribe texto en la ventana activa, carácter a carácter.
+
+    Va por unidades UTF-16 para que los caracteres fuera del plano básico
+    (emoji) tampoco rompan nada.
+    """
+    u = ctypes.windll.user32
+    eventos = []
+    crudo = texto.encode('utf-16-le')
+    unidades = [int.from_bytes(crudo[i:i + 2], 'little') for i in range(0, len(crudo), 2)]
+    for unidad in unidades:
+        for flags in (_KEYEVENTF_UNICODE, _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP):
+            ev = _INPUT(type=_INPUT_KEYBOARD)
+            ev.u.ki = _KEYBDINPUT(wVk=0, wScan=unidad, dwFlags=flags, time=0,
+                                  dwExtraInfo=None)
+            eventos.append(ev)
+    if not eventos:
+        return 0
+    bloque = (_INPUT * len(eventos))(*eventos)
+    return u.SendInput(len(eventos), ctypes.byref(bloque), ctypes.sizeof(_INPUT))
+
+
 @app.route('/mouse', methods=['POST'])
 def mouse_accion():
+    # Controlar el ratón y el teclado del PC es lo más sensible que expone el
+    # servidor: sin esta comprobación cualquiera en la misma Wi-Fi podía mover
+    # el cursor y escribir en el equipo sin saber el PIN.
+    if not _auth_ok(_req_token()):
+        return jsonify({'ok': False, 'error': 'token invalido'}), 403
     datos = request.get_json(silent=True) or {}
     acc = datos.get('action')
     try:
-        import ctypes
         u = ctypes.windll.user32
         if acc == 'move':
             u.mouse_event(0x0001, int(datos.get('dx', 0)), int(datos.get('dy', 0)), 0, 0)
@@ -475,27 +911,16 @@ def mouse_accion():
         elif acc == 'scroll':
             u.mouse_event(0x0800, 0, 0, int(datos.get('delta', 0)), 0)
         elif acc == 'key':
-            mapa = {'enter': 0x0D, 'backspace': 0x08, 'esc': 0x1B, 'tab': 0x09}
-            vk = mapa.get(datos.get('key', ''))
-            if vk:
-                u.keybd_event(vk, 0, 0, 0); u.keybd_event(vk, 0, 2, 0)
+            vk = _TECLAS.get(str(datos.get('key', '')).lower())
+            if not vk:
+                return jsonify({'ok': False, 'error': 'tecla desconocida'}), 400
+            u.keybd_event(vk, 0, 0, 0)
+            u.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)
         elif acc == 'type':
-            texto = (datos.get('text') or '')[:200]
-            for ch in texto:
-                codigo = ord(ch)
-                clase = (ctypes.c_ushort * 1)(codigo)
-                evento = (ctypes.c_ulong * 3)(0, 0, 0)
-                inputs = (ctypes.c_ulong * 1)(1)
-                import ctypes.wintypes as wt
-                struct = ctypes.create_string_buffer(40)
-                ctypes.memset(struct, 0, 40)
-                ctypes.cast(struct, ctypes.POINTER(ctypes.c_ulong))[0] = 0x0004  # KEYEVENTF_UNICODE
-                ctypes.cast(struct, ctypes.POINTER(ctypes.c_ulong))[1] = codigo
-                ctypes.memset(ctypes.addressof(struct) + 8, 0, 32)
-                class INPUT(ctypes.Structure):
-                    _fields_ = [("type", ctypes.c_ulong), ("data", ctypes.c_ubyte * 24)]
-                inp = INPUT(1, (ctypes.c_ubyte * 24).from_buffer_copy(struct.raw))
-                u.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+            enviados = _enviar_unicode((datos.get('text') or '')[:500])
+            return jsonify({'ok': True, 'eventos': enviados})
+        else:
+            return jsonify({'ok': False, 'error': 'accion desconocida'}), 400
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -504,6 +929,8 @@ def mouse_accion():
 # ── SUBIR FOTOS/ARCHIVOS DESDE EL MÓVIL ────────────────────────────────────────
 @app.route('/upload', methods=['POST'])
 def upload_movil():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
     archivo = request.files.get('archivo')
     if not archivo or not archivo.filename:
         return jsonify({'ok': False, 'error': 'sin archivo'}), 400
@@ -519,6 +946,14 @@ def upload_movil():
 # ── STATS / DASHBOARD ──────────────────────────────────────────────────────────
 @app.route('/stats')
 def stats_json():
+    """Telemetria del equipo, en un unico formato.
+
+    Habia DOS rutas '/stats' distintas declaradas en este fichero, con datos
+    diferentes cada una. Flask se queda con la primera que encuentra, asi que
+    la segunda no se ejecutaba nunca y el HUD se quedaba sin los nucleos, sin
+    el total de RAM y sin el tiempo encendido: los pedia y no llegaban. Aqui
+    van todas las claves juntas, las del panel del movil y las del HUD.
+    """
     try:
         import psutil
         cpu = psutil.cpu_percent(interval=0.3)
@@ -532,7 +967,6 @@ def stats_json():
                         'mem': round(p.info['memory_percent'] or 0, 1)})
         temp = None
         try:
-            import subprocess
             r = subprocess.run(["powershell", "-NoProfile", "-Command",
                                 "Get-CimInstance MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"],
                                capture_output=True, text=True, timeout=8, creationflags=0x08000000)
@@ -541,13 +975,43 @@ def stats_json():
                 temp = round((int(v) / 10) - 273.15, 1)
         except Exception:
             pass
+
+        try:
+            cores = [round(x, 1) for x in psutil.cpu_percent(interval=0.1, percpu=True)]
+        except Exception:
+            cores = []
+        try:
+            arranque = psutil.boot_time()
+            uptime = int(time.time() - arranque)
+        except Exception:
+            uptime = 0
+        try:
+            b = psutil.sensors_battery()
+            bateria = None if b is None else {'percent': round(b.percent),
+                                              'plugged': bool(b.power_plugged)}
+        except Exception:
+            bateria = None
+
         return jsonify({
+            # Claves del panel del movil / dashboard
             'cpu': cpu, 'ram_pct': ram.percent,
-            'ram_used_gb': round(ram.used / 1073741824, 1), 'ram_total_gb': round(ram.total / 1073741824, 1),
-            'disco_libre_gb': round(disco.free / 1073741824, 1), 'disco_total_gb': round(disco.total / 1073741824, 1),
+            'ram_used_gb': round(ram.used / 1073741824, 1),
+            'ram_total_gb': round(ram.total / 1073741824, 1),
+            'disco_libre_gb': round(disco.free / 1073741824, 1),
+            'disco_total_gb': round(disco.total / 1073741824, 1),
             'net_mb': round(net.bytes_recv / 1048576, 1),
             'temp': temp, 'top': top,
-            'hora': time.strftime('%H:%M:%S')})
+            'hora': time.strftime('%H:%M:%S'),
+            # Claves del HUD de escritorio
+            'cpu_cores': cores,
+            'ram': f"{round(ram.used / 1073741824, 1)} GB",
+            'ram_total': f"{round(ram.total / 1073741824, 1)} GB",
+            'disk_free': f"{round(disco.free / 1073741824, 1)} GB",
+            'disk_total': f"{round(disco.total / 1073741824, 1)} GB",
+            'net_sent': f"{round(net.bytes_sent / 1048576, 1)} MB",
+            'net_recv': f"{round(net.bytes_recv / 1048576, 1)} MB",
+            'uptime': uptime, 'battery': bateria,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -598,17 +1062,99 @@ actualizar(); setInterval(actualizar, 3000);
 
 @app.route('/allow_my_ip', methods=['POST'])
 def permitir_mi_ip():
+    """Auto-emparejamiento. EXIGE el PIN: sin el, cualquiera en la misma red
+    (o en la Tailnet) podia darse de alta a si mismo llamando a este endpoint,
+    que ademas esta exento del filtro de IPs."""
+    token = (request.headers.get('X-Token') or request.args.get('token')
+             or (request.get_json(silent=True) or {}).get('token') or '')
+    if not _auth_ok(token):
+        print(f"[auth] Emparejamiento rechazado desde {request.remote_addr}: PIN incorrecto.")
+        return jsonify({'error': 'PIN incorrecto o ausente'}), 403
     ip = request.remote_addr or ''
-    ruta = os.path.join(os.path.expanduser("~"), "Descargas", "JARVIS", "Prefs", "allowed_ips.json")
-    try:
-        lista = json.load(open(ruta, encoding="utf-8")) or []
-    except Exception:
-        lista = []
-    if ip and ip not in lista:
-        lista.append(ip)
-    with open(ruta, "w", encoding="utf-8") as f:
-        json.dump(lista, f, ensure_ascii=False, indent=2)
-    return jsonify({'ok': True, 'ip': ip})
+    lista = [e for e in _cargar_ips() if e["ip"] != ip]
+    if ip:
+        lista.append({"ip": ip, "ts": time.time()})
+    _guardar_ips(lista)
+    return jsonify({'ok': True, 'ip': ip, 'caduca_en_dias': PAIR_DIAS or None})
+
+
+@app.route('/remoto', methods=['GET', 'POST'])
+def acceso_remoto():
+    """Estado del acceso desde fuera de casa y como encenderlo o apagarlo."""
+    import remoto
+    if request.method == 'GET':
+        return jsonify(remoto.estado())
+    if (request.remote_addr or '') not in ('127.0.0.1', '::1'):
+        return jsonify({'error': 'esto se enciende desde el propio PC'}), 403
+    datos = request.get_json(silent=True) or {}
+    accion = (datos.get('accion') or 'activar').lower()
+    if accion == 'activar':
+        return jsonify({'texto': remoto.activar(log=print), 'estado': remoto.estado()})
+    if accion == 'desactivar':
+        return jsonify({'texto': remoto.desactivar(log=print), 'estado': remoto.estado()})
+    if accion == 'internet':
+        return jsonify({'texto': remoto.publicar_en_internet(
+            confirmado=bool(datos.get('confirmo')), log=print),
+            'estado': remoto.estado()})
+    return jsonify({'error': f'no sé hacer «{accion}»'}), 400
+
+
+@app.route('/token_ok')
+def token_ok():
+    """¿Vale este PIN? Sin mirar la IP.
+
+    El movil comprobaba su PIN pidiendo el historial, pero desde una IP ya
+    emparejada eso responde 200 aunque el PIN sea viejo: entraba, el socket lo
+    rechazaba despues y acababa en la pantalla de login sin saber por que.
+    """
+    t = request.headers.get('X-Token') or request.args.get('token') or ''
+    espera = _bloqueado(request.remote_addr or '')
+    if espera:
+        return jsonify({'ok': False, 'bloqueado': True,
+                        'minutos': int(espera // 60) + 1})
+    return jsonify({'ok': _auth_ok(t)})
+
+
+@app.route('/pin_actual')
+def pin_actual():
+    """PIN de hoy, solo para aparatos que YA estaban emparejados.
+
+    El PIN se renueva cada 30 dias y hasta ahora eso obligaba a volver al PC,
+    abrir el QR y escanear otra vez. Un telefono cuya IP ya esta emparejada
+    tiene acceso completo de todos modos, asi que puede recoger el PIN nuevo el
+    solo y seguir funcionando sin que el señor se entere.
+    """
+    ip = request.remote_addr or ''
+    if ip not in ('127.0.0.1', '::1') and ip not in _allowed_ips():
+        return jsonify({'error': 'este aparato no esta emparejado'}), 403
+    return jsonify({'pin': AUTH_TOKEN})
+
+
+@app.route('/rotate_token', methods=['POST'])
+def rotar_token():
+    """Cambia el PIN al instante (por si se filtro el QR o una captura)."""
+    global AUTH_TOKEN
+    token = (request.headers.get('X-Token') or request.args.get('token')
+             or (request.get_json(silent=True) or {}).get('token') or '')
+    if not _auth_ok(token):
+        return jsonify({'error': 'PIN incorrecto o ausente'}), 403
+    AUTH_TOKEN = _nuevo_token()
+    print("[auth] PIN rotado por peticion del señor. Hay que reemparejar el movil.")
+    return jsonify({'ok': True, 'pin': AUTH_TOKEN,
+                    'aviso': 'Vuelva a emparejar el teléfono con el QR nuevo.'})
+
+
+@app.route('/pair_status')
+def estado_emparejamiento():
+    """Que aparatos estan emparejados y cuando caduca cada uno."""
+    ahora = time.time()
+    filas = []
+    for e in _cargar_ips():
+        dias = None
+        if PAIR_DIAS > 0 and e["ts"]:
+            dias = round(PAIR_DIAS - (ahora - e["ts"]) / 86400, 1)
+        filas.append({"ip": e["ip"], "dias_restantes": dias})
+    return jsonify({"emparejados": filas, "pin_dias": PIN_DIAS, "pair_dias": PAIR_DIAS})
 
 
 @app.route('/socket.io.min.js')
@@ -652,27 +1198,6 @@ def debug_core_status():
     except Exception as e:
         import traceback
         return jsonify({'loaded': False, 'error': str(e), 'trace': traceback.format_exc()[:1000]})
-
-
-@app.route('/stats')
-def stats():
-    if core:
-        try:
-            s = core.get_system_stats()
-            return jsonify({
-                'cpu': s.get('cpu', '--'), 'cpu_cores': s.get('cpu_cores', []),
-                'ram': s.get('ram_used', '--'), 'ram_total': s.get('ram_total', '--'),
-                'ram_pct': s.get('ram_pct', '--'), 'net_sent': s.get('net_sent', '--'),
-                'net_recv': s.get('net_recv', '--'), 'disk_free': s.get('disk_free', '--'),
-                'disk_total': s.get('disk_total', '--'), 'temp': s.get('temp', '--'),
-                'uptime': s.get('uptime', 0), 'battery': s.get('battery'),
-            })
-        except Exception:
-            pass
-    return jsonify({'cpu': '--', 'cpu_cores': [], 'ram': '--', 'ram_total': '--',
-                    'ram_pct': '--', 'net_sent': '--', 'net_recv': '--',
-                    'disk_free': '--', 'disk_total': '--', 'temp': '--',
-                    'uptime': 0, 'battery': None})
 
 
 @app.route('/voice_status')
@@ -768,6 +1293,31 @@ def tts_stop():
     return jsonify({'status': 'stopped'})
 
 
+def _avisar_voz_al_nucleo(texto: str, fin: bool = False):
+    """Cuenta a la escucha continua que el navegador habla (o terminó).
+
+    Solo desde este mismo PC: si la voz suena en el móvil, el micrófono del
+    ordenador no la oye y no debe abrir una conversación sin nombre.
+    """
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        return
+    nucleo = getattr(core, '_c', None)      # sin forzar la carga del núcleo
+    try:
+        if nucleo is not None and fin:
+            nucleo.voz_externa_fin()
+        elif nucleo is not None:
+            nucleo.voz_externa(texto)
+    except Exception as e:
+        print(f"[tts] No pude avisar a la escucha: {e}")
+
+
+@app.route('/api/voz_fin', methods=['POST'])
+def api_voz_fin():
+    """El navegador terminó de hablar: se le puede contestar sin decir «Jarvis»."""
+    _avisar_voz_al_nucleo('', fin=True)
+    return Response(status=204)
+
+
 @app.route('/api/speak', methods=['POST'])
 def api_speak():
     """Sintetiza el texto con ElevenLabs y devuelve el MP3 para reproducir
@@ -778,7 +1328,11 @@ def api_speak():
         return jsonify({'error': 'texto invalido'}), 400
     key = os.getenv('ELEVENLABS_API_KEY', '')
     voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
+    # La interfaz unica manda que personalidad habla, para que cada una suene
+    # distinta con la voz neuronal local.
+    agente = (data.get('agente') or getattr(core, 'nombre_agente', 'jarvis') or 'jarvis').lower()
     sin_cabecera = {'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'}
+    _avisar_voz_al_nucleo(text)
 
     if key and 'tu_api' not in key and voice:
         # Tono servicial: voz calmada y profesional
@@ -805,8 +1359,15 @@ def api_speak():
         import jarvis_piper
         # disponible() PRIMERO: sintetizar sin el modelo descargado dispara una
         # descarga de decenas de MB dentro de la peticion HTTP y la deja colgada.
-        if jarvis_piper.disponible():
-            audio = jarvis_piper.sintetizar_bytes(text[:1000])
+        try:
+            import voz_propia
+            voz_local = voz_propia.voz_de(agente, core)
+        except Exception:
+            voz_local = jarvis_piper.DEFAULT_VOICE
+        if not jarvis_piper.disponible(voz_local):
+            voz_local = jarvis_piper.DEFAULT_VOICE
+        if jarvis_piper.disponible(voz_local):
+            audio = jarvis_piper.sintetizar_bytes(text[:1000], voice_id=voz_local)
             if audio:
                 return Response(audio, mimetype='audio/wav', headers=sin_cabecera)
         else:
@@ -1275,49 +1836,160 @@ def api_history():
 
 @app.route('/qr')
 def qr():
-    """Código QR de emparejamiento: URL pública con token."""
+    """Código QR de emparejamiento: URL pública con token.
+
+    Antes esto devolvía un JSON de error («No module named qrcode») en cuanto
+    faltaba la librería, y la página de emparejamiento se quedaba con el hueco
+    de la imagen vacío. Ahora jarvis_qr genera el código él mismo si hace
+    falta, así que el QR sale siempre.
+    """
     try:
-        import qrcode
-        from io import BytesIO
-        url = f"{_pair_url()}?token={AUTH_TOKEN}"
-        img = qrcode.make(url)
-        buf = BytesIO()
-        img.save(buf, format='PNG')
-        buf.seek(0)
-        return send_file(buf, mimetype='image/png')
+        from jarvis_qr import qr_response_data
+        # ?url= permite pedir el QR de una direccion concreta cuando el equipo
+        # esta en varias redes a la vez y la principal no es la buena.
+        pedida = (request.args.get('url') or '').strip()
+        destino = pedida if pedida.startswith('http') else _pair_url()
+        if 'token=' not in destino:
+            destino += ('&' if '?' in destino else '?') + f'token={AUTH_TOKEN}'
+        datos, mimetype = qr_response_data(destino)
+        resp = Response(datos, mimetype=mimetype)
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/pair')
 def pair():
-    """Página de emparejamiento: muestra el QR para escanear con el teléfono."""
-    url_movil = _pair_url().replace("/mobile", "")
-    dns = _tailscale_dns()
-    nonce = int(__import__('time').time())
-    html = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>JARVIS - Emparejar telefono</title>
+    """Página de emparejamiento. Se mantiene viva sola.
+
+    El fallo de siempre: el router da una IP nueva y el QR de la pantalla apunta
+    a la vieja; el teléfono escanea y se queda cargando. Ahora la página
+    pregunta cada cuatro segundos, rehace el QR si la dirección cambió y avisa
+    en cuanto un teléfono entra de verdad.
+    """
+    # El PIN y la direccion se pintan ya en el HTML: la pagina no puede salir
+    # con «------» mientras se resuelve la primera consulta a la red.
+    html = (_PAGINA_PAIR
+            .replace('__PIN__', AUTH_TOKEN)
+            .replace('__URL__', _pair_url()))
+    resp = Response(html, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+_PAGINA_PAIR = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JARVIS - Emparejar telefono</title>
 <style>
-body{background:#05070d;color:#cfe8ff;font-family:Segoe UI,sans-serif;display:flex;
-flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center}
-h1{color:#00d4ff;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 15px #00d4ff66}
+:root{color-scheme:dark}
+body{background:#05070d;color:#cfe8ff;font-family:Segoe UI,system-ui,sans-serif;
+margin:0;padding:26px 16px 40px;display:flex;flex-direction:column;align-items:center;text-align:center}
+h1{color:#00d4ff;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 15px #00d4ff66;margin:0 0 4px}
 img{border:6px solid #00d4ff55;border-radius:14px;background:#fff;padding:10px}
-.pin{font-size:64px;font-weight:800;letter-spacing:14px;color:#7ee7ff;background:#0a1420;
-border:2px solid #00d4ff66;border-radius:16px;padding:8px 26px;margin:6px 0;text-shadow:0 0 18px #00d4ff}
-.hint{color:#5a7a95;font-size:13px;margin:4px 0}
-code{background:#0a1420;padding:4px 10px;border-radius:8px;color:#7ee7ff}
+.pin{font-size:56px;font-weight:800;letter-spacing:12px;color:#7ee7ff;background:#0a1420;
+border:2px solid #00d4ff66;border-radius:16px;padding:6px 22px;margin:6px 0;text-shadow:0 0 18px #00d4ff}
+.hint{color:#5a7a95;font-size:13px;margin:4px 0;max-width:520px}
+code{background:#0a1420;padding:4px 10px;border-radius:8px;color:#7ee7ff;font-size:15px}
+.ok{color:#5cffb1;font-weight:700}
+.aviso{color:#ffd479}
+.tarjeta{background:#080f1a;border:1px solid #123047;border-radius:14px;padding:14px 18px;
+margin:14px 0;max-width:560px;text-align:left}
+.tarjeta h3{margin:0 0 8px;color:#7ee7ff;font-size:14px;letter-spacing:1px;text-transform:uppercase}
+.tarjeta p{margin:6px 0;font-size:13px;color:#9fc3dd}
+button{background:#0a1a2a;color:#7ee7ff;border:1px solid #00d4ff66;border-radius:10px;
+padding:8px 16px;font-size:13px;cursor:pointer;margin:4px 4px 0 0}
+button:hover{background:#0f2740}
+.otras{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:10px}
+.otras figure{margin:0;background:#080f1a;border:1px solid #123047;border-radius:12px;padding:8px}
+.otras img{width:130px;border-width:3px;padding:5px}
+.otras figcaption{font-size:11px;color:#5a7a95;margin-top:6px;max-width:140px}
 </style></head><body>
 <h1>JARVIS Mobile</h1>
-<p class="hint">Código de acceso (PIN):</p>
-<div class="pin">""" + AUTH_TOKEN + """</div>
-<p class="hint">O escanea este código QR con la cámara del teléfono:</p>
-<img src="/qr?v=""" + str(nonce) + """" alt="QR de emparejamiento" width="240">
-<p class="hint">Conectado al mismo Wi-Fi, abre en el teléfono:<br>
-<code>""" + url_movil + """/mobile</code></p>
-<p class="hint" style="font-size:11px">Desde otra red (datos móviles): instala Tailscale en el teléfono y usa
-<code>https://""" + (dns or "TU-PC.ts.net") + """/mobile</code></p>
+<p class="hint">Escanee el código con la cámara del teléfono. Ya lleva el PIN dentro:
+no hay que teclear nada.</p>
+<img id="qr" src="/qr" alt="QR de emparejamiento" width="240">
+<p class="hint">Dirección: <code id="url">__URL__</code></p>
+<p class="hint">PIN por si lo pide a mano:</p>
+<div class="pin" id="pin">__PIN__</div>
+<p class="hint" id="estado">Esperando al teléfono…</p>
+
+<div class="tarjeta" id="ayuda" style="display:none">
+  <h3>Si el teléfono no carga</h3>
+  <div id="motivos"></div>
+  <button id="btn-puerto" style="display:none">Abrir el puerto (pide permiso de Windows)</button>
+  <button id="btn-otras">Ver los QR de las otras direcciones</button>
+</div>
+<div class="otras" id="otras"></div>
+
+<script>
+let urlActual = '__URL__', emparejadosAntes = null;
+
+async function json(ruta, opciones){
+  const r = await fetch(ruta, opciones || {});
+  return r.json();
+}
+
+function pintarMotivos(lista, firewall){
+  const caja = document.getElementById('motivos');
+  caja.innerHTML = lista.map(m =>
+    `<p><b class="aviso">${m.que}</b><br>${m.hacer}</p>`).join('') ||
+    '<p>Todo parece correcto por este lado. Compruebe que el teléfono está en el mismo WiFi.</p>';
+  document.getElementById('ayuda').style.display = 'block';
+  document.getElementById('btn-puerto').style.display =
+    (firewall && firewall.hace_falta) ? 'inline-block' : 'none';
+}
+
+async function refrescar(){
+  try{
+    const d = await json('/pair_info');
+    document.getElementById('pin').textContent = d.pin;
+    if (d.url !== urlActual){
+      urlActual = d.url;
+      document.getElementById('url').textContent = d.url;
+      // La IP cambió (o es la primera vez): QR nuevo, sin recargar la página.
+      document.getElementById('qr').src = '/qr?v=' + Date.now();
+    }
+    pintarMotivos(d.diagnostico || [], d.firewall);
+    window._urls = d.urls || [];
+  }catch(e){}
+
+  try{
+    const p = await json('/pair_status');
+    const cuantos = (p.emparejados || []).length;
+    const estado = document.getElementById('estado');
+    if (cuantos){
+      const ips = p.emparejados.map(e => e.ip).join(', ');
+      estado.innerHTML = `<span class="ok">Teléfono emparejado ✓</span> (${ips})`;
+      if (emparejadosAntes !== null && cuantos > emparejadosAntes)
+        document.getElementById('ayuda').style.display = 'none';
+    }else{
+      estado.textContent = 'Esperando al teléfono…';
+    }
+    emparejadosAntes = cuantos;
+  }catch(e){}
+}
+
+document.getElementById('btn-otras').onclick = () => {
+  const caja = document.getElementById('otras');
+  if (caja.innerHTML){ caja.innerHTML = ''; return; }
+  caja.innerHTML = (window._urls || []).map(u =>
+    `<figure><img src="/qr?url=${encodeURIComponent(u.url)}" alt="QR ${u.ip}">
+     <figcaption>${u.ip}<br>${u.via}</figcaption></figure>`).join('');
+};
+
+document.getElementById('btn-puerto').onclick = async (e) => {
+  e.target.disabled = true;
+  e.target.textContent = 'Pidiendo permiso a Windows…';
+  const r = await json('/abrir_puerto', {method:'POST'});
+  e.target.textContent = r.texto || r.error || 'Hecho';
+  refrescar();
+};
+
+refrescar();
+setInterval(refrescar, 4000);
+</script>
 </body></html>"""
-    return render_template_string(html)
 
 
 # ── COMPANION: VOZ, COMANDOS, AVISOS Y CENTRO DE MANDO ───────────────────────
@@ -1336,13 +2008,21 @@ def _ffmpeg_path():
     return "ffmpeg"
 
 
-def _transcribir_audio(ruta_wav):
+def _transcribir_audio(ruta):
+    """Transcribe un audio del movil. Acepta el .webm tal cual.
+
+    faster-whisper decodifica por su cuenta (usa PyAV), asi que NO hace falta
+    tener ffmpeg instalado ni convertir nada a WAV previamente. Antes se
+    llamaba a ffmpeg siempre y, como en Windows no suele estar en el PATH, el
+    boton de voz del movil devolvia «no pude convertir el audio» y no habia
+    manera de dictarle nada al asistente.
+    """
     global _whisper_model
     with _whisper_lock:
         if _whisper_model is None:
             from faster_whisper import WhisperModel
             _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-    segs, _info = _whisper_model.transcribe(ruta_wav, language="es")
+    segs, _info = _whisper_model.transcribe(ruta, language="es")
     return "".join(s.text for s in segs).strip()
 
 
@@ -1381,12 +2061,23 @@ def companion_voice():
             ruta_in = os.path.join(_tf.gettempdir(), f"voz_{_uuid.uuid4().hex}.webm")
             with open(ruta_in, "wb") as fh:
                 fh.write(blob)
-        ruta_wav = os.path.join(_tf.gettempdir(), f"voz_{_uuid.uuid4().hex}.wav")
-        r = _sp.run([_ffmpeg_path(), "-y", "-i", ruta_in, "-ar", "16000", "-ac", "1", ruta_wav],
-                    capture_output=True, timeout=120)
-        if r.returncode != 0 or not os.path.exists(ruta_wav):
-            return jsonify({'error': 'no pude convertir el audio'}), 500
-        texto = _transcribir_audio(ruta_wav)
+        # Primero se intenta transcribir el fichero tal cual: faster-whisper
+        # sabe abrir webm/opus el solo. Solo si eso falla se recurre a ffmpeg,
+        # que puede no estar instalado.
+        try:
+            texto = _transcribir_audio(ruta_in)
+        except Exception as e_directo:
+            print(f"[voice] lectura directa fallida ({e_directo}); pruebo con ffmpeg")
+            ruta_wav = os.path.join(_tf.gettempdir(), f"voz_{_uuid.uuid4().hex}.wav")
+            try:
+                r = _sp.run([_ffmpeg_path(), "-y", "-i", ruta_in, "-ar", "16000",
+                             "-ac", "1", ruta_wav], capture_output=True, timeout=120)
+            except FileNotFoundError:
+                return jsonify({'error': 'No puedo leer el audio y ffmpeg no esta '
+                                         'instalado. Instala faster-whisper o ffmpeg.'}), 500
+            if r.returncode != 0 or not os.path.exists(ruta_wav):
+                return jsonify({'error': 'no pude convertir el audio'}), 500
+            texto = _transcribir_audio(ruta_wav)
         if not texto:
             return jsonify({'texto': '', 'respuesta': 'Señor, no escuché nada claro.'})
         # Modo dictado (isair): la voz se escribe en la app enfocada del PC
@@ -1404,6 +2095,63 @@ def companion_voice():
                     os.remove(_r)
             except Exception:
                 pass
+
+
+@app.route('/api/modelado3d/estado')
+def api_modelado3d_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import modelado3d
+        return jsonify({
+            'blender': modelado3d.disponible(),
+            'blender_exe': modelado3d._blender(),
+            'backends': modelado3d.backends(),
+            'resumen': modelado3d.estado_backends(),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/ciencias/estado')
+def api_ciencias_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import ciencias
+        out = ciencias.resumen_estado()
+        try:
+            import entrenar_ciencias
+            out['entrenamiento'] = entrenar_ciencias.estado()
+        except Exception as e:
+            out['entrenamiento'] = {'error': str(e)[:120]}
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/cerebro/estado')
+def api_cerebro_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    out = {}
+    for nombre, fn in (
+        ('memoria', lambda: __import__('memoria_grafo').estado()),
+        ('presupuesto', lambda: __import__('presupuesto').estado()),
+        ('salud_proveedores', lambda: __import__('cerebro_salud').estado()),
+        ('router', lambda: __import__('router_modelo').estado()),
+        ('automejora', lambda: {'activo': __import__('auto_mejora').activo()}),
+    ):
+        try:
+            out[nombre] = fn()
+        except Exception as e:
+            out[nombre] = {'error': str(e)[:120]}
+    try:
+        import permisos
+        out['agente_modo'] = permisos.modo()
+    except Exception:
+        pass
+    return jsonify(out)
 
 
 @app.route('/cmd', methods=['POST'])
@@ -1540,6 +2288,186 @@ def probar_ia():
         return jsonify({'ok': False, 'error': str(e)[:150]}), 500
 
 
+# ── NEXUS: UNA SOLA INTERFAZ PARA LAS DOS PERSONALIDADES ─────────────────────
+# La pagina /nexus habla con JARVIS (este proceso) y con ULTRON (el servidor del
+# puerto 8766) desde un unico origen: asi no hay CORS ni dos PIN que teclear.
+# Todo lo que va a ULTRON pasa por aqui, con su token leido de su propio fichero.
+ULTRON_PUERTO = int(os.getenv('ULTRON_PORT', '8766'))
+ULTRON_AUTH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'ultron_interface', '.ultron_auth')
+
+
+def _pin_ultron() -> str:
+    """PIN de ULTRON. Admite el formato nuevo (JSON) y el antiguo (texto)."""
+    try:
+        with open(ULTRON_AUTH, encoding='utf-8') as f:
+            bruto = f.read().strip()
+        if bruto.startswith('{'):
+            return str(json.loads(bruto).get('token', ''))
+        return bruto
+    except Exception:
+        return ''
+
+
+def _ultron(ruta: str, metodo: str = 'GET', cuerpo=None, timeout: float = 120.0):
+    """Llama al servidor de ULTRON. Devuelve (ok, datos)."""
+    url = f'http://127.0.0.1:{ULTRON_PUERTO}{ruta}'
+    datos = json.dumps(cuerpo or {}).encode('utf-8') if metodo == 'POST' else None
+    peticion = urllib.request.Request(
+        url, data=datos, method=metodo,
+        headers={'Content-Type': 'application/json', 'X-Token': _pin_ultron()})
+    try:
+        with urllib.request.urlopen(peticion, timeout=timeout) as r:
+            return True, json.loads(r.read().decode('utf-8'))
+    except Exception as e:
+        return False, {'error': str(e)[:200]}
+
+
+@app.route('/nexus')
+def nexus_html():
+    resp = send_from_directory('.', 'nexus.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/aeon')
+def aeon_html():
+    """AEON: la interfaz de gala. Mismo backend que /nexus, otra piel."""
+    resp = send_from_directory('.', 'aeon.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/modulos.js')
+def modulos_js():
+    """Los modulos los comparten /nexus y /aeon: una sola copia del codigo."""
+    resp = send_from_directory('.', 'modulos.js', mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/nexus/estado')
+def api_nexus_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    vivo_ultron, salud = _ultron('/health', timeout=4)
+    estado = {
+        'jarvis': {'online': bool(core), 'modelo': jarvis_config.MODEL
+                   if hasattr(jarvis_config, 'MODEL') else os.getenv('QWEN_MODEL', '')},
+        'ultron': {'online': vivo_ultron, 'detalle': salud if vivo_ultron else salud},
+    }
+    try:
+        if core:
+            estado['jarvis']['animo'] = dict(getattr(core, '_estado_animo', {}) or {})
+            estado['jarvis']['perfil'] = (core.get_pref('perfil') or '')
+    except Exception:
+        pass
+    return jsonify(estado)
+
+
+@app.route('/api/nexus/cmd', methods=['POST'])
+def api_nexus_cmd():
+    """Una orden, tres destinos: JARVIS, ULTRON o los dos deliberando."""
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    datos = request.get_json(silent=True) or {}
+    texto = (datos.get('texto') or '').strip()
+    agente = (datos.get('agente') or 'jarvis').lower()
+    if not texto or len(texto) > 2000:
+        return jsonify({'error': 'texto invalido'}), 400
+
+    if agente == 'ultron':
+        ok, respuesta = _ultron('/cmd', 'POST', {'texto': texto})
+        if not ok:
+            return jsonify({'agente': 'ultron', 'respuesta':
+                            'ULTRON no responde. ¿Está arrancado su servidor '
+                            f'en el puerto {ULTRON_PUERTO}?'}), 200
+        return jsonify({'agente': 'ultron',
+                        'respuesta': respuesta.get('respuesta') or respuesta.get('reply', '')})
+
+    if agente == 'consejo':
+        if not core:
+            return jsonify({'error': 'nucleo no disponible'}), 500
+        try:
+            import consejo
+            return jsonify({'agente': 'consejo',
+                            **consejo.deliberar_estructurado(core, texto, log=print)})
+        except Exception as e:
+            return jsonify({'agente': 'consejo', 'ok': False,
+                            'error': str(e)[:200]}), 500
+
+    if not core:
+        return jsonify({'error': 'nucleo no disponible'}), 500
+    resultado = {}
+
+    def _trabajo(res):
+        try:
+            res['respuesta'] = (core.process_text_stream(texto)
+                                or 'Señor, no he entendido.')[:2000]
+        except Exception as e:
+            res['respuesta'] = f'Señor, tuve un problema: {str(e)[:150]}'
+
+    hilo = threading.Thread(target=_trabajo, args=(resultado,), daemon=True)
+    hilo.start()
+    hilo.join(timeout=150)
+    return jsonify({'agente': 'jarvis',
+                    'respuesta': resultado.get('respuesta', 'Procesando…')})
+
+
+# ── PANEL DE CONTROL ──────────────────────────────────────────────────────────
+# Todo lo que el asistente sabe hacer estaba solo detras de una frase hablada.
+# Aqui se ve y se maneja: estado de cada subsistema, deshacer, perfiles, indice,
+# seguridad, habilidades pendientes y rendimiento.
+@app.route('/panel')
+def panel_html():
+    resp = send_from_directory('.', 'panel.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/nexus/u/<path:ruta>', methods=['GET', 'POST'])
+def api_nexus_ultron(ruta):
+    """Pasarela a CUALQUIER endpoint de ULTRON desde el mismo origen.
+
+    Sin esto habría que replicar aquí una a una sus rutas (guardián, modos,
+    radar, purga, bloqueo de IPs...). Con la pasarela, el NEXUS puede usar todo
+    lo que ULTRON expone hoy y lo que exponga mañana, sin tocar este archivo.
+    """
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    cuerpo = request.get_json(silent=True) if request.method == 'POST' else None
+    consulta = request.query_string.decode()
+    destino = '/' + ruta + (('?' + consulta) if consulta else '')
+    ok, datos = _ultron(destino, request.method, cuerpo, timeout=60)
+    return jsonify(datos), (200 if ok else 502)
+
+
+@app.route('/api/panel')
+def api_panel():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import panel_api
+        return jsonify(panel_api.panel(core if core else None))
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/panel/accion', methods=['POST'])
+def api_panel_accion():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    datos = request.get_json(silent=True) or {}
+    accion = (datos.get('accion') or '').strip()
+    valor = (datos.get('valor') or '').strip()
+    try:
+        import panel_api
+        resultado = panel_api.ejecutar(core, accion, valor, log=print)
+        return jsonify(resultado), (200 if resultado.get('ok') else 400)
+    except Exception as e:
+        return jsonify({'ok': False, 'texto': str(e)[:200]}), 500
+
+
 # ── SOCKETIO: CHAT EN TIEMPO REAL ─────────────────────────────────────────────
 # Clientes de Socket.IO vivos: evita bloquear el PC por una desconexion
 # transitoria del movil.
@@ -1620,7 +2548,15 @@ def on_send_message(data):
 
 if __name__ == '__main__':
     _port = jarvis_config.PORT
-    _ip = jarvis_config.LOCAL_IP
+    # La IP se pregunta ahora, no al importar: si el router la cambio esta
+    # semana, el QR del arranque tiene que llevar la de hoy.
+    try:
+        import red_movil
+        _preparado = red_movil.preparar(log=print)
+        _ip = _preparado["ip"]
+    except Exception as _e:
+        print(f"[RED] No pude revisar la red ({_e}); sigo con la IP de siempre.")
+        _preparado, _ip = {}, jarvis_config.LOCAL_IP
     print("=" * 56)
     print("JARVIS Web Server v3 (mobile + tiempo real)")
     print(f"  Local:   http://127.0.0.1:{_port}")
@@ -1628,6 +2564,10 @@ if __name__ == '__main__':
     print(f"  Móvil:   http://{_ip}:{_port}/mobile")
     print(f"  QR:      http://{_ip}:{_port}/pair")
     print(f"  Token:   {AUTH_TOKEN}")
+    for _otra in (_preparado.get("ips") or [])[1:]:
+        print(f"  (o por  http://{_otra['ip']}:{_port}/mobile  vía {_otra['interfaz']})")
+    if _preparado.get("firewall_mensaje"):
+        print(f"  {_preparado['firewall_mensaje']}")
     print("=" * 56)
     import socket as _sock
     _probe = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)

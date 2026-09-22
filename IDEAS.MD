@@ -288,6 +288,80 @@ Aprovechar los nuevos paneles laterales del rediseño HUD (Arc Reactor) para mos
 
 ---
 
+## LO QUE YA ESTÁ IMPLEMENTADO (2026-09-07)
+
+Antes de añadir ideas nuevas conviene saber qué dejó de ser idea. Esta tanda no
+inventó capacidades: en su mayoría **encendió código que ya estaba escrito y
+que nadie ejecutaba**, porque faltaba el cableado (un `__init__.py`, un módulo
+`storage`, una carpeta con nombre colisionando).
+
+### Fiabilidad
+
+| Qué | Por qué importaba |
+|---|---|
+| `ejecutor.py`: todo comando del sistema comprueba su código de salida | 40 llamadas a `subprocess.Popen` daban por buena cualquier orden. El apagado obedecía una vez y luego mentía |
+| `energia.py`: apagado/reinicio que anula lo pendiente antes de programar | Windows rechaza un segundo `shutdown /s` con el error 1190 |
+| `storage.py`: registro de acciones, auditoría y eventos | «¿qué has ejecutado?» y «¿qué te ha fallado?» ahora tienen respuesta comprobable |
+| `test_regresion.py`: 12 grupos de pruebas | 360 handlers compitiendo por regex sin ninguna prueba que fijara qué frase atiende cada uno |
+
+### Voz
+
+| Qué | Por qué importaba |
+|---|---|
+| Dictado local (`faster-whisper`) antes que Google | La voz salía SIEMPRE del equipo y sin internet no había dictado |
+| `jarvis_escucha.py`: palabra de activación en el PC | La única escucha continua vivía en el navegador (Chrome + internet + pestaña abierta) |
+| Interrupción hablando (barge-in) | Había que esperar a que terminara el párrafo |
+| Detector de eco por número de palabras | El umbral viejo se tragaba «cancela el apagado» porque JARVIS lo citaba en su propia respuesta |
+
+### Inteligencia
+
+| Qué | Por qué importaba |
+|---|---|
+| `cognition/__init__.py`: el hub que faltaba | Sin él, ml_engine, cluster_engine, decision_engine y shell_ops eran código muerto |
+| Motor proactivo encendido (`jarvis_proactive.py`, 437 líneas sin usar) | JARVIS solo reaccionaba; ahora vigila batería, disco, temperatura, red y calendario |
+| Paralingüística conectada a la voz y a las sugerencias | El análisis de estrés/fatiga se calculaba y se tiraba (había un `TODO` literal) |
+| Clasificador que aprende de órdenes reales | Venía con ejemplos de laboratorio; ahora entrena con la forma de hablar del señor |
+| Olvido por desuso en el grafo + poda de historial y auditoría | La memoria solo crecía, y lo viejo acaba contaminando el contexto |
+
+### ULTRON
+
+| Qué | Por qué importaba |
+|---|---|
+| `self_healing.py` rescatado | Vivía en `ultron_skills/`, una carpeta con el mismo nombre que `ultron_skills.py`: era imposible importarlo, y además tenía un error de sintaxis |
+| Shell libre auditado y cadenas de órdenes | Su identidad («sin confirmaciones, sin restricciones») era prompt, no comportamiento |
+| Línea temporal del guardián | Los intrusos morían en un fichero de texto que nadie podía consultar |
+
+### Higiene
+
+| Qué | Por qué importaba |
+|---|---|
+| `jarvis.py` / `jarvis.bat`: lanzador único | Había más de diez `.bat` sin indicación de cuál era el bueno |
+| PIN y emparejamientos que caducan | Un código de 6 dígitos eterno abría control total del PC |
+| `/allow_my_ip` exige el PIN | Cualquiera en la misma red podía autorizarse a sí mismo |
+
+### Segunda tanda: conectar lo construido
+
+Panel de control web, orquestación (agenda + hábitos + turno de noche), búsqueda
+en las conversaciones, ventana de arrepentimiento en vez de confirmación previa,
+perfiles de contexto, valoraciones explícitas, firma del código autogenerado,
+elección de micrófono, métricas de latencia y gasto, actualizador con vuelta
+atrás, arranque como servicio y pruebas de la interfaz web.
+
+Casi nada de esto era capacidad nueva: era pegamento entre piezas que ya
+existían y no se hablaban. Es donde estaba el mejor ratio esfuerzo/resultado.
+
+### Lo que sigue siendo idea
+
+- **Multi-agente asimétrico (idea 1):** el motor proactivo cubre la vigilancia
+  del sistema, pero no hay enjambre de sub-agentes para correo, código o bolsa.
+- **Sandbox de validación móvil (idea 2):** sin prototipo.
+- **Paralingüística con modelo real (idea 3):** las heurísticas ya actúan, pero
+  el clasificador TinyML sigue pendiente.
+- **Integración con repositorios (idea 4)** y **niveles de relación (idea 5):**
+  intactas.
+
+---
+
 ## RESUMEN EJECUTIVO DE IDEAS
 
 | ID | Título | Complejidad | Prioridad | Estado |
@@ -320,3 +394,23 @@ No implementar todas a la vez. Priorizar por impacto en la experiencia del usuar
 ---
 
 *Este archivo será actualizado constantemente a medida que se investiguen, prototipen y (posiblemente) implementen estas ideas en el ciclo de vida de Jarvis.*
+
+---
+
+## Hecho en esta tanda (septiembre de 2026)
+
+Las ocho piezas «potentes» que quedaban pendientes ya están dentro y probadas:
+
+| Pieza | Fichero | Qué cambia |
+|---|---|---|
+| Intérprete de código | `analista.py` | De responder sobre datos a *calcularlos*: escribe el programa, lo ejecuta aislado y se corrige solo |
+| Verificador previo | `verificador.py` | Antes de lo irreversible, una segunda opinión que busca el fallo en vez de aprobar |
+| Agente de horizonte largo | `mision.py` | «Encárgate de esto» y lo lleva hasta el final, replanificando lo que falla |
+| Aprender por demostración | `demostracion.py` | Le mira hacer la tarea una vez y la repite cuando se lo pida |
+| Ojos permanentes | `observador.py` | Ve que lleva veinte minutos con el mismo error y se ofrece, sin que se lo pida |
+| Voz propia local | `voz_propia.py` | Voz neuronal en el equipo y distinta por personalidad; ElevenLabs deja de hacer falta |
+| El móvil como extensión | `movil.py` | Notificaciones, apps, WhatsApp y avisos del teléfono, por cable y sin cuentas |
+| Afinado con su forma de hablar | `afinar.py` | Dataset limpio (sin credenciales y sin lo mal valorado) y guion LoRA listo |
+
+Todo aparece también en la interfaz única: los módulos **Teléfono**, **Ojos** y
+**Aprendizaje**, y la voz neuronal dentro del módulo **Voz**.

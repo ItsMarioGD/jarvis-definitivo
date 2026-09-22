@@ -23,10 +23,19 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import consola_utf8  # noqa: F401  (salida a prueba de cp1252)
+
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, RAIZ)
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    # Sub-agente de correo (correo_gmail.py): leer la bandeja y, con
+    # confirmacion del señor, enviar. Si no quieres Gmail, borra estas dos.
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 
 def _explicar_access_denied(info):
@@ -144,6 +153,65 @@ def fatal(msg, ayuda=""):
     sys.exit(1)
 
 
+def _guia_desde_cero(jarvis_config):
+    """Las instrucciones completas cuando no hay ningun fichero todavia.
+
+    Google no deja crear estas credenciales por programa: hay que pasar por su
+    consola web una vez. Como es el unico paso manual de todo JARVIS, se
+    detalla entero, con los nombres exactos de cada boton, en vez de dar por
+    supuesto que ya existe un ID de cliente.
+    """
+    print("\n" + "=" * 62)
+    print(" Falta conectar tu cuenta de Google. Son 5 minutos, una sola vez.")
+    print("=" * 62)
+    print("""
+  Google no permite hacer esto automaticamente: hay que crear una
+  «credencial» a mano en su consola. Sigue los pasos tal cual.
+
+  1. Entra en:   https://console.cloud.google.com/
+
+  2. Arriba a la izquierda, junto al logo, pulsa el selector de proyecto
+     y luego «PROYECTO NUEVO». Ponle el nombre que quieras (JARVIS, por
+     ejemplo) y pulsa CREAR. Espera unos segundos y asegurate de que el
+     selector de arriba muestra ese proyecto.
+
+  3. Activa la API del calendario:
+       https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+     Pulsa el boton azul «HABILITAR».
+
+  4. Menu lateral -> «APIs y servicios» -> «Pantalla de consentimiento»
+     (o «Publico objetivo»). Si te pide tipo de usuario, elige EXTERNO
+     y rellena solo lo obligatorio (nombre de la app y tu correo).
+
+  5. En esa misma pantalla, busca «Usuarios de prueba» y pulsa
+     «+ ADD USERS». Escribe TU correo de Gmail y guarda.
+     Sin esto Google te dira «access_denied» aunque la app sea tuya.
+
+  6. Menu lateral -> «Credenciales» -> «+ CREAR CREDENCIALES»
+     -> «ID de cliente de OAuth»
+     -> Tipo de aplicacion: «Aplicacion de escritorio»
+     -> Nombre: el que quieras -> CREAR
+
+  7. En la ventana que sale, pulsa «DESCARGAR JSON».
+     (Si la cierras sin querer: Credenciales -> clic en el nombre de tu
+     ID -> boton «DESCARGAR JSON» arriba.)
+
+  8. Deja ese fichero, SIN RENOMBRAR, en esta carpeta:
+""")
+    print(f"       {jarvis_config.GOOGLE_DIR}")
+    print("""
+  9. Vuelve a ejecutar:   python autorizar_google.py
+     Se abrira el navegador, eliges tu cuenta y ya esta. Si avisa de que
+     la app «no esta verificada», es la tuya: «Configuracion avanzada»
+     -> «Ir a (tu app)».
+
+  Consejo: en el paso 4, si pulsas «PUBLICAR APLICACION», la conexion no
+  caduca. Dejandola en modo «Prueba» hay que repetir el paso 9 cada 7 dias.
+""")
+    print("=" * 62)
+    sys.exit(1)
+
+
 def main():
     import jarvis_config
 
@@ -210,11 +278,11 @@ def main():
     print(f"\n[1/4] Buscando credenciales en {jarvis_config.GOOGLE_DIR} ...")
     info = jarvis_config.revisar_credenciales_google()
     if not info["ok"]:
-        fatal(info["error"],
-              "Si ya tienes el ID de cliente creado, entra en el (Credenciales "
-              "→ clic en su nombre) y pulsa «DESCARGAR JSON» arriba. Guarda ese "
-              "fichero en la carpeta Google/ del proyecto y vuelve a ejecutar "
-              "esto. Acuerdate tambien de activar la API de Google Calendar.")
+        if info["tipo"]:
+            # El fichero existe pero no sirve (cuenta de servicio, JSON roto...):
+            # ahi el error concreto ya lo explica todo.
+            fatal(info["error"])
+        _guia_desde_cero(jarvis_config)
     print(f"  [OK] {os.path.basename(info['ruta'])}")
     if info.get("cliente"):
         print(f"       cliente:  {info['cliente']}")

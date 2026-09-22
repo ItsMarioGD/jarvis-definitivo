@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS — Panel</title>
+<style>
+  :root{
+    --fondo:#05080d; --carta:#0c131c; --borde:#16263a;
+    --texto:#cfe3f5; --tenue:#7e97b0; --acento:#00c8ff;
+    --ok:#22cc66; --mal:#ff3d5a; --aviso:#ffb020;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fondo);color:var(--texto);
+       font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;
+         padding:12px 18px;background:rgba(5,8,13,.94);border-bottom:1px solid var(--borde)}
+  header h1{margin:0;font-size:16px;letter-spacing:.16em;color:var(--acento);font-weight:600}
+  header .sep{flex:1}
+  .pastilla{font-size:12px;color:var(--tenue);border:1px solid var(--borde);
+            border-radius:20px;padding:3px 10px}
+  main{display:grid;gap:14px;padding:16px;
+       grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .carta{background:var(--carta);border:1px solid var(--borde);border-radius:10px;padding:14px}
+  .carta h2{margin:0 0 10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+            color:var(--acento);font-weight:600}
+  .fila{display:flex;justify-content:space-between;gap:10px;padding:3px 0;
+        border-bottom:1px dashed rgba(22,38,58,.7)}
+  .fila:last-child{border-bottom:0}
+  .fila span:first-child{color:var(--tenue)}
+  .valor{text-align:right;word-break:break-word}
+  .ok{color:var(--ok)} .mal{color:var(--mal)} .aviso{color:var(--aviso)}
+  .lista{max-height:190px;overflow:auto;font-size:13px}
+  .lista div{padding:3px 0;border-bottom:1px dashed rgba(22,38,58,.5)}
+  .botones{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  button{background:#102033;color:var(--texto);border:1px solid var(--borde);
+         border-radius:6px;padding:6px 11px;font-size:12px;cursor:pointer}
+  button:hover{border-color:var(--acento);color:var(--acento)}
+  button.peligro:hover{border-color:var(--mal);color:var(--mal)}
+  #aviso{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+         background:#102033;border:1px solid var(--acento);border-radius:8px;
+         padding:10px 16px;max-width:90vw;display:none;white-space:pre-wrap}
+  .vacio{color:var(--tenue);font-style:italic}
+</style>
+</head>
+<body>
+<header>
+  <h1>JARVIS · PANEL</h1>
+  <span class="pastilla" id="perfil">perfil —</span>
+  <span class="pastilla" id="reloj"></span>
+  <div class="sep"></div>
+  <button onclick="cargar()">Actualizar</button>
+</header>
+
+<main id="rejilla"></main>
+<div id="aviso"></div>
+
+<script>
+const token = new URLSearchParams(location.search).get('token')
+             || localStorage.getItem('jarvis_pin') || '';
+if (token) localStorage.setItem('jarvis_pin', token);
+
+function avisar(texto){
+  const caja = document.getElementById('aviso');
+  caja.textContent = texto;
+  caja.style.display = 'block';
+  clearTimeout(caja._t);
+  caja._t = setTimeout(() => caja.style.display = 'none', 7000);
+}
+
+async function mandar(accion, valor=''){
+  avisar('…');
+  try{
+    const r = await fetch('/api/panel/accion', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':token},
+      body: JSON.stringify({accion, valor})
+    });
+    const d = await r.json();
+    avisar(d.texto || (d.ok ? 'Hecho.' : 'Sin respuesta.'));
+    setTimeout(cargar, 900);
+  }catch(e){ avisar('Error: ' + e); }
+}
+
+const carta = (titulo, cuerpo, botones='') =>
+  `<section class="carta"><h2>${titulo}</h2>${cuerpo}
+   ${botones ? `<div class="botones">${botones}</div>` : ''}</section>`;
+
+const fila = (k, v, clase='') =>
+  `<div class="fila"><span>${k}</span><span class="valor ${clase}">${v}</span></div>`;
+
+const si = b => b ? '<span class="ok">sí</span>' : '<span class="mal">no</span>';
+const nada = t => `<div class="vacio">${t}</div>`;
+
+function pintar(d){
+  const g = [];
+
+  // Deshacer
+  const des = d.deshacer || {};
+  g.push(carta('Deshacer',
+    (des.pendientes||[]).length
+      ? `<div class="lista">${des.pendientes.map(p =>
+          `<div>${p.ts.slice(5,16)} · ${p.que}</div>`).join('')}</div>`
+      : nada('Nada reversible pendiente.'),
+    `<button onclick="mandar('deshacer')">Deshacer lo último</button>`));
+
+  // Registro
+  const reg = d.registro || {};
+  const r24 = reg.resumen_24h || {};
+  g.push(carta('Actividad (24 h)',
+    fila('Órdenes', r24.acciones ?? '—') +
+    fila('Fallos', r24.fallos ?? '—', (r24.fallos ? 'mal' : 'ok')) +
+    fila('Eventos', r24.eventos ?? '—') +
+    ((reg.fallos||[]).length
+      ? `<div class="lista">${reg.fallos.map(f =>
+          `<div class="mal">${f.ts.slice(5,16)} · ${f.orden}</div>`).join('')}</div>` : ''),
+    `<button onclick="mandar('parte_manana')">Parte del día</button>`));
+
+  // Últimas acciones
+  g.push(carta('Últimas órdenes',
+    (reg.ultimas||[]).length
+      ? `<div class="lista">${reg.ultimas.map(a =>
+          `<div class="${a.ok?'':'mal'}">${a.ts.slice(11,16)} · ${a.orden||'—'}</div>`).join('')}</div>`
+      : nada('Sin actividad todavía.')));
+
+  // Vigilancia
+  const vig = d.vigilante || {}, enj = d.enjambre || {}, noc = d.nocturno || {};
+  g.push(carta('Vigilancia',
+    fila('Perro guardián', si(vig.vigilando)) +
+    fila('Caídas', vig.caidas_totales ?? 0, vig.caidas_totales ? 'aviso':'') +
+    fila('Enjambre', si(enj.activo)) +
+    fila('Turno de noche', noc.programado ? (noc.hora||'sí') : 'no',
+         noc.programado ? 'ok':'') ,
+    `<button onclick="mandar('enjambre_on')">Enjambre on</button>
+     <button onclick="mandar('enjambre_off')">off</button>
+     <button onclick="mandar('turno_noche','03:30')">Noche 03:30</button>
+     <button onclick="mandar('turno_noche','ahora')">Ejecutar ya</button>`));
+
+  // Perfil
+  const per = d.perfil || {};
+  document.getElementById('perfil').textContent = 'perfil ' + (per.perfil || '—');
+  g.push(carta('Perfil y voz',
+    fila('Perfil', per.perfil || '—') +
+    fila('Escucha continua', si((d.escucha||{}).activa)) +
+    fila('Micrófono', (d.audio||{}).microfono_elegido ?? 'predeterminado') +
+    fila('Ojos', (d.vision||{}).listo ? (d.vision.modelo) : '<span class="aviso">sin modelo</span>'),
+    (per.disponibles||[]).map(p =>
+      `<button onclick="mandar('perfil','${p}')">${p}</button>`).join('') +
+    `<button onclick="mandar('escucha_on')">Escuchar</button>
+     <button onclick="mandar('escucha_off')">Callar</button>`));
+
+  // Estado del señor
+  const an = d.animo || {};
+  if (an.ts) g.push(carta('Cómo le noto',
+    fila('Tensión', Math.round((an.estres||0)*100) + '%') +
+    fila('Fatiga', Math.round((an.fatiga||0)*100) + '%') +
+    fila('Confianza', Math.round((an.confianza||0)*100) + '%')));
+
+  // Memoria
+  const idx = d.indice || {};
+  g.push(carta('Memoria y documentos',
+    fila('Archivos indexados', idx.archivos ?? '—') +
+    fila('Fragmentos', idx.trozos ?? '—') +
+    fila('Búsqueda', idx.embeddings ? 'por significado' : 'texto completo'),
+    `<button onclick="mandar('indexar')">Indexar documentos</button>
+     <button onclick="mandar('indexar_conversaciones')">Indexar conversaciones</button>
+     <button onclick="mandar('mantenimiento')">Podar memoria</button>
+     <button onclick="mandar('copia')">Copia del cerebro</button>`));
+
+  // Seguridad
+  const rel = d.relevo || {}, reb = d.rebobinar || {};
+  g.push(carta('Seguridad',
+    fila('Modo privado', si((d.metricas||{}).privado === true) ) +
+    fila('Grabando pantalla', si(reb.grabando)) +
+    fila('Relevo', rel.activo ? `${rel.dias_sin_señales||0}/${rel.dias_umbral} días` : 'no') +
+    fila('Arranque automático', si((d.servicio||{}).tarea || (d.servicio||{}).servicio)),
+    `<button onclick="mandar('privado_on')">Modo privado</button>
+     <button onclick="mandar('privado_off')">Normal</button>
+     <button onclick="mandar('canarios_on')">Señuelos</button>
+     <button class="peligro" onclick="mandar('restaurar_red')">Restaurar red</button>`));
+
+  // Habilidades
+  const hab = d.habilidades || {};
+  g.push(carta('Habilidades',
+    ((hab.pendientes||[]).length
+      ? `<div class="lista">${hab.pendientes.map(p =>
+          `<div>${p}
+            <button onclick="mandar('aprobar_habilidad','${p}')">aprobar</button>
+            <button class="peligro" onclick="mandar('descartar_habilidad','${p}')">descartar</button>
+           </div>`).join('')}</div>`
+      : nada('Nada pendiente de aprobación.')) +
+    fila('Escritas por JARVIS', (hab.autogeneradas||[]).length),
+    `<button onclick="mandar('colisiones')">Ver colisiones</button>`));
+
+  // Rendimiento
+  const met = d.metricas || {}, etapas = met.etapas || {};
+  g.push(carta('Rendimiento',
+    (Object.keys(etapas).length
+      ? Object.entries(etapas).map(([k,v]) =>
+          fila(k, `${v.mediana_ms} ms (peor ${v.peor_ms})`)).join('')
+      : nada('Sin mediciones todavía.')) +
+    fila('Voz en la nube', (met.caracteres_elevenlabs||0) + ' car. ≈ $' +
+         (met.coste_voz_estimado_usd||0)),
+    `<button onclick="mandar('metricas_reset')">Reiniciar métricas</button>`));
+
+  // Recados y valoraciones
+  const rec = d.recados || {}, val = d.valoraciones || {};
+  g.push(carta('Recados y valoración',
+    fila('Sin leer', rec.sin_leer ?? 0, rec.sin_leer ? 'aviso':'') +
+    fila('Urgentes', rec.urgentes ?? 0, rec.urgentes ? 'mal':'') +
+    fila('Ruido descartado', rec.ruido_descartado ?? 0) +
+    fila('Valoraciones', `<span class="ok">${val.positivas||0}</span> / <span class="mal">${val.negativas||0}</span>`)));
+
+  document.getElementById('rejilla').innerHTML = g.join('');
+}
+
+async function cargar(){
+  try{
+    const r = await fetch('/api/panel', {headers:{'X-Token': token}});
+    if (r.status === 403){ avisar('PIN incorrecto: abra el panel desde el QR.'); return; }
+    pintar(await r.json());
+  }catch(e){ avisar('No pude leer el estado: ' + e); }
+}
+
+setInterval(() => {
+  document.getElementById('reloj').textContent =
+    new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+}, 1000);
+
+cargar();
+setInterval(cargar, 20000);
+</script>
+</body>
+</html>

@@ -1242,6 +1242,8 @@ body.processing .sphere-box::before{ animation:halo-spin-hot 7s linear infinite;
         <div class="st"><div class="dot"></div><span id="hdrState">BIOMIMETRIC NEURAL AI CORES</span></div>
         <div class="hdr-actions">
             <button class="mbtn" id="mCosmic" style="color:#FFB800;border-color:rgba(255,184,0,.45)" data-tip="Alternar Fondo Cósmico Inmersivo" onclick="toggleCosmicFullscreen()">🌌 Cósmico</button>
+            <button class="mbtn" id="mCalendar" style="color:var(--amber2);border-color:rgba(200,180,140,.4)" data-tip="Agenda y Calendario Holográfico" onclick="openMod('calendar')">📅 Agenda</button>
+            <button class="mbtn" id="mTactical" style="color:#FF8888;border-color:rgba(255,80,80,.4)" data-tip="Operaciones Tácticas y Enlace Ultron" onclick="openMod('tactical')">⚡ Táctico & Ultron</button>
             <button class="mbtn" style="color:var(--cyan);border-color:rgba(77,200,255,.5)" data-tip="Centro de módulos: cada función en su caja con interfaz dedicada" onclick="openModules()">&#9632; Módulos</button>
             <button class="mbtn" id="mSleep" data-tip="Modo descanso: la esfera se contrae y Jarvis espera en silencio" onclick="setMode('sleep')">&#9789; Descanso</button>
             <button class="mbtn" id="mFocus" data-tip="Modo enfoque profundo: HUD minimizado a botón flotante" onclick="setMode('focus')">&#9724; Enfoque</button>
@@ -1440,6 +1442,134 @@ body.processing .sphere-box::before{ animation:halo-spin-hot 7s linear infinite;
         <button class="btn-sec" onclick="closeModules()">✕ Cerrar</button>
     </div>
     <div class="modules-grid" id="modulesGrid"></div>
+</div>
+
+<!-- MODAL DEDICADO — Agenda y Calendario -->
+<div class="modbox" id="mod-calendar">
+    <div class="modbox-card" style="max-width:680px;width:95%">
+        <div class="modbox-hdr">
+            <h3>📅 Agenda & Calendario Holográfico</h3>
+            <button class="x" onclick="closeMod('calendar')">&times;</button>
+        </div>
+        <div class="modbox-body">
+            <!-- Sync Status Badge -->
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(200,180,140,0.06);border:1px solid var(--line);border-radius:6px;margin-bottom:14px">
+                <div style="font-size:11px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:8px">
+                    <span id="calSyncDot" style="width:8px;height:8px;border-radius:50%;background:#D4A574;display:inline-block;box-shadow:0 0 8px #D4A574"></span>
+                    <span id="calSyncText" style="color:var(--amber2)">Conectando con motor de calendario...</span>
+                </div>
+                <button class="btn-sec" style="font-size:10px;padding:3px 10px" onclick="refreshCalendarData()">↻ Refrescar</button>
+            </div>
+
+            <!-- Tab / Subheader selector -->
+            <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px">
+                <button class="btn-primary" id="calTabToday" style="font-size:11px;padding:6px 14px" onclick="setCalTab('today')">Hoy</button>
+                <button class="btn-sec" id="calTabAll" style="font-size:11px;padding:6px 14px" onclick="setCalTab('all')">Próximos 7 días</button>
+                <button class="btn-sec" id="calTabNew" style="font-size:11px;padding:6px 14px" onclick="setCalTab('new')">+ Nueva Cita</button>
+            </div>
+
+            <!-- List View -->
+            <div id="calEventsContainer" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+                <!-- Events rendered dynamically -->
+            </div>
+
+            <!-- New Event Form -->
+            <div id="calNewEventForm" style="display:none;flex-direction:column;gap:10px;background:rgba(0,0,0,0.3);padding:14px;border:1px solid var(--line);border-radius:6px">
+                <div class="modbox-field" style="margin-bottom:8px">
+                    <label>Título del compromiso / cita</label>
+                    <input id="calInputSummary" type="text" placeholder="Ej: Revisión de armaduras y reactores con Stark">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    <div class="modbox-field" style="margin-bottom:8px">
+                        <label>Fecha y Hora de Inicio</label>
+                        <input id="calInputStart" type="datetime-local">
+                    </div>
+                    <div class="modbox-field" style="margin-bottom:8px">
+                        <label>Ubicación / Sala (Opcional)</label>
+                        <input id="calInputLocation" type="text" placeholder="Ej: Laboratorio / Videollamada">
+                    </div>
+                </div>
+                <div class="modbox-field" style="margin-bottom:8px">
+                    <label>Descripción / Notas adicionales</label>
+                    <textarea id="calInputDesc" style="min-height:50px" placeholder="Detalles operativos..."></textarea>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+                    <button class="btn-sec" onclick="setCalTab('today')">Cancelar</button>
+                    <button class="btn-primary" onclick="submitCalendarEvent()">Agendar Cita</button>
+                </div>
+            </div>
+
+            <div id="calStatusMsg" style="margin-top:10px;font-size:11px;display:none;padding:8px;border-radius:4px"></div>
+        </div>
+        <div class="modbox-actions" style="justify-content:space-between">
+            <span style="font-size:10px;color:var(--tfaint);letter-spacing:1px">SINCRONIZACIÓN TRANSPARENTE GOOGLE CALENDAR V3 & SQLITE</span>
+            <button class="btn-sec" onclick="closeMod('calendar')">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL DEDICADO — Centro Táctico & Ultron -->
+<div class="modbox" id="mod-tactical">
+    <div class="modbox-card" style="max-width:700px;width:95%">
+        <div class="modbox-hdr">
+            <h3 style="color:#FF6B6B">⚡ Centro Táctico & Enlace Ultron</h3>
+            <button class="x" onclick="closeMod('tactical')">&times;</button>
+        </div>
+        <div class="modbox-body">
+            <!-- Ultron Status Banner -->
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,50,50,0.06);border:1px solid rgba(255,80,80,0.2);border-radius:6px;margin-bottom:14px">
+                <div style="display:flex;align-items:center;gap:12px">
+                    <div id="ultronPeerDot" style="width:10px;height:10px;border-radius:50%;background:#555;box-shadow:0 0 8px #555"></div>
+                    <div>
+                        <div style="font-size:12px;font-weight:700;color:var(--txt);letter-spacing:1.5px">NODO TÁCTICO ULTRON (PUERTO 8766)</div>
+                        <div id="ultronPeerDetails" style="font-size:10px;color:var(--tdim);font-family:'JetBrains Mono',monospace">Consultando estado del peer...</div>
+                    </div>
+                </div>
+                <button class="btn-sec" style="font-size:10px;padding:4px 10px;border-color:rgba(255,80,80,0.3);color:#FF8888" onclick="refreshUltronPeerStatus()">↻ Comprobar</button>
+            </div>
+
+            <!-- Inter-Agent Directives -->
+            <div style="margin-bottom:14px;background:rgba(10,12,20,0.6);border:1px solid var(--line);border-radius:6px;padding:12px">
+                <div style="font-size:10px;color:var(--amber2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Delegar Directiva a Ultron</div>
+                <div style="display:flex;gap:8px">
+                    <input id="ultronDirectivaInput" type="text" placeholder="Ej: purga ram, radar de red, cronograma táctico, mata proceso..." style="flex:1;background:rgba(0,0,0,0.5);border:1px solid var(--line);border-radius:4px;padding:8px 12px;color:var(--txt);font-size:12px" onkeydown="if(event.key==='Enter')sendDirectiveToUltron()">
+                    <button class="btn-primary" style="background:linear-gradient(135deg,#B22222,#800000);border-color:#FF4444;color:#FFF;padding:6px 14px;font-size:11px" onclick="sendDirectiveToUltron()">Transmitir</button>
+                </div>
+                <div id="ultronReplyBox" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(180,0,0,0.1);border-left:3px solid #FF4444;border-radius:3px;font-size:11px;font-family:'JetBrains Mono',monospace;color:#FFB8B8"></div>
+            </div>
+
+            <!-- Fast Tactical Actions Matrix -->
+            <div style="margin-bottom:14px">
+                <div style="font-size:10px;color:var(--tdim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Operaciones Rápidas del Host</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                    <button class="btn-sec" style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:4px;border-color:rgba(200,180,140,0.2)" onclick="runRamPurge()">
+                        <span style="font-size:18px">🧹</span>
+                        <span style="font-size:11px;font-weight:600;color:var(--amber2)">Purgar RAM</span>
+                        <span style="font-size:9px;color:var(--tfaint)">Vaciar working set</span>
+                    </button>
+                    <button class="btn-sec" style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:4px;border-color:rgba(77,200,255,0.2)" onclick="runNetworkRadar()">
+                        <span style="font-size:18px">📡</span>
+                        <span style="font-size:11px;font-weight:600;color:#70D6FF">Radar de Red</span>
+                        <span style="font-size:9px;color:var(--tfaint)">Sockets activos</span>
+                    </button>
+                    <button class="btn-sec" style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:4px;border-color:rgba(255,80,80,0.2)" onclick="runLockStation()">
+                        <span style="font-size:18px">🔒</span>
+                        <span style="font-size:11px;font-weight:600;color:#FF6B6B">Bloquear PC</span>
+                        <span style="font-size:9px;color:var(--tfaint)">LockWorkStation</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tactical Log Output -->
+            <div id="tacticalLogArea" style="min-height:90px;max-height:160px;overflow-y:auto;background:#030509;border:1px solid var(--line);border-radius:4px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--tdim);line-height:1.6">
+                [SISTEMA] Centro táctico listo. Seleccione una operación o consulte al nodo Ultron.
+            </div>
+        </div>
+        <div class="modbox-actions" style="justify-content:space-between">
+            <span style="font-size:10px;color:var(--tfaint);letter-spacing:1px">CONTROL AVANZADO DE HARDWARE Y RED</span>
+            <button class="btn-sec" onclick="closeMod('tactical')">Cerrar</button>
+        </div>
+    </div>
 </div>
 
 <!-- MODAL DEDICADO — YouTube -->
@@ -1682,8 +1812,8 @@ function playVoice(t){
         .then(blob=>{
             const url = URL.createObjectURL(blob);
             p.src = url;
-            p.onended = ()=>{ URL.revokeObjectURL(url); resume(); };
-            p.onerror = ()=>{ URL.revokeObjectURL(url); resume(); };
+            p.onended = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
+            p.onerror = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
             return p.play();
         })
         .catch(()=>{ browserSpeak(chunk); resume(); });
@@ -1699,8 +1829,14 @@ function browserSpeak(text){
                 || vs.find(x=>/es[-_]ES/i.test(x.lang))
                 || vs.find(x=>/es/i.test(x.lang));
         if(v) u.voice=v;
+        u.onend = vozFin; u.onerror = vozFin;
         speechSynthesis.speak(u);
-    }catch(e){}
+    }catch(e){ vozFin(); }
+}
+// Avisa a la escucha continua del PC de que JARVIS ya calló: desde ese
+// momento se le contesta sin decir su nombre.
+function vozFin(){
+    try{ fetch('/api/voz_fin',{method:'POST'}).catch(()=>{}); }catch(e){}
 }
 function stopVoice(){
     const p = document.getElementById('ttsPlayer');
@@ -2023,6 +2159,8 @@ genI.addEventListener('keypress',e=>{if(e.key==='Enter')genRun()});
 
 // ═══════════ CENTRO DE MÓDULOS ═══════════
 const MODULES = [
+    {id:'calendar', icon:'📅', title:'Agenda y Calendario', desc:'Citas y compromisos con Google Calendar API y SQLite local.', chips:['Google API','Agenda','Citas']},
+    {id:'tactical', icon:'⚡', title:'Centro Táctico & Ultron', desc:'Purga de RAM, radar de red, bloqueo y enlace directo con Ultron.', chips:['Ultron','RAM Purge','Radar']},
     {id:'yt', icon:'▶', title:'YouTube Studio', desc:'Descarga cualquier video como MP4 1080p o MP3 192kbps.', chips:['Video','Audio','YT']},
     {id:'resumen', icon:'◈', title:'Resumen Inteligente', desc:'Resume videos, artículos y textos largos al instante.', chips:['Video','Web','Texto']},
     {id:'clima', icon:'☁', title:'Clima', desc:'Clima actual y pronóstico por ciudad.', chips:['Hoy','Semana']},
@@ -2061,11 +2199,313 @@ function openMod(id){
     const el=document.getElementById('mod-'+id);
     if(el)el.classList.add('on');
     if(id==='yt')refreshYtHist();
+    if(id==='calendar'){loadCalendarStatus();setCalTab('today');}
+    if(id==='tactical'){refreshUltronPeerStatus();}
 }
 function closeMod(id){
     const el=document.getElementById('mod-'+id);
     if(el)el.classList.remove('on');
 }
+
+// ═══════════ CALENDARIO & AGENDA J.A.R.V.I.S. ═══════════
+let _calTab = 'today';
+
+async function loadCalendarStatus() {
+    try {
+        const r = await fetch('/api/calendar/status');
+        const d = await r.json();
+        const dot = document.getElementById('calSyncDot');
+        const txt = document.getElementById('calSyncText');
+        if (d.connected_to_google) {
+            dot.style.background = '#4CAF50';
+            dot.style.boxShadow = '0 0 10px #4CAF50';
+            txt.innerHTML = '<b style="color:#A5D6A7">GOOGLE CALENDAR CONECTADO</b> · Sincronización en la nube activa (' + (d.total_events || 0) + ' eventos)';
+        } else {
+            dot.style.background = '#D4A574';
+            dot.style.boxShadow = '0 0 8px #D4A574';
+            txt.innerHTML = '<b style="color:var(--amber2)">BASE LOCAL SQLITE ACTIVA</b> · Modo seguro offline (' + (d.total_events || 0) + ' eventos locales)';
+        }
+    } catch(e) {
+        document.getElementById('calSyncText').textContent = 'Estado: ' + e.message;
+    }
+}
+
+function setCalTab(tab) {
+    _calTab = tab;
+    document.getElementById('calTabToday').className = tab === 'today' ? 'btn-primary' : 'btn-sec';
+    document.getElementById('calTabAll').className = tab === 'all' ? 'btn-primary' : 'btn-sec';
+    document.getElementById('calTabNew').className = tab === 'new' ? 'btn-primary' : 'btn-sec';
+
+    const cont = document.getElementById('calEventsContainer');
+    const form = document.getElementById('calNewEventForm');
+    const msg = document.getElementById('calStatusMsg');
+    msg.style.display = 'none';
+
+    if (tab === 'new') {
+        cont.style.display = 'none';
+        form.style.display = 'flex';
+        const now = new Date();
+        now.setHours(now.getHours() + 1);
+        now.setMinutes(0);
+        const iso = now.toISOString().slice(0, 16);
+        document.getElementById('calInputStart').value = iso;
+        document.getElementById('calInputSummary').focus();
+    } else {
+        cont.style.display = 'flex';
+        form.style.display = 'none';
+        loadCalendarEvents(tab);
+    }
+}
+
+async function refreshCalendarData() {
+    await loadCalendarStatus();
+    if (_calTab !== 'new') {
+        await loadCalendarEvents(_calTab);
+    }
+}
+
+async function loadCalendarEvents(filter) {
+    const cont = document.getElementById('calEventsContainer');
+    cont.innerHTML = '<div style="color:var(--tdim);font-size:11px;padding:12px;text-align:center">Consultando calendario...</div>';
+    try {
+        const endpoint = filter === 'today' ? '/api/calendar/today' : '/api/calendar/events';
+        const r = await fetch(endpoint);
+        const d = await r.json();
+        const evs = d.events || [];
+        if (!evs.length) {
+            cont.innerHTML = `<div style="padding:24px;text-align:center;color:var(--tfaint);font-size:12px;border:1px dashed var(--line);border-radius:6px">
+                No hay compromisos ${filter === 'today' ? 'programados para hoy' : 'en los próximos días'}.<br>
+                <span style="font-size:10px;color:var(--tdim)">Use el botón "+ Nueva Cita" para agendar.</span>
+            </div>`;
+            return;
+        }
+
+        cont.innerHTML = '';
+        evs.forEach(ev => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(10,14,24,0.7);border:1px solid var(--line);border-radius:6px;transition:border-color .2s';
+            row.onmouseover = () => row.style.borderColor = 'rgba(200,180,140,0.3)';
+            row.onmouseout = () => row.style.borderColor = 'var(--line)';
+
+            const stRaw = (ev.start || '').replace('Z', '').split('+')[0];
+            let timeFmt = stRaw;
+            try {
+                const dt = new Date(stRaw);
+                timeFmt = dt.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' }) + ' · ' + dt.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
+            } catch(e) {}
+
+            const storageBadge = ev.storage === 'google'
+                ? '<span style="font-size:9px;padding:2px 6px;background:rgba(76,175,80,0.15);color:#81C784;border-radius:3px;border:1px solid rgba(76,175,80,0.3)">GOOGLE</span>'
+                : '<span style="font-size:9px;padding:2px 6px;background:rgba(200,180,140,0.15);color:var(--amber2);border-radius:3px;border:1px solid rgba(200,180,140,0.3)">LOCAL</span>';
+
+            row.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:3px;overflow:hidden">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-size:12px;font-weight:600;color:var(--txt)">${escHtml(ev.summary || 'Sin título')}</span>
+                        ${storageBadge}
+                    </div>
+                    <div style="font-size:11px;color:var(--amber2);font-family:\'JetBrains Mono\',monospace">${timeFmt} ${ev.location ? '· 📍 ' + escHtml(ev.location) : ''}</div>
+                    ${ev.description ? `<div style="font-size:10px;color:var(--tdim)">${escHtml(ev.description)}</div>` : ''}
+                </div>
+                <button class="btn-sec" style="font-size:11px;padding:4px 8px;color:var(--red);border-color:rgba(255,80,80,0.3);flex-shrink:0" title="Cancelar compromiso" onclick="deleteCalendarEvent('${ev.id}')">✕</button>
+            `;
+            cont.appendChild(row);
+        });
+    } catch(e) {
+        cont.innerHTML = `<div style="color:var(--red);font-size:11px;padding:12px">Error al cargar citas: ${e.message}</div>`;
+    }
+}
+
+async function submitCalendarEvent() {
+    const summary = document.getElementById('calInputSummary').value.trim();
+    const start = document.getElementById('calInputStart').value;
+    const location = document.getElementById('calInputLocation').value.trim();
+    const description = document.getElementById('calInputDesc').value.trim();
+    const msg = document.getElementById('calStatusMsg');
+
+    if (!summary) {
+        msg.style.display = 'block';
+        msg.style.background = 'rgba(255,50,50,0.2)';
+        msg.style.color = '#FF8888';
+        msg.textContent = 'Por favor introduzca el título del evento.';
+        return;
+    }
+    if (!start) {
+        msg.style.display = 'block';
+        msg.style.background = 'rgba(255,50,50,0.2)';
+        msg.style.color = '#FF8888';
+        msg.textContent = 'Por favor seleccione la fecha y hora de inicio.';
+        return;
+    }
+
+    msg.style.display = 'block';
+    msg.style.background = 'rgba(200,180,140,0.1)';
+    msg.style.color = 'var(--amber2)';
+    msg.textContent = 'Programando evento en el calendario...';
+
+    try {
+        const r = await fetch('/api/calendar/events', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({summary, start, location, description})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            msg.style.background = 'rgba(76,175,80,0.2)';
+            msg.style.color = '#81C784';
+            msg.textContent = '✓ Evento agendado correctamente.';
+            document.getElementById('calInputSummary').value = '';
+            document.getElementById('calInputLocation').value = '';
+            document.getElementById('calInputDesc').value = '';
+            setTimeout(() => {
+                setCalTab('today');
+                loadCalendarStatus();
+            }, 800);
+        } else {
+            msg.style.background = 'rgba(255,50,50,0.2)';
+            msg.style.color = '#FF8888';
+            msg.textContent = 'Error: ' + (d.error || 'No se pudo guardar el evento');
+        }
+    } catch(e) {
+        msg.style.background = 'rgba(255,50,50,0.2)';
+        msg.style.color = '#FF8888';
+        msg.textContent = 'Error de conexión: ' + e.message;
+    }
+}
+
+async function deleteCalendarEvent(id) {
+    if (!confirm('¿Confirma que desea cancelar y eliminar esta cita de su calendario, señor?')) return;
+    try {
+        const r = await fetch('/api/calendar/events/' + encodeURIComponent(id), {method: 'DELETE'});
+        const d = await r.json();
+        if (d.ok) {
+            loadCalendarEvents(_calTab);
+            loadCalendarStatus();
+        } else {
+            alert('No se pudo eliminar el evento: ' + (d.error || 'Error'));
+        }
+    } catch(e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+// ═══════════ CENTRO TÁCTICO & ENLACE ULTRON ═══════════
+async function refreshUltronPeerStatus() {
+    const dot = document.getElementById('ultronPeerDot');
+    const det = document.getElementById('ultronPeerDetails');
+    det.textContent = 'Consultando nodo en puerto 8766...';
+    try {
+        const r = await fetch('/api/agent/peer_status?peer=ultron');
+        const d = await r.json();
+        if (d.online) {
+            dot.style.background = '#00E676';
+            dot.style.boxShadow = '0 0 10px #00E676';
+            const tele = d.telemetry || {};
+            det.innerHTML = `<span style="color:#A7FFEB">EN LÍNEA</span> · CPU: <b>${tele.cpu_percent || 0}%</b> · RAM: <b>${tele.ram_percent || 0}%</b> · Host: <b>${tele.hostname || 'PC'}</b>`;
+            logTactical('Enlace con Ultron verificado: Nodo activo y respondiendo.');
+        } else {
+            dot.style.background = '#FF5252';
+            dot.style.boxShadow = '0 0 8px #FF5252';
+            det.innerHTML = `<span style="color:#FF8A80">DESCONECTADO</span> (${d.error || 'Puerto 8766 no responde'})`;
+            logTactical('Advertencia: Ultron no responde en el puerto 8766.');
+        }
+    } catch(e) {
+        dot.style.background = '#777';
+        det.textContent = 'Error al consultar peer: ' + e.message;
+    }
+}
+
+async function sendDirectiveToUltron() {
+    const inp = document.getElementById('ultronDirectivaInput');
+    const task = (inp.value || '').trim();
+    if (!task) return;
+    const box = document.getElementById('ultronReplyBox');
+    box.style.display = 'block';
+    box.textContent = 'Transmitiendo directiva a nodo Ultron...';
+    logTactical(`Transmitiendo a Ultron: "${task}"`);
+    try {
+        const r = await fetch('/api/agent/delegate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({peer: 'ultron', task: task})
+        });
+        const d = await r.json();
+        if (d.success) {
+            box.style.borderColor = '#00E676';
+            box.style.color = '#E0F2F1';
+            box.innerHTML = `<span style="color:#80CBC4">RESPUESTA DE ULTRON:</span><br>${escHtml(d.reply || 'Comando procesado')}`;
+            logTactical(`Ultron respondió con éxito a la directiva.`);
+        } else {
+            box.style.borderColor = '#FF5252';
+            box.style.color = '#FFCDD2';
+            box.textContent = 'Fallo en delegación: ' + (d.error || 'Sin respuesta del agente');
+            logTactical(`Fallo en directiva: ${d.error || 'Error'}`);
+        }
+    } catch(e) {
+        box.style.borderColor = '#FF5252';
+        box.style.color = '#FFCDD2';
+        box.textContent = 'Error: ' + e.message;
+    }
+}
+
+async function runRamPurge() {
+    logTactical('Iniciando purga de memoria RAM del host...');
+    try {
+        const r = await fetch('/api/system/clean_ram', {method: 'POST'});
+        const d = await r.json();
+        if (d.ok) {
+            logTactical(`✓ Purga completada: ${d.processes_cleared || 0} procesos liberados, ~${d.purged_mb || 0} MB de RAM recuperados.`);
+        } else {
+            logTactical(`Error en purga: ${d.error || 'Fallo de API'}`);
+        }
+    } catch(e) {
+        logTactical('Error al purgar RAM: ' + e.message);
+    }
+}
+
+async function runNetworkRadar() {
+    logTactical('Escaneando conexiones de red activas...');
+    try {
+        const r = await fetch('/api/system/network_radar');
+        const d = await r.json();
+        if (d.ok) {
+            const conns = d.connections || [];
+            const susp = conns.filter(c => c.is_suspicious);
+            logTactical(`Radar finalizado: ${conns.length} sockets activos.`);
+            if (susp.length) {
+                logTactical(`⚠️ Alerta centinela: ${susp.length} sockets no estándar detectados.`);
+            }
+            conns.slice(0, 5).forEach(c => {
+                logTactical(`  - [${c.type}] ${c.process} (${c.pid}) -> ${c.raddr} [${c.status}]`);
+            });
+        } else {
+            logTactical(`Error en radar: ${d.error || 'Fallo de escaneo'}`);
+        }
+    } catch(e) {
+        logTactical('Error en radar: ' + e.message);
+    }
+}
+
+async function runLockStation() {
+    if (!confirm('¿Confirma el bloqueo inmediato de la estación de trabajo (pantalla de bloqueo de Windows)?')) return;
+    logTactical('Ejecutando bloqueo de estación...');
+    try {
+        const r = await fetch('/api/system/lockdown', {method: 'POST'});
+        const d = await r.json();
+        logTactical(d.ok ? '✓ Estación de trabajo bloqueada con éxito.' : 'Error al bloquear: ' + d.error);
+    } catch(e) {
+        logTactical('Error: ' + e.message);
+    }
+}
+
+function logTactical(msg) {
+    const area = document.getElementById('tacticalLogArea');
+    if (!area) return;
+    const ts = new Date().toLocaleTimeString();
+    area.innerHTML += `<br>[${ts}] ${escHtml(msg)}`;
+    area.scrollTop = area.scrollHeight;
+}
+
 function openGeneric(m){
     closeModules();
     document.querySelectorAll('.modbox').forEach(x=>x.classList.remove('on'));
@@ -2758,6 +3198,21 @@ boot();
 
   setInterval(stats,2000); stats();
   loadAgents();
+})();
+</script>
+<!-- Acceso al NEXUS: la interfaz unificada de las dos personalidades. -->
+<a id="ir-nexus" href="#" title="Abrir el NEXUS (JARVIS + ULTRON en una)"
+   style="position:fixed;right:18px;bottom:18px;z-index:9999;
+          display:flex;align-items:center;gap:8px;padding:10px 16px;
+          background:rgba(6,13,23,.92);border:1px solid #00d4ff;border-radius:26px;
+          color:#00d4ff;text-decoration:none;font:600 12px/1 'Segoe UI',sans-serif;
+          letter-spacing:.18em;box-shadow:0 0 26px rgba(0,212,255,.28)">NEXUS ↗</a>
+<script>
+(function(){
+  var t = new URLSearchParams(location.search).get('token')
+        || localStorage.getItem('jarvis_pin') || '';
+  var a = document.getElementById('ir-nexus');
+  a.href = '/nexus' + (t ? '?token=' + encodeURIComponent(t) : '');
 })();
 </script>
 </body>

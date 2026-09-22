@@ -1,223 +1,97 @@
 #!/usr/bin/env python3
 """
-mcp_servers/calendar_server.py - Google Calendar MCP Server
-Expone Google Calendar como herramientas MCP.
-Requiere: google-api-python-client, google-auth-oauthlib, google-auth-httplib2
-Config: GOOGLE_CREDENTIALS_JSON (path a credentials.json) + token.json generado en primer run
+mcp_servers/calendar_server.py - Google Calendar MCP Server (Híbrido y Resiliente)
+===================================================================================
+Expone Google Calendar como herramientas MCP con respaldo local en SQLite.
+Si Google está configurado y autorizado, sincroniza con Google Calendar API v3.
+Si no hay credenciales o está offline, persiste y gestiona eventos en SQLite localmente.
+¡El servicio NUNCA falla!
 """
 import os
-import json
 import sys
-import pickle
-from datetime import datetime, timedelta, timezone
+import json
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
-
 from aiohttp import web
 
-try:
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
-    GOOGLE_AVAILABLE = True
-except ImportError:
-    GOOGLE_AVAILABLE = False
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
-
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
-
-# Las rutas se resuelven con jarvis_config: busca el JSON en Google/ aunque
-# conserve el nombre largo que le pone Google al descargarlo, y deja el token
-# a su lado. Antes eran rutas relativas al directorio de trabajo, que cambia
-# segun desde donde se arranque el servidor.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    import jarvis_config
-    CREDENTIALS_FILE = jarvis_config.buscar_credenciales_google() or "credentials.json"
-    TOKEN_FILE = jarvis_config.ruta_token_google()
-except Exception:
-    CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_JSON", "credentials.json")
-    TOKEN_FILE = os.getenv("GOOGLE_TOKEN_JSON", "token.json")
-
-
-def _leer_token(ruta: str):
-    """Lee el token en JSON (formato de Google) o en pickle (versiones viejas)."""
-    try:
-        return Credentials.from_authorized_user_file(ruta, SCOPES)
-    except Exception:
-        pass
-    try:
-        with open(ruta, "rb") as f:
-            return pickle.load(f)
-    except Exception as e:
-        print(f"[calendar] No pude leer el token ({e}); habra que reautorizar.")
-        return None
-
-
-def _guardar_token(ruta: str, creds):
-    """Guarda en JSON: legible, portable y lo que espera Google."""
-    try:
-        os.makedirs(os.path.dirname(ruta) or ".", exist_ok=True)
-        with open(ruta, "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
-    except Exception as e:
-        print(f"[calendar] No pude guardar el token en {ruta}: {e}")
-
-
-@dataclass
-class CalendarConfig:
-    credentials_file: str = CREDENTIALS_FILE
-    token_file: str = TOKEN_FILE
-    calendar_id: str = "primary"
+from calendar_engine import CalendarEngine, calendar_engine
 
 
 class GoogleCalendarMCP:
-    def __init__(self, config: CalendarConfig = None):
-        self.config = config or CalendarConfig()
-        self._service = None
+    """Adaptador MCP que delega en el motor híbrido CalendarEngine."""
 
-    def _get_service(self):
-        if self._service:
-            return self._service
-
-        if not GOOGLE_AVAILABLE:
-            raise RuntimeError("google-api-python-client no instalado")
-
-        creds = None
-        if os.path.exists(self.config.token_file):
-            creds = _leer_token(self.config.token_file)
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not os.path.exists(self.config.credentials_file):
-                    raise RuntimeError(f"Credentials no encontrado: {self.config.credentials_file}")
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.config.credentials_file, SCOPES)
-                # Puerto fijo, igual que autorizar_google.py: las credenciales
-                # de tipo «web» validan el redirect contra los registrados.
-                try:
-                    puerto = jarvis_config.OAUTH_PORT
-                except Exception:
-                    puerto = int(os.getenv("GOOGLE_OAUTH_PORT", "8088"))
-                creds = flow.run_local_server(port=puerto)
-
-            _guardar_token(self.config.token_file, creds)
-
-        self._service = build("calendar", "v3", credentials=creds)
-        return self._service
-
-    # ─── Herramientas MCP ───
+    def __init__(self, engine: CalendarEngine = None):
+        self.engine = engine or calendar_engine
 
     def list_events(self, time_min: str = None, time_max: str = None,
                     max_results: int = 20, query: str = None) -> List[Dict]:
-        """Lista eventos en rango temporal."""
-        service = self._get_service()
-        now = datetime.now(timezone.utc).isoformat()
-
-        events_result = service.events().list(
-            calendarId=self.config.calendar_id,
-            timeMin=time_min or now,
-            timeMax=time_max,
-            maxResults=max_results,
-            singleEvents=True,
-            orderBy="startTime",
-            q=query
-        ).execute()
-
-        events = events_result.get("items", [])
-        return [self._format_event(e) for e in events]
+        return self.engine.list_events(time_min=time_min, time_max=time_max,
+                                       query=query, max_results=max_results)
 
     def get_event(self, event_id: str) -> Dict:
-        service = self._get_service()
-        event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
-        return self._format_event(event)
+        ev = self.engine.get_event(event_id)
+        if not ev:
+            raise KeyError(f"Evento {event_id} no encontrado")
+        return ev
 
-    def create_event(self, summary: str, start: str, end: str,
+    def create_event(self, summary: str, start: str, end: str = None,
                      description: str = "", location: str = "",
                      attendees: List[str] = None, reminders: List[Dict] = None) -> Dict:
-        """Crea evento. start/end en ISO format (2024-01-15T10:00:00)."""
-        service = self._get_service()
-
-        event = {
-            "summary": summary,
-            "location": location,
-            "description": description,
-            "start": {"dateTime": start, "timeZone": "Europe/Madrid"},
-            "end": {"dateTime": end, "timeZone": "Europe/Madrid"},
-        }
-
-        if attendees:
-            event["attendees"] = [{"email": email} for email in attendees]
-
-        if reminders:
-            event["reminders"] = {"useDefault": False, "overrides": reminders}
-        else:
-            event["reminders"] = {"useDefault": True}
-
-        created = service.events().insert(calendarId=self.config.calendar_id, body=event).execute()
-        return self._format_event(created)
+        return self.engine.create_event(
+            summary=summary,
+            start=start,
+            end=end,
+            description=description,
+            location=location,
+            attendees=attendees,
+            reminders=reminders
+        )
 
     def update_event(self, event_id: str, **updates) -> Dict:
-        """Actualiza campos de un evento."""
-        service = self._get_service()
-        event = service.events().get(calendarId=self.config.calendar_id, eventId=event_id).execute()
+        ev = self.engine.update_event(event_id, **updates)
+        if not ev:
+            raise KeyError(f"Evento {event_id} no encontrado para actualizar")
+        return ev
 
-        for key, value in updates.items():
-            if key in ("summary", "description", "location"):
-                event[key] = value
-            elif key == "start":
-                event["start"]["dateTime"] = value
-            elif key == "end":
-                event["end"]["dateTime"] = value
-            elif key == "attendees":
-                event["attendees"] = [{"email": e} for e in value]
-
-        updated = service.events().update(calendarId=self.config.calendar_id,
-                                           eventId=event_id, body=event).execute()
-        return self._format_event(updated)
+    def reschedule_event(self, event_id: str, new_start: str, new_end: str = None) -> Dict:
+        ev = self.engine.reschedule_event(event_id, new_start=new_start, new_end=new_end)
+        if not ev:
+            raise KeyError(f"Evento {event_id} no encontrado para reprogramar")
+        return ev
 
     def delete_event(self, event_id: str) -> bool:
-        service = self._get_service()
-        service.events().delete(calendarId=self.config.calendar_id, eventId=event_id).execute()
-        return True
+        return self.engine.delete_event(event_id)
 
     def get_free_busy(self, time_min: str, time_max: str,
                       calendars: List[str] = None) -> Dict:
-        """Consulta disponibilidad (free/busy)."""
-        service = self._get_service()
-        cal_list = calendars or [self.config.calendar_id]
-
-        body = {
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "items": [{"id": cal} for cal in cal_list]
+        res = self.engine.check_availability(time_min, time_max)
+        busy_list = [{"start": c["start"], "end": c["end"]} for c in res["conflicts"]]
+        return {
+            "primary": {
+                "busy": busy_list
+            },
+            "available": res["available"]
         }
-
-        result = service.freebusy().query(body=body).execute()
-        return result.get("calendars", {})
 
     def list_calendars(self) -> List[Dict]:
-        service = self._get_service()
-        result = service.calendarList().list().execute()
-        return result.get("items", [])
+        status = self.engine.get_status()
+        return [{
+            "id": "primary",
+            "summary": "Calendario Principal (JARVIS / ULTRON)",
+            "primary": True,
+            "mode": status["storage_mode"],
+            "google_connected": status["google_connected"]
+        }]
 
-    @staticmethod
-    def _format_event(event: Dict) -> Dict:
-        start = event["start"].get("dateTime", event["start"].get("date"))
-        end = event["end"].get("dateTime", event["end"].get("date"))
-        return {
-            "id": event["id"],
-            "summary": event.get("summary", "(Sin título)"),
-            "start": start,
-            "end": end,
-            "location": event.get("location", ""),
-            "description": event.get("description", ""),
-            "attendees": [a.get("email") for a in event.get("attendees", [])],
-            "htmlLink": event.get("htmlLink", "")
-        }
+    def today_events(self) -> List[Dict]:
+        return self.engine.get_today_events()
+
+    def get_status(self) -> Dict[str, Any]:
+        return self.engine.get_status()
 
 
 # ─── HTTP Server ───
@@ -236,27 +110,24 @@ async def handle_mcp(request: web.Request) -> web.Response:
             "cal_list_events": lambda: cal.list_events(args.get("time_min"), args.get("time_max"),
                                                         args.get("max_results", 20), args.get("query")),
             "cal_get_event": lambda: cal.get_event(args["event_id"]),
-            "cal_create_event": lambda: cal.create_event(args["summary"], args["start"], args["end"],
+            "cal_create_event": lambda: cal.create_event(args["summary"], args["start"], args.get("end"),
                                                           args.get("description", ""), args.get("location", ""),
                                                           args.get("attendees"), args.get("reminders")),
             "cal_update_event": lambda: cal.update_event(args["event_id"], **args.get("updates", {})),
+            "cal_reschedule_event": lambda: cal.reschedule_event(args["event_id"], args["new_start"], args.get("new_end")),
             "cal_delete_event": lambda: cal.delete_event(args["event_id"]),
             "cal_free_busy": lambda: cal.get_free_busy(args["time_min"], args["time_max"],
                                                         args.get("calendars")),
             "cal_list_calendars": lambda: cal.list_calendars(),
+            "cal_today_events": lambda: cal.today_events(),
+            "cal_status": lambda: cal.get_status(),
         }
 
         if tool not in method_map:
             return web.json_response({"error": f"Herramienta desconocida: {tool}"}, status=404)
 
-        # Los metodos del mapa son SINCRONOS: hacer await sobre lo que
-        # devuelven (una lista, un dict) lanza TypeError y el except de abajo
-        # lo convertia en un 500 sin explicacion, asi que /call nunca ha
-        # funcionado. run_in_executor los ejecuta en un hilo, ademas de no
-        # bloquear el event loop mientras se habla con la red.
         import asyncio
-        result = await asyncio.get_running_loop().run_in_executor(
-            None, method_map[tool])
+        result = await asyncio.get_running_loop().run_in_executor(None, method_map[tool])
         return web.json_response({"result": result})
 
     except Exception as e:
@@ -268,11 +139,14 @@ async def handle_mcp(request: web.Request) -> web.Response:
 
 async def handle_health(request: web.Request) -> web.Response:
     cal = request.app["calendar"]
-    try:
-        cal._get_service()
-        return web.json_response({"status": "ok", "server": "calendar-mcp"})
-    except Exception:
-        return web.json_response({"status": "error", "server": "calendar-mcp"}, status=503)
+    st = cal.get_status()
+    return web.json_response({
+        "status": "ok",
+        "server": "calendar-mcp",
+        "storage_mode": st["storage_mode"],
+        "google_connected": st["google_connected"],
+        "total_events": st["total_events"]
+    })
 
 
 async def handle_tools_list(request: web.Request) -> web.Response:
@@ -290,10 +164,14 @@ async def handle_tools_list(request: web.Request) -> web.Response:
              "end": {"type": "string", "format": "date-time"},
              "description": {"type": "string"}, "location": {"type": "string"},
              "attendees": {"type": "array", "items": {"type": "string"}},
-             "reminders": {"type": "array", "items": {"type": "object"}}}}, "required": ["summary", "start", "end"]},
+             "reminders": {"type": "array", "items": {"type": "object"}}}}, "required": ["summary", "start"]},
         {"name": "cal_update_event", "description": "Actualiza un evento existente",
          "inputSchema": {"type": "object", "properties": {
              "event_id": {"type": "string"}, "updates": {"type": "object"}}}},
+        {"name": "cal_reschedule_event", "description": "Reprograma un evento a nueva fecha/hora",
+         "inputSchema": {"type": "object", "properties": {
+             "event_id": {"type": "string"}, "new_start": {"type": "string"}, "new_end": {"type": "string"}},
+             "required": ["event_id", "new_start"]}},
         {"name": "cal_delete_event", "description": "Borra un evento",
          "inputSchema": {"type": "object", "properties": {"event_id": {"type": "string"}}}},
         {"name": "cal_free_busy", "description": "Consulta disponibilidad (libre/ocupado)",
@@ -303,14 +181,16 @@ async def handle_tools_list(request: web.Request) -> web.Response:
              "calendars": {"type": "array", "items": {"type": "string"}}}}, "required": ["time_min", "time_max"]},
         {"name": "cal_list_calendars", "description": "Lista calendarios disponibles",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "cal_today_events", "description": "Retorna todos los eventos de hoy",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "cal_status", "description": "Retorna el estado de sincronización y métricas del calendario",
+         "inputSchema": {"type": "object", "properties": {}}},
     ]
     return web.json_response({"tools": tools})
 
 
 def create_app() -> web.Application:
-    config = CalendarConfig()
-    cal = GoogleCalendarMCP(config)
-
+    cal = GoogleCalendarMCP()
     app = web.Application()
     app["calendar"] = cal
     app.router.add_get("/health", handle_health)

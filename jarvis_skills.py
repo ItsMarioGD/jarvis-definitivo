@@ -12,6 +12,9 @@ Habilidades:
 import os, re, subprocess, sys, threading, time, urllib.request, json, tempfile, unicodedata
 from datetime import datetime, timedelta
 import jarvis_config
+import energia
+import ejecutor
+import deshacer
 
 
 APP_MAP = {
@@ -74,6 +77,7 @@ class SkillsManager:
         os.makedirs(self._notas_dir, exist_ok=True)
         os.makedirs(self._caps_dir, exist_ok=True)
         self._timers = {}
+        self.ultima_habilidad = ""
         self._player = None
         self._vigilando = False
         self._alertas_cfg = {}
@@ -173,7 +177,7 @@ class SkillsManager:
             self._precio_borra, self._precio, self._recurrente_borra, self._recurrente_lista,
             self._recurrente, self._paquete, self._radio, self._pomodoro, self._nota_voz,
             self._espacio, self._alertas, self._preferencia, self._suspender, self._estado_pc,
-            self._enviar_captura, self._vigilar, self._musica, self._lista, self._agenda,
+            self._enviar_captura, self._vigilar, self._musica, self._lista, self._enlace_ultron, self._optimizacion_tactica, self._agenda,
             self._resumir, self._traducir, self._cine, self._receta, self._backup,
             self._limpieza, self._procesos, self._domotica,
             self._investigar, self._archivos, self._organizar_descargas, self._descargar_video,
@@ -192,6 +196,10 @@ class SkillsManager:
         ):
             reply = handler(t)
             if reply is not None:
+                # Se recuerda qué handler atendió la frase: el núcleo lo usa
+                # para enseñarle al clasificador de intenciones con órdenes
+                # reales del señor en vez de con ejemplos de laboratorio.
+                self.ultima_habilidad = handler.__name__
                 self.log(f"Habilidad ejecutada: {handler.__name__} <- '{text[:60]}'")
                 return reply
         return None
@@ -214,12 +222,13 @@ class SkillsManager:
                     break
         if not cmd:
             return None
-        try:
-            subprocess.Popen(cmd, shell=True)
+        # verificar_ms: si la app no existe, el proceso muere en cuanto
+        # arranca y antes contestábamos «abriendo» igual.
+        ok, error, _ = ejecutor.lanzar(cmd, origen="abrir_app", orden=t,
+                                       verificar_ms=400, log=self.log)
+        if ok:
             return f"Enseguida, señor. Abriendo {name.title()}."
-        except Exception as e:
-            self.log(f"No pude abrir {name}: {e}")
-            return f"Señor, tuve un problema al abrir {name}."
+        return f"Señor, no pude abrir {name}: {error or 'la aplicación no arrancó'}."
         return None
 
     def _cerrar_app(self, t: str):
@@ -237,12 +246,20 @@ class SkillsManager:
             return None
         if self.safe:
             return f"Cerrado, señor. {name.title()} ya no está en ejecución. (modo seguro: no ejecutado)"
-        try:
-            subprocess.Popen(f"taskkill /IM {cmd} /F", shell=True, creationflags=0x08000000)
+        res = ejecutor.ejecutar(f"taskkill /IM {cmd} /F", origen="cerrar_app",
+                                orden=t, log=self.log)
+        if res["ok"]:
+            # Cerrar a la fuerza puede llevarse trabajo sin guardar: dejamos
+            # anotado cómo volver a abrirla («deshaz eso»).
+            reabrir = APP_MAP.get(name) or cmd
+            deshacer.anotar("app_cerrada", f"cerré {name.title()}",
+                            {"comando": reabrir, "nombre": name.title()}, log=self.log)
             return f"Cerrado, señor. {name.title()} ya no está en ejecución."
-        except Exception as e:
-            self.log(f"No pude cerrar {name}: {e}")
-            return f"Señor, no logré cerrar {name}."
+        # taskkill devuelve 128 cuando no había nada que cerrar: eso no es un
+        # fallo del que haya que alarmar al señor, es información.
+        if "128" in str(res["codigo"]) or "no se encontr" in res["error"].lower():
+            return f"{name.title()} no estaba en ejecución, señor."
+        return f"Señor, no logré cerrar {name}: {res['error'][:120]}"
         return None
 
     # ── VOLUMEN ──────────────────────────────────────────────────────────────
@@ -252,8 +269,8 @@ class SkillsManager:
             "$obj = New-Object -ComObject WScript.Shell;"
             f"for($i=0;$i -lt {pulses};$i++){{$obj.SendKeys([char]{key})}}"
         )
-        subprocess.Popen(["powershell", "-NoProfile", "-Command", script],
-                         creationflags=0x08000000)
+        ejecutor.lanzar(["powershell", "-NoProfile", "-Command", script],
+                        origen="tecla_multimedia", orden=f"pulsos={pulses}", log=self.log)
 
     def _volumen_a(self, t: str):
         m = re.search(r"volumen(?: al| a| en| de)\s*(?:un\s*)?(\d{1,3})\s*%", t)
@@ -338,19 +355,6 @@ class SkillsManager:
         return "Tomando la captura de pantalla, señor."
 
     # ── PORTAPAPELES ─────────────────────────────────────────────────────────
-    def _portapapeles(self, t: str):
-        m = re.search(r"(copia|copiar|pon)\s+(?:en el portapapeles|al portapapeles)?\s*[::,-]?\s*(.+)", t)
-        if not m or "portapapeles" not in t:
-            return None
-        mo = re.search(r"(copia|copiar|pon)\s+(?:en el portapapeles|al portapapeles)?\s*[::,-]?\s*(.+)", self._orig_lower)
-        txt = (mo.group(2) if mo else m.group(2)).strip().strip("\"'")
-        if not txt or len(txt) > 4000:
-            return None
-        subprocess.Popen(["powershell", "-NoProfile", "-Command",
-                          f"Set-Clipboard -Value '{txt.replace(chr(39), chr(39)*2)}'"],
-                         creationflags=0x08000000)
-        return "Copiado al portapapeles, señor. Listo para pegar donde necesite."
-
     # ── WEB SEARCH ───────────────────────────────────────────────────────────
     def _buscar_web(self, t: str):
         # si la búsqueda especifica un sitio (youtube, maps, wikipedia...),
@@ -367,7 +371,8 @@ class SkillsManager:
             return None
         import urllib.parse
         url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
-        subprocess.Popen(["start", "", url], shell=True)
+        ejecutor.lanzar(["start", "", url], shell=True, origen="buscar_web",
+                        orden=q, log=self.log)
         return f"Abriendo resultados de búsqueda para «{q}», señor."
 
     # ── NOTAS ────────────────────────────────────────────────────────────────
@@ -953,7 +958,8 @@ class SkillsManager:
             base = self._home_dir(ubicacion)
             if base is None or not os.path.isdir(base):
                 return None
-            subprocess.Popen(["explorer.exe", base], creationflags=0x08000000)
+            ejecutor.lanzar(["explorer.exe", base], origen="abrir_carpeta",
+                            orden=t, log=self.log)
             return f"Abriendo la carpeta, señor."
         return None
 
@@ -1781,12 +1787,13 @@ void loop() {
                 ffplay = os.path.join(ffdir, "ffplay.exe") if ffdir else shutil.which("ffplay")
                 if ffplay and url:
                     self._matar_reproductor()
-                    self._player = subprocess.Popen(
+                    _ok, _err, self._player = ejecutor.lanzar(
                         [ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", url],
-                        creationflags=0x08000000)
+                        origen="musica", orden=q, log=self.log)
                     self._avisar(f"Reproduciendo «{titulo}», señor.")
                 elif entry.get("webpage_url"):
-                    subprocess.Popen(["start", "", entry["webpage_url"]], shell=True)
+                    ejecutor.lanzar(["start", "", entry["webpage_url"]], shell=True,
+                                    origen="abrir_url", orden=q, log=self.log)
                     self._avisar(f"No encontré el reproductor de audio; abro «{titulo}» en el navegador, señor.")
             except Exception as e:
                 self.log(f"Musica fallo: {e}")
@@ -1930,9 +1937,83 @@ void loop() {
         fecha = fecha.replace(hour=hh if hh is not None else 9, minute=mm if mm is not None else 0, second=0, microsecond=0)
         return fecha, texto
 
+    # ── ENLACE CON ULTRON (PEER LINK) ─────────────────────────────────────────
+    def _enlace_ultron(self, t: str):
+        if re.search(r"(?:estado\s+de\s+ultron|como\s+esta\s+ultron|nodo\s+ultron|enlace\s+con\s+ultron|informe\s+de\s+ultron)", t):
+            try:
+                from herramientas.pc_tactical import get_peer_status
+                st = get_peer_status("ultron")
+                if st.get("online"):
+                    tele = st.get("telemetry", {})
+                    cpu = tele.get("cpu_percent", 0)
+                    ram = tele.get("ram_percent", 0)
+                    return f"El nodo táctico Ultron se encuentra en línea, señor. Carga de CPU al {cpu}% y uso de RAM al {ram}%."
+                else:
+                    return f"Señor, el nodo táctico Ultron no responde en el puerto 8766. Causa: {st.get('error', 'desconectado')}."
+            except Exception as e:
+                return f"No he podido consultar el enlace con Ultron, señor: {str(e)[:60]}"
+
+        m = re.search(r"(?:dile|ordena|pasa|envia|delega)\s+a\s+ultron\s+(?:que\s+)?(?P<cmd>.+)$", t)
+        if m:
+            cmd = m.group("cmd").strip()
+            try:
+                from herramientas.pc_tactical import delegate_to_peer
+                res = delegate_to_peer("ultron", cmd)
+                if res.get("success"):
+                    return f"Instrucción enviada a Ultron, señor. Respuesta: «{res.get('reply', 'Comando recibido')}»."
+                else:
+                    return f"Ultron no pudo procesar la solicitud, señor: {res.get('error', 'Sin respuesta')}."
+            except Exception as e:
+                return f"Error al comunicarse con Ultron, señor: {str(e)[:60]}"
+        return None
+
+    # ── OPTIMIZACIÓN TÁCTICA DE SISTEMA ──────────────────────────────────────
+    def _optimizacion_tactica(self, t: str):
+        if re.search(r"(?:libera|limpia|purga|optimiza)\s+(?:la\s+)?(?:memoria|ram)", t):
+            if self.safe:
+                return "Memoria optimizada, señor (modo seguro)."
+            try:
+                from herramientas.pc_tactical import clean_ram
+                res = clean_ram()
+                purged = res.get("purged_mb", 0.0)
+                procs = res.get("processes_cleared", 0)
+                return f"Señor, he purgado el conjunto de trabajo de {procs} procesos. Se han liberado aproximadamente {purged:.1f} MB de memoria RAM."
+            except Exception as e:
+                return f"No pude completar la purga de memoria, señor: {str(e)[:60]}"
+
+        if re.search(r"(?:radar\s+de\s+red|quien\s+esta\s+conectado|conexiones\s+activas|escanear?\s+red|centinela\s+de\s+red)", t):
+            try:
+                from herramientas.pc_tactical import scan_network_connections
+                res = scan_network_connections()
+                conns = res.get("connections", [])
+                suspicious = [c for c in conns if c.get("is_suspicious")]
+                resumen = f"Radar de red completado, señor. {len(conns)} sockets activos detectados."
+                if suspicious:
+                    resumen += f" Advertencia: detecté {len(suspicious)} conexiones en puertos o estados no habituales."
+                else:
+                    resumen += " Todas las conexiones activas parecen regulares."
+                return resumen
+            except Exception as e:
+                return f"No pude completar el análisis de red, señor: {str(e)[:60]}"
+
+        if re.search(r"(?:bloquea|bloquear)\s+(?:la\s+)?(?:estacion|pc|equipo|pantalla)", t):
+            if self.safe:
+                return "Estación bloqueada, señor (modo seguro)."
+            try:
+                from herramientas.pc_tactical import lock_station
+                res = lock_station()
+                if res.get("success"):
+                    return "Bloqueando la estación de trabajo inmediatamente, señor."
+            except Exception:
+                pass
+            return None
+
+        return None
+
     def _agenda(self, t: str):
-        if re.search(r"(?:crea|crear|anota|apunta|agenda|agendar|programa)\s+(?:un\s+|el\s+)?(?:evento|cita|compromiso)", t):
-            m = re.search(r"(?:crea|crear|anota|apunta|agenda|agendar|programa)\s+(?:un\s+|el\s+)?(?:evento|cita|compromiso)\s+(?:para\s+|de\s+)?(?P<desc>.+?)\s*$", t)
+        # 1. Crear evento / cita
+        if re.search(r"(?:crea|crear|anota|apunta|agenda|agendar|programa)\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:evento|cita|compromiso|reunion)", t):
+            m = re.search(r"(?:crea|crear|anota|apunta|agenda|agendar|programa)\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:evento|cita|compromiso|reunion)\s+(?:para\s+|de\s+)?(?P<desc>.+?)\s*$", t)
             if not m:
                 return None
             resto = m.group("desc").strip()
@@ -1942,39 +2023,131 @@ void loop() {
             titulo = resto.strip().strip(",.-")
             if not titulo:
                 return None
-            eventos = self._agenda_leer()
-            eventos.append({"cuando": fecha.strftime("%Y-%m-%d %H:%M"), "titulo": titulo})
-            self._agenda_guardar(eventos)
-            return (f"Anotado, señor: «{titulo}» el {fecha.strftime('%d/%m')} a las "
-                    f"{fecha.strftime('%H:%M')}. Lleva {len(eventos)} eventos.")
-        if re.search(r"(?:que\s+tengo|que\s+hay|agenda|eventos|compromisos|citas\s+programadas)", t):
+            try:
+                from calendar_engine import get_calendar_engine
+                engine = get_calendar_engine()
+                res = engine.crear_evento(summary=titulo, start_time=fecha)
+                storage_label = "sincronizado con Google Calendar" if res.get("storage") == "google" else "guardado en base local"
+                # Mirror to local json
+                eventos = self._agenda_leer()
+                eventos.append({"cuando": fecha.strftime("%Y-%m-%d %H:%M"), "titulo": titulo})
+                self._agenda_guardar(eventos)
+                return f"Anotado, señor: «{titulo}» el {fecha.strftime('%d/%m')} a las {fecha.strftime('%H:%M')} ({storage_label})."
+            except Exception as e:
+                # Fallback to local json
+                eventos = self._agenda_leer()
+                eventos.append({"cuando": fecha.strftime("%Y-%m-%d %H:%M"), "titulo": titulo})
+                self._agenda_guardar(eventos)
+                return (f"Anotado en su agenda local, señor: «{titulo}» el {fecha.strftime('%d/%m')} a las "
+                        f"{fecha.strftime('%H:%M')}.")
+
+        # 2. Consultar eventos / agenda
+        if re.search(r"(?:que\s+tengo|que\s+hay|agenda|eventos|compromisos|citas\s+programadas|calendario)", t):
             fecha, _ = self._fecha_agenda(t)
-            eventos = sorted(self._agenda_leer(), key=lambda e: e["cuando"])
-            hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            if fecha:
-                inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
-                fin = inicio + timedelta(days=1)
-                del_dia = [e for e in eventos if inicio <= datetime.strptime(e["cuando"], "%Y-%m-%d %H:%M") < fin]
-                if not del_dia:
-                    return f"Señor, no tiene eventos {fecha.strftime('el %d/%m')}."
-                lista = ", ".join(f"«{e['titulo']}» a las {e['cuando'][11:16]}" for e in del_dia)
-                return f"Señor, {fecha.strftime('el %d/%m')} tiene: {lista}."
-            proximos = [e for e in eventos if datetime.strptime(e["cuando"], "%Y-%m-%d %H:%M") >= hoy][:5]
-            if not proximos:
-                return "Señor, no tiene eventos próximos en la agenda."
-            lista = ", ".join(f"«{e['titulo']}» el {e['cuando'][8:10]}/{e['cuando'][5:7]} a las {e['cuando'][11:16]}" for e in proximos)
-            return f"Sus próximos eventos, señor: {lista}."
-        if re.search(r"(?:borra|borrar|elimina|eliminar)\s+(?:el\s+)?evento", t):
-            m = re.search(r"(?:borra|borrar|elimina|eliminar)\s+(?:el\s+)?evento\s+(?:de\s+)?(?P<ev>.+?)\s*$", t)
+            try:
+                from calendar_engine import get_calendar_engine
+                engine = get_calendar_engine()
+                if fecha:
+                    evs = engine.listar_eventos(time_min=fecha.replace(hour=0, minute=0, second=0).isoformat())
+                    inicio_dia = fecha.strftime("%Y-%m-%d")
+                    del_dia = [e for e in evs if e.get("start", "").startswith(inicio_dia)]
+                    if not del_dia:
+                        return f"Señor, no tiene eventos programados para el {fecha.strftime('%d/%m')}."
+                    lista = ", ".join(f"«{e['summary']}» a las {e.get('start', '')[11:16]}" for e in del_dia)
+                    return f"Señor, el {fecha.strftime('%d/%m')} tiene: {lista}."
+                else:
+                    hoy_evs = engine.eventos_hoy()
+                    if hoy_evs:
+                        lista = ", ".join(f"«{e['summary']}» a las {e.get('start', '')[11:16]}" for e in hoy_evs)
+                        return f"Sus eventos para el día de hoy, señor: {lista}."
+                    proximos = engine.listar_eventos(max_results=5)
+                    if not proximos:
+                        return "Señor, no tiene eventos próximos en la agenda."
+                    lista = ", ".join(f"«{e['summary']}» el {e.get('start', '')[8:10]}/{e.get('start', '')[5:7]} a las {e.get('start', '')[11:16]}" for e in proximos)
+                    return f"Sus próximos eventos programados, señor: {lista}."
+            except Exception:
+                # Fallback to json
+                eventos = sorted(self._agenda_leer(), key=lambda e: e["cuando"])
+                hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                if fecha:
+                    inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
+                    fin = inicio + timedelta(days=1)
+                    del_dia = [e for e in eventos if inicio <= datetime.strptime(e["cuando"], "%Y-%m-%d %H:%M") < fin]
+                    if not del_dia:
+                        return f"Señor, no tiene eventos {fecha.strftime('el %d/%m')}."
+                    lista = ", ".join(f"«{e['titulo']}» a las {e['cuando'][11:16]}" for e in del_dia)
+                    return f"Señor, {fecha.strftime('el %d/%m')} tiene: {lista}."
+                proximos = [e for e in eventos if datetime.strptime(e["cuando"], "%Y-%m-%d %H:%M") >= hoy][:5]
+                if not proximos:
+                    return "Señor, no tiene eventos próximos en la agenda."
+                lista = ", ".join(f"«{e['titulo']}» el {e['cuando'][8:10]}/{e['cuando'][5:7]} a las {e['cuando'][11:16]}" for e in proximos)
+                return f"Sus próximos eventos, señor: {lista}."
+
+        # 3. Eliminar / cancelar evento
+        if re.search(r"(?:borra|borrar|elimina|eliminar|cancela|cancelar)\s+(?:el\s+)?(?:evento|cita|compromiso)", t):
+            m = re.search(r"(?:borra|borrar|elimina|eliminar|cancela|cancelar)\s+(?:el\s+)?(?:evento|cita|compromiso)\s+(?:de\s+)?(?P<ev>.+?)\s*$", t)
             if not m:
                 return None
             nombre = m.group("ev").strip().strip(".")
+            eliminado = False
+            try:
+                from calendar_engine import get_calendar_engine
+                engine = get_calendar_engine()
+                res = engine.eliminar_evento(nombre)
+                if res.get("success"):
+                    eliminado = True
+            except Exception:
+                pass
+            # Also clean local mirror
             eventos = self._agenda_leer()
             restantes = [e for e in eventos if self._norm(e["titulo"]) != self._norm(nombre)]
-            if len(restantes) == len(eventos):
-                return f"Señor, no encontré el evento «{nombre}»."
-            self._agenda_guardar(restantes)
-            return f"Evento «{nombre}» eliminado de su agenda, señor."
+            if len(restantes) < len(eventos):
+                self._agenda_guardar(restantes)
+                eliminado = True
+            if eliminado:
+                return f"Evento «{nombre}» eliminado de su agenda, señor."
+            return f"Señor, no encontré el evento «{nombre}» en la agenda."
+
+        # 4. Reprogramar evento
+        if re.search(r"(?:reprograma|reprogramar|pospon|posponer|mueve|mover|cambia)\s+(?:el\s+)?(?:evento|cita)", t):
+            m = re.search(r"(?:reprograma|reprogramar|pospon|posponer|mueve|mover|cambia)\s+(?:el\s+)?(?:evento|cita)\s+(?P<desc>.+)$", t)
+            if m:
+                desc = m.group("desc")
+                fecha, resto = self._fecha_agenda(desc)
+                nombre = re.sub(r"\b(?:para|al?|hacia)\b.*$", "", resto).strip(" ,.-") or resto.strip(" ,.-")
+                if fecha and nombre:
+                    try:
+                        from calendar_engine import get_calendar_engine
+                        engine = get_calendar_engine()
+                        res = engine.reprogramar_evento(nombre, fecha)
+                        if res.get("success"):
+                            return f"Cita «{nombre}» reprogramada con éxito para el {fecha.strftime('%d/%m a las %H:%M')}, señor."
+                    except Exception as e:
+                        return f"No se pudo reprogramar la cita: {str(e)[:60]}"
+
+        # 5. Disponibilidad
+        # «cuanta ram tengo libre» y «cuanto espacio tengo libre» hablan del
+        # equipo, no de la agenda: sin este filtro la agenda contestaba a
+        # preguntas de memoria y de disco.
+        if re.search(r"(?:disponibilidad|estoy\s+libre|tengo\s+libre|tengo\s+espacio|verificar\s+agenda)", t) \
+                and not re.search(r"\b(?:ram|memoria|disco|espacio en disco|bateria|"
+                                  r"bater[ií]a|gigas?|gb|cpu|almacenamiento)\b", t):
+            fecha, _ = self._fecha_agenda(t)
+            if not fecha:
+                fecha = datetime.now() + timedelta(hours=1)
+            try:
+                from calendar_engine import get_calendar_engine
+                engine = get_calendar_engine()
+                disp = engine.verificar_disponibilidad(fecha)
+                if disp.get("available"):
+                    return f"Señor, se encuentra disponible el {fecha.strftime('%d/%m a las %H:%M')} sin compromisos agendados."
+                else:
+                    confs = disp.get("conflicts", [])
+                    c_str = ", ".join(f"«{c.get('summary')}»" for c in confs)
+                    return f"Señor, detecto un conflicto en ese horario con: {c_str}."
+            except Exception as e:
+                return f"No pude verificar su disponibilidad, señor: {str(e)[:60]}"
+
         if re.search(r"(vacia|vaciar|borra|elimina)\s+(?:toda\s+la\s+)?agenda", t):
             self._agenda_guardar([])
             return "Agenda vaciada, señor."
@@ -2182,7 +2355,10 @@ void loop() {
             if self.safe:
                 return f"(modo seguro: no mataría «{pr}»)"
             exe = CLOSE_MAP.get(pr) or (pr if pr.lower().endswith(".exe") else pr + ".exe")
-            subprocess.Popen(f"taskkill /IM {exe} /F", shell=True, creationflags=0x08000000)
+            res = ejecutor.ejecutar(f"taskkill /IM {exe} /F", origen="matar_proceso",
+                                    orden=t, log=self.log)
+            if not res["ok"]:
+                return f"Señor, no pude terminar {pr}: {res['error'][:120]}"
             return f"Proceso {pr} terminado, señor."
         if re.search(r"procesos?\s+(?:pesados|que\s+pesan|top)|que\s+procesos\s+pesan|mayor\s+uso\s+de\s+memoria|mas\s+memoria", t):
             if self.safe:
@@ -2214,9 +2390,12 @@ void loop() {
         if re.search(r"vacia\s+la\s+papelera|vaciar\s+la\s+papelera|limpia\s+la\s+papelera|papelera\s+de\s+reciclaje", t):
             if self.safe:
                 return "Papelera vaciada, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen(["powershell", "-NoProfile", "-Command",
-                              "Clear-RecycleBin -Force -ErrorAction SilentlyContinue"],
-                             creationflags=0x08000000)
+            res = ejecutor.ejecutar(
+                ["powershell", "-NoProfile", "-Command",
+                 "Clear-RecycleBin -Force -ErrorAction SilentlyContinue"],
+                origen="papelera", orden=t, timeout=60, shell=False, log=self.log)
+            if not res["ok"]:
+                return f"Señor, no pude vaciar la papelera: {res['error'][:120]}"
             return "Papelera vaciada, señor."
         if re.search(r"limpia\s+los\s+temporales|borra\s+los\s+temporales|limpiar\s+temporales|archivos\s+temporales", t):
             if self.safe:
@@ -2441,8 +2620,12 @@ void loop() {
                      r"pon a dormir el pc|duerme el pc", t):
             if self.safe:
                 return "Suspendiendo el equipo, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0", shell=True,
-                             creationflags=0x08000000)
+            # lanzar (no ejecutar): SetSuspendState no devuelve el control
+            # hasta que el equipo despierta, y esperarlo colgaría la respuesta.
+            ok, error, _ = ejecutor.lanzar("rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
+                                           origen="suspender", orden=t, log=self.log)
+            if not ok:
+                return f"Señor, no pude suspender el equipo: {error[:120]}"
             return "Suspendiendo el equipo, señor. Para reactivarlo, pulse una tecla o el botón de encendido."
         if re.search(r"despierta el pc|despierta el equipo|reactiva el pc", t):
             if self.safe:
@@ -3032,12 +3215,13 @@ if ($global:dictado) { Write-Output $global:dictado.Trim() }
                 ffplay = os.path.join(ffdir, "ffplay.exe") if ffdir else shutil.which("ffplay")
                 if ffplay:
                     self._matar_reproductor()
-                    self._player = subprocess.Popen(
+                    _ok, _err, self._player = ejecutor.lanzar(
                         [ffplay, "-nodisp", "-loglevel", "quiet", "-autoexit", url],
-                        creationflags=0x08000000)
+                        origen="radio", orden=nombre, log=self.log)
                     self._avisar(f"Sintonizando {nombre}, señor.")
                 else:
-                    subprocess.Popen(["start", "", url], shell=True)
+                    ejecutor.lanzar(["start", "", url], shell=True, origen="radio",
+                                    orden=nombre, log=self.log)
                     self._avisar(f"Abro {nombre} en el navegador, señor.")
             except Exception as e:
                 self.log(f"Radio fallo: {e}")
@@ -4652,7 +4836,7 @@ $s.Dispose()
             except Exception:
                 pass
         self._timers = {}
-        subprocess.Popen("shutdown /a", shell=True, creationflags=0x08000000)
+        energia.cancelar(self.log)
         return "Todo detenido, señor: música, timers, vigilancia, alertas, lector, pomodoro y simulaciones."
 
     # ── HACER SONAR EL TELÉFONO ─────────────────────────────────────────────
@@ -5322,19 +5506,47 @@ $s.Dispose()
                 self._avisar(f"Portapapeles del móvil: {texto}")
                 return f"Copiado a su móvil, señor: «{texto[:80]}»"
             return None
-        m = re.search(r"(?:copia|copiame|pon)\s+(?:en\s+el\s+|al\s+|en\s+)?portapapeles\s+(?:el\s+|la\s+|este\s+|esta\s+)?"
-                      r"(?P<t>.+?)\s*$", t)
-        texto = (m.group("t") if m else "").strip().strip(".")
-        if not texto:
+        # Las dos formas de decirlo. Antes solo se entendia la primera, asi que
+        # «copia 1234 al portapapeles» —que es como lo dice cualquiera— no
+        # hacia nada en absoluto.
+        m = re.search(r"(?:copia|copiame|pon)\s+(?:en\s+el\s+|al\s+|en\s+)?portapapeles\s+"
+                      r"(?:el\s+|la\s+|este\s+|esta\s+)?(?P<t>.+?)\s*$", t)
+        if not m:
+            m = re.search(r"(?:copia|copiame|pon)\s+(?:el\s+|la\s+|este\s+|esta\s+)?(?P<t>.+?)\s+"
+                          r"(?:al|en\s+el|en)\s+portapapeles\s*$", t)
+        texto = (m.group("t") if m else "").strip().strip(".").strip("\"'«»")
+        if not texto or len(texto) > 4000:
             return None
+
         def _do():
+            # pyperclip primero: es sincrono, no abre procesos y respeta los
+            # saltos de linea. La via de PowerShell que habia antes montaba un
+            # here-string con «`n» dentro de -Command, que PowerShell no
+            # interpreta como salto de linea sino como texto literal, y el
+            # comando fallaba al parsearse.
             try:
-                script = f"Set-Clipboard -Value @'`n{texto}`n'@"
-                subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                               capture_output=True, timeout=15, creationflags=0x08000000)
+                import pyperclip
+                pyperclip.copy(texto)
                 self._avisar(f"Copiado al portapapeles del PC: {texto[:80]}")
+                return
+            except Exception as e:
+                self.log(f"pyperclip no disponible ({e}); pruebo con PowerShell.")
+            try:
+                # -EncodedCommand evita todos los problemas de comillas y
+                # saltos de linea: se manda el script en base64 UTF-16.
+                import base64
+                script = "Set-Clipboard -Value ([Console]::In.ReadToEnd())"
+                b64 = base64.b64encode(script.encode("utf-16-le")).decode()
+                p = subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", b64],
+                                   input=texto, text=True, capture_output=True,
+                                   timeout=15, creationflags=0x08000000)
+                if p.returncode == 0:
+                    self._avisar(f"Copiado al portapapeles del PC: {texto[:80]}")
+                else:
+                    self.log(f"Portapapeles fallo: {(p.stderr or '')[:200]}")
             except Exception as e:
                 self.log(f"Portapapeles fallo: {e}")
+
         threading.Thread(target=_do, daemon=True).start()
         return f"Copiando «{texto[:80]}» al portapapeles del PC, señor."
 
@@ -5374,8 +5586,11 @@ $s.Dispose()
     # ── APAGADO PROGRAMADO ─────────────────────────────────────────────────
     def _apagado_programado(self, t: str):
         if re.search(r"cancela el apagado|cancela el reinicio|no apagues el pc|no reinicies", t):
-            subprocess.Popen("shutdown /a", shell=True, creationflags=0x08000000)
-            return "Apagado cancelado, señor."
+            if self.safe:
+                return "Apagado cancelado, señor. (modo seguro: no ejecutado)"
+            if energia.cancelar(self.log):
+                return "Apagado cancelado, señor."
+            return "No había ningún apagado pendiente, señor."
         m = re.search(r"(?:apagate|apágate|apaga el pc|apaga el equipo|hiberna|hibernate|hibernáte)"
                       r"\s+(?:en\s+)?(?P<n>\d+)\s+minutos?", t)
         if m:
@@ -5384,8 +5599,9 @@ $s.Dispose()
                 return None
             if self.safe:
                 return f"(modo seguro: no programaría el apagado en {n} min)"
-            subprocess.Popen(f"shutdown /s /t {n * 60} /c \"Jarvis apagará el equipo por orden del señor\"",
-                             shell=True, creationflags=0x08000000)
+            ok, error = energia.apagar(n * 60, "Jarvis apagará el equipo por orden del señor", self.log)
+            if not ok:
+                return f"Señor, Windows rechazó el apagado: {error}"
             return f"Programado, señor: el equipo se apagará en {n} minutos."
         m = re.search(r"(?:apagate|apágate|apaga el pc|apaga el equipo|hiberna|hibernate|hibernate)"
                       r"\s+(?:a las|a la|para las)\s*(\d{1,2})[:.](\d{2})", t)
@@ -5400,8 +5616,9 @@ $s.Dispose()
             secs = int((target - now).total_seconds())
             if self.safe:
                 return f"(modo seguro: no programaría el apagado a las {hh:02d}:{mm:02d})"
-            subprocess.Popen(f"shutdown /s /t {secs} /c \"Jarvis apagará el equipo por orden del señor\"",
-                             shell=True, creationflags=0x08000000)
+            ok, error = energia.apagar(secs, "Jarvis apagará el equipo por orden del señor", self.log)
+            if not ok:
+                return f"Señor, Windows rechazó el apagado: {error}"
             return f"Programado, señor: apagaré el equipo a las {hh:02d}:{mm:02d}."
         m = re.search(r"(?:hiberna|hibernate|hibernate)\s+(?:en\s+)?(?P<n>\d+)\s+minutos?", t)
         if m:
@@ -5410,8 +5627,8 @@ $s.Dispose()
                 return None
             if self.safe:
                 return f"(modo seguro: no programaría la hibernación en {n} min)"
-            threading.Timer(n * 60, lambda: subprocess.Popen(
-                "shutdown /h", shell=True, creationflags=0x08000000)).start()
+            threading.Timer(n * 60, lambda: ejecutor.ejecutar(
+                "shutdown /h", origen="hibernar", orden=t, log=self.log)).start()
             return f"Programado, señor: el equipo hibernará en {n} minutos."
         return None
 
@@ -5438,9 +5655,13 @@ $s.Dispose()
                      r"actualiza el sistema", t):
             if self.safe:
                 return "(modo seguro: no lanzaría la actualización de Windows)"
-            subprocess.Popen("UsoClient StartScan", shell=True, creationflags=0x08000000)
-            threading.Timer(60.0, lambda: subprocess.Popen(
-                "UsoClient StartInstall", shell=True, creationflags=0x08000000)).start()
+            res = ejecutor.ejecutar("UsoClient StartScan", origen="windows_update",
+                                    orden=t, timeout=30, log=self.log)
+            if not res["ok"]:
+                return f"Señor, Windows Update rechazó la búsqueda: {res['error'][:120]}"
+            threading.Timer(60.0, lambda: ejecutor.ejecutar(
+                "UsoClient StartInstall", origen="windows_update",
+                orden="instalar actualizaciones", timeout=60, log=self.log)).start()
             return ("Lanzando la búsqueda de actualizaciones de Windows, señor. "
                     "Si hay pendientes, se instalarán y quizá pida reiniciar.")
         return None
@@ -6545,12 +6766,13 @@ $s.Dispose()
                 ffplay = os.path.join(ffdir, "ffplay.exe") if ffdir else shutil.which("ffplay")
                 if ffplay:
                     self._matar_reproductor()
-                    self._player = subprocess.Popen(
+                    _ok, _err, self._player = ejecutor.lanzar(
                         [ffplay, "-nodisp", "-loglevel", "quiet", "-autoexit", audio],
-                        creationflags=0x08000000)
+                        origen="podcast", orden=titulo, log=self.log)
                     self._avisar(f"Reproduciendo el podcast «{titulo}», señor.")
                 else:
-                    subprocess.Popen(["start", "", audio], shell=True)
+                    ejecutor.lanzar(["start", "", audio], shell=True, origen="podcast",
+                                    orden=titulo, log=self.log)
                     self._avisar(f"Abro el podcast «{titulo}» en el navegador, señor.")
             except Exception as e:
                 self.log(f"Podcast fallo: {e}")
@@ -6893,7 +7115,8 @@ $s.Dispose()
                 url += ".com"
             if not url.startswith("http"):
                 url = "https://" + url.replace(" ", "")
-            subprocess.Popen(["start", "", url], shell=True)
+            ejecutor.lanzar(["start", "", url], shell=True, origen="abrir_url",
+                            orden=t, log=self.log)
             return f"Abriendo {url}, señor."
         # Búsqueda específica en web: "busca X en youtube" / "busca en youtube X"
         SITIOS = r"youtube|google maps|maps|wikipedia|amazon|github|google imágenes|google imagenes|twitter|x\b"
@@ -6917,7 +7140,8 @@ $s.Dispose()
             if mc and sitio == "youtube":
                 q = f"{mc.group(1).strip()} canal {mc.group(2).strip()}"
             import urllib.parse
-            subprocess.Popen(["start", "", base + urllib.parse.quote(q)], shell=True)
+            ejecutor.lanzar(["start", "", base + urllib.parse.quote(q)], shell=True,
+                            origen="buscar_sitio", orden=f"{sitio}: {q}", log=self.log)
             return f"Buscando «{q}» en {sitio}, señor."
         # Control directo del navegador con teclado/ratón
         if not self._has_gui():
@@ -6999,7 +7223,10 @@ $s.Dispose()
                 int(status) if str(status).isdigit() else 0, "desconocido")
             return f"Señor, su teléfono tiene {pct}% de batería y está {estado}."
         if re.search(r"bloquea|apaga la pantalla|pantalla apagada", t):
-            subprocess.Popen(["adb", "shell", "input", "keyevent", "26"], creationflags=0x08000000)
+            res = ejecutor.ejecutar(["adb", "shell", "input", "keyevent", "26"],
+                                    origen="movil", orden=t, timeout=15, log=self.log)
+            if not res["ok"]:
+                return f"Señor, no alcanzo su teléfono: {res['error'][:120]}"
             return "Pantalla del teléfono bloqueada, señor."
         if re.search(r"captura.*telefono|foto.*pantalla.*telefono|screenshot.*telefono", t):
             def _shot():
@@ -7015,13 +7242,19 @@ $s.Dispose()
             threading.Thread(target=_shot, daemon=True).start()
             return "Tomando captura de su teléfono, señor."
         if re.search(r"despierta|desbloquea|prende la pantalla", t):
-            subprocess.Popen(["adb", "shell", "input", "keyevent", "224"], creationflags=0x08000000)
+            res = ejecutor.ejecutar(["adb", "shell", "input", "keyevent", "224"],
+                                    origen="movil", orden=t, timeout=15, log=self.log)
+            if not res["ok"]:
+                return f"Señor, no alcanzo su teléfono: {res['error'][:120]}"
             return "Despertando el teléfono, señor."
         if re.search(r"toca|abre.*(whatsapp|youtube|chrome|spotify) en el telefono", t):
             m = re.search(r"(whatsapp|youtube|chrome|spotify)", t)
             pkg = {"whatsapp": "com.whatsapp", "youtube": "com.google.android.youtube",
                    "chrome": "com.android.chrome", "spotify": "com.spotify.music"}[m.group(1)]
-            subprocess.Popen(["adb", "shell", "monkey", "-p", pkg, "1"], creationflags=0x08000000)
+            res = ejecutor.ejecutar(["adb", "shell", "monkey", "-p", pkg, "1"],
+                                    origen="movil", orden=t, timeout=20, log=self.log)
+            if not res["ok"]:
+                return f"Señor, no pude abrir {m.group(1)} en el teléfono: {res['error'][:120]}"
             return f"Abriendo {m.group(1)} en su teléfono, señor."
         return None
 
@@ -7084,35 +7317,93 @@ $s.Dispose()
         return f"Alarma a las {hh:02d}:{mm:02d}, señor. Le avisaré puntualmente."
 
     # ── BLOQUEAR / APAGAR / REINICIAR ────────────────────────────────────────
+    @staticmethod
+    def _retraso_segundos(t: str) -> int:
+        """Segundos de espera pedidos en la orden, o 0 si es para ahora mismo.
+
+        Entiende «en 10 minutos», «dentro de 2 horas», «en 30 segundos». Sin
+        esto, «bloquea el pc en 60 minutos» bloqueaba la sesion en el acto:
+        la orden se reconocia por la palabra «bloquea» y el resto de la frase
+        se ignoraba por completo.
+        """
+        m = re.search(r"(?:en|dentro de)\s+(\d{1,4})\s*"
+                      r"(segundos?|seg|minutos?|min|horas?|h)\b", t)
+        if not m:
+            return 0
+        cantidad, unidad = int(m.group(1)), m.group(2)
+        if unidad.startswith(("seg", "s")):
+            factor = 1
+        elif unidad.startswith(("min", "m")):
+            factor = 60
+        else:
+            factor = 3600
+        return min(cantidad * factor, 24 * 3600)   # tope de un dia
+
+    @staticmethod
+    def _en_palabras(segundos: int) -> str:
+        if segundos % 3600 == 0:
+            n = segundos // 3600
+            return f"{n} hora" + ("s" if n != 1 else "")
+        if segundos % 60 == 0:
+            n = segundos // 60
+            return f"{n} minuto" + ("s" if n != 1 else "")
+        return f"{segundos} segundos"
+
     def _bloquear(self, t: str):
         if re.search(r"bloquea|bloquear (la pantalla|el pc|el equipo|la sesion)", t):
+            espera = self._retraso_segundos(t)
             if self.safe:
                 return "Bloqueando el equipo, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("rundll32.exe user32.dll,LockWorkStation")
+            if espera:
+                def _luego():
+                    ejecutor.lanzar("rundll32.exe user32.dll,LockWorkStation",
+                                    origen="bloquear", orden=t, log=self.log)
+                temporizador = threading.Timer(espera, _luego)
+                temporizador.daemon = True
+                temporizador.start()
+                return (f"De acuerdo, señor. Bloquearé el equipo dentro de "
+                        f"{self._en_palabras(espera)}.")
+            ok, error, _ = ejecutor.lanzar("rundll32.exe user32.dll,LockWorkStation",
+                                           origen="bloquear", orden=t, log=self.log)
+            if not ok:
+                return f"Señor, no pude bloquear el equipo: {error[:120]}"
             return "Bloqueando el equipo, señor. Le espero a su regreso."
         return None
 
     def _cancela_apagado(self, t: str):
         if re.search(r"cancela|cancelar|deten.*apagado|no apagues|quita el apagado", t):
-            subprocess.Popen("shutdown /a", shell=True, creationflags=0x08000000)
-            return "Apagado cancelado, señor. El equipo se queda encendido."
+            if self.safe:
+                return "Apagado cancelado, señor. (modo seguro: no ejecutado)"
+            if energia.cancelar(self.log):
+                return "Apagado cancelado, señor. El equipo se queda encendido."
+            return ("No había ningún apagado pendiente, señor. El equipo sigue "
+                    "encendido de todos modos.")
         return None
 
     def _apagar(self, t: str):
         if re.search(r"apaga (el pc|el equipo|la computadora|el ordenador|el sistema)|apaga el", t):
+            # «apaga el pc en 2 horas» apagaba a los 30 segundos igualmente.
+            espera = self._retraso_segundos(t) or 30
             if self.safe:
-                return "Apagando el equipo en 30 segundos, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("shutdown /s /t 30 /c \"Jarvis apagando por orden del señor\"", shell=True, creationflags=0x08000000)
-            return ("Apagando el equipo en 30 segundos, señor. "
+                return (f"Apagando el equipo en {self._en_palabras(espera)}, señor. "
+                        "(modo seguro: no ejecutado)")
+            ok, error = energia.apagar(espera, "Jarvis apagando por orden del señor", self.log)
+            if not ok:
+                return f"Señor, Windows rechazó el apagado: {error}"
+            return (f"Apagando el equipo en {self._en_palabras(espera)}, señor. "
                     "Si cambia de idea, dígame «cancela el apagado».")
         return None
 
     def _reiniciar(self, t: str):
         if re.search(r"reinicia|reiniciar (el pc|el equipo|la computadora|el ordenador)", t):
+            espera = self._retraso_segundos(t) or 30
             if self.safe:
-                return "Reiniciando el equipo en 30 segundos, señor. (modo seguro: no ejecutado)"
-            subprocess.Popen("shutdown /r /t 30 /c \"Jarvis reiniciando por orden del señor\"", shell=True, creationflags=0x08000000)
-            return ("Reiniciando el equipo en 30 segundos, señor. "
+                return (f"Reiniciando el equipo en {self._en_palabras(espera)}, señor. "
+                        "(modo seguro: no ejecutado)")
+            ok, error = energia.reiniciar(espera, "Jarvis reiniciando por orden del señor", self.log)
+            if not ok:
+                return f"Señor, Windows rechazó el reinicio: {error}"
+            return (f"Reiniciando el equipo en {self._en_palabras(espera)}, señor. "
                     "Dígame «cancela el apagado» si desea detenerlo.")
         return None
 

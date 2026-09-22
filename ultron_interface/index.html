@@ -3,797 +3,1374 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ULTRON · Centro de Operaciones</title>
+<title>ULTRON · Centro de Operaciones Tácticas</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap');
 
   :root {
-    /* ── Paleta Ultron: casco de guerra carmesí ── */
-    --bg: #070103;
-    --bg-2: #0c0204;
-    --hull: #120406;
-    --hull-2: #1a0608;
-    --border: #3a0a0e;
-    --border-2: #5e0f14;
+    --bg: #050102;
+    --bg-dark: #030001;
+    --card: rgba(18, 4, 7, 0.75);
+    --card-hover: rgba(28, 6, 10, 0.9);
+    --border: #3d0a0f;
+    --border-bright: #6e1017;
+    --border-glow: rgba(255, 31, 45, 0.35);
     --red: #ff1f2d;
-    --red-bright: #ff525a;
-    --dred: #b30000;
+    --red-glow: #ff4754;
+    --red-dark: #8f000c;
     --molten: #ff7a1a;
-    --ember: #ffb347;
-    --steel: #6a4a52;
-    --text: #ffd9d9;
-    --muted: #9a555c;
-    --faint: #5a2e33;
-    /* ── Movimiento ── */
-    --ease: cubic-bezier(.2,.8,.2,1);
-    --t-fast: .15s; --t: .3s; --t-slow: .6s;
+    --amber: #ffb833;
+    --text: #ffebeb;
+    --text-dim: #9c6870;
+    --text-muted: #5c353b;
+    --green: #00ff88;
+    --cyan: #00f0ff;
+    --ease: cubic-bezier(.16, 1, .3, 1);
   }
 
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    width: 100%; height: 100%;
     background: var(--bg);
     color: var(--text);
-    font-family: 'Share Tech Mono', 'Consolas', 'Courier New', monospace;
+    font-family: 'Share Tech Mono', monospace;
     overflow: hidden;
   }
 
-  /* ── Atmósfera: respiración de singularidad ── */
+  /* ── Hexagonal Grid & Atmospheric Glow ── */
   body::before {
     content: '';
     position: fixed; inset: 0; pointer-events: none; z-index: 0;
     background:
-      radial-gradient(ellipse at 32% 18%, rgba(255,31,45,0.14), transparent 58%),
-      radial-gradient(ellipse at 82% 92%, rgba(255,122,26,0.10), transparent 60%),
-      radial-gradient(ellipse at 50% 50%, rgba(120,0,10,0.25), transparent 70%);
-    animation: breath 8s ease-in-out infinite;
+      radial-gradient(ellipse at 25% 15%, rgba(255, 31, 45, 0.12), transparent 50%),
+      radial-gradient(ellipse at 80% 85%, rgba(255, 122, 26, 0.08), transparent 55%),
+      radial-gradient(circle at 50% 50%, rgba(120, 0, 10, 0.18), transparent 70%);
+    animation: atmosPulse 7s ease-in-out infinite alternate;
   }
-  @keyframes breath { 0%,100% { opacity: .75; } 50% { opacity: 1; } }
-
-  /* ── Anillos concéntricos + viñeta ── */
-  body::after {
-    content: '';
-    position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background:
-      repeating-radial-gradient(circle at 50% -12%, rgba(255,31,45,0.045) 0 1px, transparent 1px 64px),
-      radial-gradient(ellipse at 50% 120%, rgba(255,31,45,0.10), transparent 55%),
-      radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,0.85) 100%);
-    opacity: .9;
+  @keyframes atmosPulse {
+    0% { opacity: 0.7; }
+    100% { opacity: 1.1; }
   }
 
+  /* Scanlines */
   .scanlines::after {
     content: '';
     position: fixed; inset: 0; pointer-events: none; z-index: 999;
     background: repeating-linear-gradient(
-      to bottom, rgba(255,31,45,0.035) 0, rgba(255,0,0,0.035) 1px,
-      transparent 1px, transparent 3px);
-    mix-blend-mode: screen;
+      to bottom,
+      rgba(255, 31, 45, 0.02) 0,
+      rgba(255, 0, 0, 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
   }
 
-  .app {
-    display: grid;
-    grid-template-columns: 320px 1fr 360px;
-    grid-template-rows: 58px 1fr 112px;
-    height: 100vh;
-    gap: 7px; padding: 7px;
+  /* ── Layout Principal ── */
+  .app-container {
     position: relative; z-index: 1;
+    display: flex; flex-direction: column;
+    height: 100vh;
+    padding: 8px; gap: 8px;
   }
 
-  /* ═══════ TOPBAR ═══════ */
+  /* ── Header / Topbar ── */
   .topbar {
-    grid-column: 1 / -1;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 20px;
-    background: linear-gradient(90deg, #1a0204 0%, #0a0001 55%, #1a0204 100%);
-    border: 1px solid var(--border-2);
+    height: 64px; flex-shrink: 0;
+    padding: 0 16px;
+    background: linear-gradient(90deg, #180205, #0a0102 50%, #180205);
+    border: 1px solid var(--border-bright);
     border-radius: 4px;
-    position: relative; overflow: hidden;
-    animation: rise .6s var(--ease) both;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05);
   }
-  .topbar::after {
-    content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
-    background: linear-gradient(90deg, transparent, var(--red), var(--molten), var(--red), transparent);
-    background-size: 50% 100%;
-    box-shadow: 0 0 12px var(--red);
-    animation: scan 4.5s linear infinite; opacity: .85;
+  .topbar .brand-box {
+    display: flex; align-items: center; gap: 14px;
   }
-  @keyframes scan { 0% { background-position: -50% 0; } 100% { background-position: 150% 0; } }
 
-  .topbar .lead { display: flex; align-items: center; gap: 14px; }
-
-  /* ── Ojo de sentencia ── */
-  .eye { position: relative; width: 32px; height: 32px; flex: none; display: flex;
-    align-items: center; justify-content: center; filter: drop-shadow(0 0 6px var(--red)); }
-  .eye .ring { position: absolute; inset: 0; border-radius: 50%;
-    border: 2px solid var(--red); border-top-color: transparent; border-left-color: transparent;
-    animation: spin 4s linear infinite; }
-  .eye .ring2 { position: absolute; inset: -4px; border-radius: 50%;
-    border: 1px solid rgba(255,31,45,0.35); border-bottom-color: transparent; border-right-color: transparent;
-    animation: spin 7s linear infinite reverse; }
-  .eye .core { width: 11px; height: 11px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, var(--ember), var(--red) 60%, #5a0008);
-    box-shadow: 0 0 12px var(--red), 0 0 22px rgba(255,31,45,0.6);
-    animation: eyePulse 2.6s ease-in-out infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes eyePulse { 0%,100% { transform: scale(.85); opacity: .85; } 50% { transform: scale(1.12); opacity: 1; } }
-
-  .brand {
-    font-family: 'Orbitron', 'Share Tech Mono', monospace; font-weight: 900;
-    font-size: 23px; letter-spacing: 7px;
-    color: var(--red-bright);
-    text-shadow: 0 0 8px var(--red), 0 0 18px rgba(255,31,45,0.6);
-    animation: flick 7s infinite;
+  /* Arc Reactor Central / Ojo de Ultron */
+  .ultron-eye {
+    position: relative; width: 42px; height: 42px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
   }
-  @keyframes flick { 0%,96%,100% { opacity: 1; } 97% { opacity: .35; } 98% { opacity: .85; } }
+  .ultron-eye .ring-outer {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px dashed var(--red);
+    animation: eyeRotate 12s linear infinite;
+  }
+  .ultron-eye .ring-inner {
+    position: absolute; inset: 5px; border-radius: 50%;
+    border: 1.5px solid var(--molten);
+    border-left-color: transparent; border-right-color: transparent;
+    animation: eyeRotate 6s linear infinite reverse;
+  }
+  .ultron-eye .core-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: radial-gradient(circle, #fff, var(--red) 50%, #600008);
+    box-shadow: 0 0 14px var(--red), 0 0 24px var(--red-glow);
+    animation: corePulse 2s ease-in-out infinite;
+  }
+  @keyframes eyeRotate { to { transform: rotate(360deg); } }
+  @keyframes corePulse {
+    0%, 100% { transform: scale(0.9); opacity: 0.85; filter: brightness(1); }
+    50% { transform: scale(1.2); opacity: 1; filter: brightness(1.4); }
+  }
 
-  .topbar .meta { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); }
+  .brand-title {
+    font-family: 'Orbitron', sans-serif; font-weight: 900;
+    font-size: 24px; letter-spacing: 6px;
+    color: var(--red-glow);
+    text-shadow: 0 0 10px var(--red), 0 0 20px rgba(255, 31, 45, 0.6);
+  }
+  .brand-tag {
+    font-size: 10px; color: var(--text-dim); letter-spacing: 2px;
+    text-transform: uppercase;
+  }
 
+  /* Nav Tabs */
+  .tab-nav {
+    display: flex; gap: 6px;
+  }
+  .tab-btn {
+    background: #0f0204; border: 1px solid var(--border);
+    color: var(--text-dim); padding: 8px 14px; border-radius: 3px;
+    font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+    letter-spacing: 1.5px; cursor: pointer;
+    transition: all 0.2s var(--ease);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tab-btn:hover {
+    color: var(--text); border-color: var(--red); background: #1a0307;
+    box-shadow: 0 0 12px rgba(255, 31, 45, 0.25);
+  }
+  .tab-btn.active {
+    color: #fff; background: linear-gradient(180deg, var(--red-dark), #4a0006);
+    border-color: var(--red);
+    box-shadow: 0 0 14px rgba(255, 31, 45, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  /* Top Right Status & Controls */
+  .top-meta {
+    display: flex; align-items: center; gap: 10px;
+  }
   .pill {
-    padding: 4px 12px; border-radius: 3px; border: 1px solid var(--border-2);
-    background: linear-gradient(180deg, #1a0305, #0e0203);
-    color: var(--bright); font-weight: 700; letter-spacing: 1px; font-size: 11px;
-    box-shadow: inset 0 0 8px rgba(255,31,45,0.08);
-    transition: all var(--t);
+    padding: 4px 10px; border-radius: 3px; border: 1px solid var(--border);
+    background: #0d0103; font-size: 11px; letter-spacing: 1px;
+    color: var(--text-dim); font-family: 'Share Tech Mono', monospace;
   }
-  .pill.live { color: #fff; animation: pulse 1.4s infinite; text-shadow: 0 0 8px var(--red); }
-  .pill.off  { color: var(--muted); border-color: var(--border); }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 4px var(--red), inset 0 0 8px rgba(255,31,45,0.1); }
-    50%      { box-shadow: 0 0 16px var(--red), inset 0 0 12px rgba(255,31,45,0.3); }
+  .pill.active {
+    color: #fff; border-color: var(--red);
+    box-shadow: 0 0 10px rgba(255,31,45,0.3);
+  }
+  .pill.green {
+    color: var(--green); border-color: rgba(0, 255, 136, 0.4);
+    box-shadow: 0 0 10px rgba(0,255,136,0.2);
   }
 
-  /* ═══════ PANELES (blindaje) ═══════ */
-  .panel {
+  .ctrl-btn {
+    background: #140205; border: 1px solid var(--border-bright);
+    color: var(--text); padding: 6px 12px; border-radius: 3px;
+    font-family: 'Orbitron', monospace; font-size: 10px; cursor: pointer;
+    letter-spacing: 1px; transition: all 0.2s;
+  }
+  .ctrl-btn:hover {
+    background: var(--red); color: #fff; box-shadow: 0 0 12px var(--red);
+  }
+
+  /* ── Tab Panels Container ── */
+  .content-area {
+    flex: 1; min-height: 0;
+    display: grid;
     position: relative;
-    background: linear-gradient(160deg, var(--hull), var(--bg-2));
+  }
+  .tab-panel {
+    display: none; height: 100%; width: 100%;
+    animation: fadeIn 0.25s var(--ease);
+  }
+  .tab-panel.active {
+    display: grid;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ═════════════════════════════════════════════════
+     TAB 1: CENTRO DE MANDO (Chat + Telemetría + Grid)
+     ═════════════════════════════════════════════════ */
+  #tab-mando.active {
+    grid-template-columns: 310px 1fr 340px;
+    gap: 8px;
+  }
+
+  .panel-box {
+    background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 5px;
+    border-radius: 4px;
     padding: 14px;
     overflow: auto;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,80,90,0.04);
-    animation: rise .6s var(--ease) both;
+    position: relative;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   }
-  .panel::before, .panel::after {
-    content: ''; position: absolute; width: 16px; height: 16px; pointer-events: none; z-index: 2;
+  .panel-box::before {
+    content: ''; position: absolute; top: 0; left: 0; width: 14px; height: 14px;
+    border-top: 2px solid var(--red); border-left: 2px solid var(--red);
   }
-  .panel::before { top: 0; left: 0; border-top: 2px solid var(--red); border-left: 2px solid var(--red); }
-  .panel::after  { bottom: 0; right: 0; border-bottom: 2px solid var(--border-2); border-right: 2px solid var(--border-2); }
-  .left   { grid-row: 2 / 3; animation-delay: .10s; }
-  .chat   { grid-row: 2 / 3; display: flex; flex-direction: column; animation-delay: .16s; }
-  .right  { grid-row: 2 / 3; animation-delay: .22s; }
-  .bottom { grid-column: 1 / -1; grid-row: 3 / 4; animation-delay: .28s; }
+  .panel-box::after {
+    content: ''; position: absolute; bottom: 0; right: 0; width: 14px; height: 14px;
+    border-bottom: 2px solid var(--border-bright); border-right: 2px solid var(--border-bright);
+  }
 
-  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  .box-title {
+    font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700;
+    letter-spacing: 2px; color: var(--red-glow); text-transform: uppercase;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
 
-  .panel h3 {
-    position: relative; margin: 0 0 10px 0; padding: 0 0 8px;
-    font-family: 'Orbitron', 'Share Tech Mono', monospace;
-    font-size: 12px; letter-spacing: 3px;
-    color: var(--red-bright); text-transform: uppercase;
-    border-bottom: 1px solid var(--border-2);
+  /* Gauge & Stats */
+  .stat-row {
+    margin: 10px 0;
+  }
+  .stat-label {
+    display: flex; justify-content: space-between; font-size: 11px;
+    color: var(--text-dim); margin-bottom: 4px;
+  }
+  .stat-label .val {
+    color: #fff; font-weight: bold;
+  }
+  .gauge-track {
+    height: 8px; background: #0c0204; border: 1px solid var(--border);
+    border-radius: 2px; overflow: hidden; position: relative;
+  }
+  .gauge-bar {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--red-dark), var(--red), var(--molten));
+    box-shadow: 0 0 10px var(--red);
+    transition: width 0.4s var(--ease);
+  }
+
+  /* Chat Box */
+  .chat-container {
+    display: flex; flex-direction: column;
+    background: rgba(14, 2, 5, 0.85);
+  }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .msg-bubble {
+    padding: 10px 14px; border-radius: 3px; font-size: 13px; line-height: 1.5;
+    position: relative; max-width: 90%; word-break: break-word;
+    animation: msgIn 0.2s var(--ease);
+  }
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .msg-bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, rgba(80, 10, 18, 0.6), rgba(40, 5, 10, 0.7));
+    border: 1px solid var(--border-bright); color: #fff;
+  }
+  .msg-bubble.ultron {
+    align-self: flex-start;
+    background: linear-gradient(135deg, rgba(50, 4, 8, 0.85), rgba(20, 2, 4, 0.95));
+    border: 1px solid var(--red-dark); color: #ffd6d9;
+    border-left: 3px solid var(--red);
+    box-shadow: inset 0 0 16px rgba(255, 31, 45, 0.08);
+  }
+  .msg-bubble .sender-tag {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--red-glow); margin-bottom: 4px; font-weight: bold;
+  }
+
+  /* Visualizer Canvas */
+  .viz-canvas {
+    width: 100%; height: 38px; background: #080002;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Chat Input Area */
+  .chat-input-bar {
+    display: flex; gap: 6px; padding: 10px;
+    background: #0d0103; border-top: 1px solid var(--border-bright);
+  }
+  .input-text {
+    flex: 1; background: #140205; border: 1px solid var(--border);
+    color: #fff; padding: 10px 14px; border-radius: 3px;
+    font-family: inherit; font-size: 13px; outline: none;
+    transition: all 0.2s;
+  }
+  .input-text:focus {
+    border-color: var(--red); box-shadow: 0 0 12px rgba(255, 31, 45, 0.4);
+  }
+  .btn-action {
+    background: linear-gradient(180deg, var(--red-dark), #500008);
+    border: 1px solid var(--red); color: #fff;
+    padding: 0 18px; border-radius: 3px; font-family: 'Orbitron', monospace;
+    font-weight: 700; font-size: 11px; letter-spacing: 1.5px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-action:hover {
+    background: var(--red); box-shadow: 0 0 14px var(--red);
+  }
+  .btn-mic {
+    background: #180205; border: 1px solid var(--border-bright);
+    color: var(--red-glow); padding: 0 14px; border-radius: 3px;
+    cursor: pointer; font-family: inherit; font-size: 12px;
+  }
+  .btn-mic.listening {
+    background: var(--red); color: #fff; animation: micPulse 0.8s infinite alternate;
+  }
+  @keyframes micPulse {
+    from { box-shadow: 0 0 4px var(--red); }
+    to { box-shadow: 0 0 18px var(--red); }
+  }
+
+  /* Quick Actions Matrix */
+  .action-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+    margin-bottom: 12px;
+  }
+  .quick-card {
+    background: #120204; border: 1px solid var(--border);
+    padding: 10px; border-radius: 3px; cursor: pointer;
+    font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 600;
+    color: #ffe6e8; letter-spacing: 1px; text-transform: uppercase;
+    transition: all 0.2s var(--ease);
     display: flex; align-items: center; gap: 8px;
   }
-  .panel h3::before {
-    content: ''; width: 8px; height: 8px; flex: none;
-    background: var(--red); box-shadow: 0 0 8px var(--red);
-    transform: rotate(45deg);
+  .quick-card:hover {
+    background: #250308; border-color: var(--red);
+    transform: translateY(-2px); box-shadow: 0 4px 14px rgba(255, 31, 45, 0.3);
   }
 
-  /* ═══════ CHAT ═══════ */
-  .chat .messages {
-    flex: 1; overflow: auto; padding: 8px 6px;
-    scrollbar-width: thin; scrollbar-color: var(--border-2) transparent;
+  /* ═════════════════════════════════════════════════
+     TAB 2: CRONOGRAMA TÁCTICO (Calendar Completo)
+     ═════════════════════════════════════════════════ */
+  #tab-cronograma.active {
+    grid-template-columns: 340px 1fr;
+    gap: 8px;
+  }
+  .cal-controls {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .form-group {
     display: flex; flex-direction: column; gap: 4px;
   }
-  .msg {
-    margin: 4px 0; padding: 10px 13px;
-    border-left: 3px solid var(--border-2);
-    border-radius: 3px;
-    background: rgba(20,0,0,0.5);
-    line-height: 1.45; white-space: pre-wrap;
-    animation: msgIn .3s var(--ease) both;
-    position: relative;
+  .form-group label {
+    font-size: 11px; color: var(--text-dim); letter-spacing: 1px;
   }
-  @keyframes msgIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-  .msg.user {
-    border-left-color: var(--dred);
-    background: rgba(40,0,0,0.55);
-    color: #ffe6e6;
+  .form-input {
+    background: #140205; border: 1px solid var(--border);
+    color: #fff; padding: 8px 10px; border-radius: 3px;
+    font-family: inherit; font-size: 12px; outline: none;
   }
-  .msg.ultron {
-    border-left-color: var(--red);
-    background: linear-gradient(90deg, rgba(70,0,4,0.55), rgba(40,0,2,0.4));
-    color: var(--red-bright);
-    text-shadow: 0 0 5px rgba(255,31,45,0.45);
-    box-shadow: inset 0 0 18px rgba(255,31,45,0.06);
-  }
-  .msg.ultron::before {
-    content: ''; position: absolute; left: -7px; top: 12px;
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--red-bright); box-shadow: 0 0 10px var(--red);
-    animation: eyePulse 2.2s ease-in-out infinite;
-  }
-  .msg .role {
-    font-size: 10px; letter-spacing: 3px; color: var(--muted);
-    text-transform: uppercase; margin-bottom: 4px;
-  }
-  #typing { animation: typingPulse 1s ease-in-out infinite; opacity: .85; }
-  @keyframes typingPulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
-
-  /* ═══════ BARRAS DE ESTADO ═══════ */
-  .stat { margin: 12px 0; font-size: 12px; }
-  .stat .label { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); letter-spacing: 1px; }
-  .stat .label .v { color: var(--red-bright); font-weight: bold; text-shadow: 0 0 6px rgba(255,31,45,0.4); }
-  .bar {
-    position: relative; height: 9px; background: #150203;
-    border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
-    box-shadow: inset 0 0 6px rgba(0,0,0,0.7);
-  }
-  .bar > div {
-    position: relative; height: 100%; width: 0%;
-    background: linear-gradient(90deg, var(--dred), var(--red), var(--molten));
-    box-shadow: 0 0 10px var(--red);
-    transition: width .6s var(--ease);
-  }
-  .bar > div::after {
-    content: ''; position: absolute; inset: 0;
-    background: repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0 2px, transparent 2px 7px);
-    opacity: .4;
-  }
-
-  /* ═══════ ACCIONES RÁPIDAS ═══════ */
-  .actions {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
-    margin-top: 6px;
-  }
-  .actions button {
-    position: relative; overflow: hidden;
-    background: linear-gradient(180deg, #1a0305, #0e0203);
-    border: 1px solid var(--border-2);
-    color: var(--red-bright); padding: 9px 4px; border-radius: 3px;
-    font-family: inherit; font-size: 11px; cursor: pointer;
-    transition: all .18s var(--ease); letter-spacing: 1px;
-  }
-  .actions button::before {
-    content: ''; position: absolute; top: 0; left: -60%; width: 50%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,82,90,0.35), transparent);
-    transform: skewX(-20deg); transition: left .4s;
-  }
-  .actions button:hover {
-    background: linear-gradient(180deg, var(--dred), #7a0008); color: #fff;
-    box-shadow: 0 0 14px var(--red), inset 0 0 12px rgba(255,31,45,0.4);
+  .form-input:focus {
     border-color: var(--red);
   }
-  .actions button:hover::before { left: 120%; }
-  .actions button:active { transform: scale(0.97); }
 
-  /* ═══════ ENTRADA INFERIOR ═══════ */
-  .bottom {
-    display: flex; gap: 8px; align-items: center;
-    padding: 13px 20px;
-    background: linear-gradient(180deg, var(--hull-2), var(--bg-2));
-    border: 1px solid var(--border-2);
-    position: relative; overflow: hidden;
+  .timeline-list {
+    display: flex; flex-direction: column; gap: 8px;
+    overflow-y: auto; padding-right: 4px;
   }
-  .bottom::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-    background: linear-gradient(180deg, var(--red), var(--molten));
-    box-shadow: 0 0 12px var(--red);
+  .mission-card {
+    background: rgba(22, 3, 7, 0.85);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--red);
+    padding: 12px; border-radius: 3px;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: all 0.2s;
   }
-  .bottom input {
-    flex: 1; background: #0a0001; border: 1px solid var(--border-2);
-    color: var(--red-bright); padding: 13px 15px; border-radius: 3px;
-    font-family: inherit; font-size: 14px; outline: none;
-    transition: box-shadow var(--t), border-color var(--t);
+  .mission-card:hover {
+    border-color: var(--red-glow); background: rgba(36, 4, 11, 0.95);
+    box-shadow: 0 4px 16px rgba(255, 31, 45, 0.25);
   }
-  .bottom input::placeholder { color: var(--faint); }
-  .bottom input:focus { box-shadow: 0 0 12px var(--red); border-color: var(--red); }
-  .bottom button {
-    background: linear-gradient(180deg, var(--dred), #7a0008); color: #fff; border: none;
-    padding: 13px 26px; border-radius: 3px; cursor: pointer;
-    font-family: 'Orbitron', monospace; font-weight: 700; letter-spacing: 2px; font-size: 12px;
-    transition: all var(--t);
-    box-shadow: 0 0 10px rgba(255,31,45,0.4);
+  .mission-info .time-tag {
+    font-size: 11px; color: var(--amber); font-weight: bold; margin-bottom: 2px;
   }
-  .bottom button:hover { background: linear-gradient(180deg, var(--red), var(--dred)); box-shadow: 0 0 18px var(--red); }
-  .bottom .voice {
-    background: linear-gradient(180deg, #1a0305, #0e0203); color: var(--red-bright);
-    border: 1px solid var(--border-2); padding: 13px 18px; border-radius: 3px; cursor: pointer;
-    font-family: inherit; letter-spacing: 1px; transition: all var(--t);
+  .mission-info .mission-title {
+    font-size: 14px; font-weight: bold; color: #fff;
+    font-family: 'Rajdhani', sans-serif;
   }
-  .bottom .voice:hover { border-color: var(--red); box-shadow: 0 0 12px rgba(255,31,45,0.4); }
-  .bottom .voice.recording { background: var(--red-bright); color: #000; animation: pulse 0.6s infinite; }
-
-  /* ═══════ LISTAS RÁPIDAS ═══════ */
-  ul.quick { list-style: none; padding: 0; margin: 0; font-size: 12px; }
-  ul.quick li {
-    padding: 7px 6px; border-bottom: 1px solid var(--border);
-    cursor: pointer; color: var(--text); transition: all var(--t-fast);
-    position: relative;
+  .mission-info .mission-desc {
+    font-size: 11px; color: var(--text-dim); margin-top: 2px;
   }
-  ul.quick li::before { content: '›'; color: var(--red); margin-right: 6px; }
-  ul.quick li:hover { background: var(--hull-2); color: var(--red-bright); padding-left: 12px; }
-
-  /* ═══════ TICKER TELEMÉTRICO ═══════ */
-  .ticker {
-    font-size: 11px; color: var(--muted);
-    margin-top: 8px; padding: 6px 9px;
-    border-top: 1px dashed var(--border);
-    border-left: 2px solid var(--border-2);
-    background: rgba(20,0,0,0.3);
-    font-family: 'Share Tech Mono', monospace;
-    line-height: 1.5;
+  .mission-actions {
+    display: flex; gap: 6px;
   }
-  .ticker a { color: var(--red-bright); text-decoration: none; }
-  .ticker a:hover { text-shadow: 0 0 8px var(--red); }
-
-  /* ═══════ SCROLLBARS ═══════ */
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-track { background: #0a0001; }
-  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--dred); }
-
-  .blink { animation: blink 1s step-end infinite; }
-  @keyframes blink { 50% { opacity: 0.3; } }
-
-  /* ═══════ BOTONES MODO / PURGA ═══════ */
-  .mode-btn {
-    background: transparent; border: 1px solid var(--border-2);
-    color: var(--red-bright); padding: 6px 14px; border-radius: 3px;
-    font-family: 'Orbitron', monospace; font-size: 11px; cursor: pointer;
-    letter-spacing: 2px; transition: all var(--t);
+  .btn-del {
+    background: #200004; border: 1px solid var(--red-dark);
+    color: var(--red-glow); padding: 6px 10px; border-radius: 3px;
+    cursor: pointer; font-size: 10px; font-family: inherit;
+    transition: all 0.2s;
   }
-  .mode-btn:hover { background: var(--dred); color: #fff; box-shadow: 0 0 12px var(--red); }
-  .mode-btn.off { color: var(--muted); border-color: var(--border); opacity: .55; box-shadow: none; }
-
-  /* ═══════ ESTADO EN LÍNEA (reactivo) ═══════ */
-  body.online .eye .core { box-shadow: 0 0 16px var(--red), 0 0 30px rgba(255,31,45,0.85);
-    background: radial-gradient(circle at 40% 35%, #fff, var(--red) 55%, #5a0008); }
-  body.online .brand { text-shadow: 0 0 10px var(--red), 0 0 26px rgba(255,31,45,0.75); }
-  body.online::before { background:
-      radial-gradient(ellipse at 32% 18%, rgba(255,31,45,0.20), transparent 58%),
-      radial-gradient(ellipse at 82% 92%, rgba(255,122,26,0.14), transparent 60%),
-      radial-gradient(ellipse at 50% 50%, rgba(150,0,14,0.30), transparent 70%); }
-
-  /* ═══════ ESFERA DE PODER ÁMBAR (núcleo central reactivo a la voz) ═══════ */
-  :root { --vl: 0; }
-  #coreOrb {
-    position: fixed; left: 50%; top: 50%;
-    width: 96px; height: 96px;
-    transform: translate(-50%, -50%) scale(calc(1 + var(--vl) * 0.28));
-    transition: transform .06s linear;
-    pointer-events: none; z-index: 1000;
-  }
-  #coreOrb .shell {
-    position: absolute; inset: 0; border-radius: 50%;
-    border: 2px solid rgba(255, 159, 10, .55);
-    box-shadow: 0 0 calc(10px + var(--vl) * 38px) rgba(255, 159, 10, calc(.35 + var(--vl) * .65)),
-                inset 0 0 16px rgba(255, 159, 10, .45);
-    animation: orbSpin 14s linear infinite;
-  }
-  #coreOrb .shell::before {
-    content: ''; position: absolute; inset: 4px; border-radius: 50%;
-    border: 1px dashed rgba(255, 190, 80, .65);
-  }
-  #coreOrb .heart {
-    position: absolute; inset: 14px; border-radius: 50%;
-    background: radial-gradient(circle at 38% 32%, #fff8e1, #ffc247 30%, #ff9500 58%, #7a3c00 100%);
-    box-shadow: 0 0 calc(18px + var(--vl) * 72px) rgba(255, 149, 0, calc(.70 + var(--vl) * .30)),
-                inset 0 0 calc(10px + var(--vl) * 22px) rgba(255, 220, 130, .95);
-    animation: orbBreath 3.2s ease-in-out infinite;
-  }
-  @keyframes orbSpin { to { transform: rotate(360deg); } }
-  @keyframes orbBreath { 0%,100% { filter: brightness(.92); } 50% { filter: brightness(1.14); } }
-  /* Resplandor ambiental ámbar que sigue el nivel de voz */
-  body::after {
-    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background: radial-gradient(circle at 50% 50%, rgba(255, 149, 0, calc(var(--vl) * .32)), transparent 48%);
-  }
-  @media (max-width: 600px) { #coreOrb { width: 72px; height: 72px; } }
-
-  /* ═══════ RESPONSIVE ═══════ */
-  @media (max-width: 1100px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto auto; height: 100vh; overflow: auto; }
-    html, body { overflow: auto; }
-    .left, .chat, .right { grid-row: auto; grid-column: 1 / -1; min-height: 220px; }
-    .bottom { grid-row: auto; }
+  .btn-del:hover {
+    background: var(--red); color: #fff;
   }
 
-  /* ═══════ ACCESIBILIDAD ═══════ */
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
-    .eye .ring, .eye .ring2, .eye .core, .topbar::after, body::before { animation: none !important; }
+  /* ═════════════════════════════════════════════════
+     TAB 3: CENTINELA & RADAR DE RED
+     ═════════════════════════════════════════════════ */
+  #tab-centinela.active {
+    grid-template-columns: 1fr 340px;
+    gap: 8px;
   }
+  .radar-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+  }
+  .radar-table th {
+    text-align: left; padding: 8px 6px;
+    background: #160205; border-bottom: 1px solid var(--border-bright);
+    color: var(--text-dim); font-family: 'Orbitron', monospace; font-size: 10px;
+  }
+  .radar-table td {
+    padding: 7px 6px; border-bottom: 1px solid #1f0408;
+    color: var(--text);
+  }
+  .radar-table tr:hover {
+    background: #1f0307;
+  }
+  .badge-suspicious {
+    color: #ff3344; font-weight: bold; animation: pulseRed 1s infinite;
+  }
+  @keyframes pulseRed {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  /* ═════════════════════════════════════════════════
+     TAB 4: ARSENAL DE PROCESOS (Task Manager)
+     ═════════════════════════════════════════════════ */
+  #tab-procesos.active {
+    grid-template-columns: 1fr 320px;
+    gap: 8px;
+  }
+  .proc-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+  }
+  .proc-table th {
+    text-align: left; padding: 8px 6px;
+    background: #160205; border-bottom: 1px solid var(--border-bright);
+    color: var(--text-dim); font-family: 'Orbitron', monospace; font-size: 10px;
+  }
+  .proc-table td {
+    padding: 6px; border-bottom: 1px solid #1f0408;
+  }
+  .proc-table tr:hover {
+    background: #1d0307;
+  }
+  .btn-kill {
+    background: #300006; border: 1px solid var(--red-dark);
+    color: #ff525a; padding: 3px 8px; border-radius: 2px;
+    font-size: 10px; cursor: pointer; font-family: inherit;
+    transition: all 0.15s;
+  }
+  .btn-kill:hover {
+    background: var(--red); color: #fff;
+  }
+
+  /* ═════════════════════════════════════════════════
+     TAB 5: VÍNCULO JARVIS (Inter-Agent)
+     ═════════════════════════════════════════════════ */
+  #tab-jarvis.active {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #080002; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--red); }
 </style>
 </head>
 <body class="scanlines">
-<div class="app">
+<div class="app-container">
 
-  <!-- TOPBAR -->
-  <div class="topbar">
-    <div class="lead">
-      <div class="eye" aria-hidden="true">
-        <span class="ring2"></span>
-        <span class="ring"></span>
-        <span class="core"></span>
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <div class="brand-box">
+      <div class="ultron-eye" aria-hidden="true">
+        <span class="ring-outer"></span>
+        <span class="ring-inner"></span>
+        <span class="core-dot"></span>
       </div>
-      <div class="brand">U L T R O N</div>
-    </div>
-    <div class="meta">
-      <span class="pill off" id="state">OFFLINE</span>
-      <span class="pill" id="model">--</span>
-      <span class="pill" id="modo">--</span>
-      <span id="clock" class="pill">--:--:--</span>
-      <button class="mode-btn" id="audioBtn" onclick="toggleAudio()">🔊 VOZ</button>
-      <button class="mode-btn" onclick="toggleMode()">MODO</button>
-      <button class="mode-btn" onclick="purge()">PURGA</button>
-    </div>
-  </div>
-
-  <!-- LEFT: Telemetría -->
-  <div class="panel left">
-    <h3>▣ Telemetría del host</h3>
-    <div class="stat"><div class="label"><span>CPU</span><span class="v" id="cpuV">--%</span></div>
-      <div class="bar"><div id="cpuB"></div></div></div>
-    <div class="stat"><div class="label"><span>RAM</span><span class="v" id="ramV">--</span></div>
-      <div class="bar"><div id="ramB"></div></div></div>
-    <div class="stat"><div class="label"><span>DISCO</span><span class="v" id="diskV">--</span></div>
-      <div class="bar"><div id="diskB"></div></div></div>
-    <div class="stat"><div class="label"><span>TEMP</span><span class="v" id="tempV">n/d</span></div>
-      <div class="bar"><div id="tempB"></div></div></div>
-    <div class="ticker" id="ticker">Inicializando enlace cognitivo…</div>
-
-    <h3 style="margin-top:14px">▣ Núcleo</h3>
-    <ul class="quick">
-      <li onclick="ask('/status')">↻ Refrescar estado</li>
-      <li onclick="ask('autodiagnóstico completo')">⎔ Autodiagnóstico</li>
-      <li onclick="ask('lista procesos top')">⎙ Top procesos</li>
-      <li onclick="ask('informe matutino')">⎗ Informe matutino</li>
-    </ul>
-  </div>
-
-  <!-- CENTER: Chat -->
-  <div class="panel chat">
-    <h3>▣ Canal cognitivo</h3>
-    <div class="messages" id="msgs"></div>
-  </div>
-
-  <!-- RIGHT: Comandos rápidos (Saturación) -->
-  <div class="panel right">
-    <h3>▣ Saturación · acciones rápidas</h3>
-    <div class="actions">
-      <button onclick="ask('abre chrome')">⌬ Chrome</button>
-      <button onclick="ask('abre spotify')">♪ Spotify</button>
-      <button onclick="ask('abre vscode')">◊ VSCode</button>
-      <button onclick="ask('abre la terminal')">▸ Terminal</button>
-      <button onclick="ask('abre el bloc de notas')">▭ Notas</button>
-      <button onclick="ask('abre la calculadora')">∑ Calc</button>
-      <button onclick="ask('dame el clima')">☼ Clima</button>
-      <button onclick="ask('dame las noticias')">▤ Noticias</button>
-      <button onclick="ask('dame las stats del pc')">▥ Stats</button>
-      <button onclick="ask('apaga el pc en 30 minutos')">⏻ Apagar 30'</button>
-      <button onclick="ask('cancela el apagado')">↩ Cancelar</button>
-      <button onclick="ask('lista agentes')">🧠 Agencia</button>
-      <button onclick="ask('agentes de security')">🛡 Sec</button>
-      <button onclick="ask('agentes de engineering')">⚙ Eng</button>
-      <button onclick="ask('desactiva agente')">↩ Base</button>
-      <button onclick="ask('salud del pc')">⌬ Salud</button>
+      <div>
+        <div class="brand-title">U L T R O N</div>
+        <div class="brand-tag">Autonomous Cognitive Dreadnought · OS Control</div>
+      </div>
     </div>
 
-    <h3 style="margin-top:14px">▣ Telemetría del núcleo</h3>
-    <ul class="quick" style="font-size:11px">
-      <li>Último: <span id="lastCmd" style="color:var(--bright)">—</span></li>
-      <li>Tokens: <span id="lastTokens" style="color:var(--bright)">0</span></li>
-      <li>Latencia: <span id="lastLat" style="color:var(--bright)">0 ms</span></li>
-      <li>Uptime: <span id="uptime" style="color:var(--bright)">0 s</span></li>
-    </ul>
+    <!-- Navegación Táctica de Pestañas -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('mando')">⌬ 01 // MANDO</button>
+      <button class="tab-btn" onclick="switchTab('cronograma')">📅 02 // CRONOGRAMA</button>
+      <button class="tab-btn" onclick="switchTab('centinela')">🛡 03 // CENTINELA</button>
+      <button class="tab-btn" onclick="switchTab('procesos')">⚙ 04 // PROCESOS</button>
+      <button class="tab-btn" onclick="switchTab('jarvis')">🔗 05 // ENLACE JARVIS</button>
+    </nav>
 
-    <h3 style="margin-top:14px">▣ Vínculo</h3>
-    <div class="ticker">
-      IP: <span id="ipV">…</span><br>
-      <a href="/mobile" style="color:var(--bright)">/mobile</a> ·
-      <a href="/centro" style="color:var(--bright)">/centro</a> ·
-      <a href="/dashboard" style="color:var(--bright)">/dashboard</a>
+    <!-- Controles y Telemetría Rápida -->
+    <div class="top-meta">
+      <span class="pill" id="agentState">SISTEMA OFFLINE</span>
+      <span class="pill" id="storageMode">CALENDAR: LOCAL</span>
+      <span class="pill active" id="modePill">OFENSIVA</span>
+      <span class="pill" id="clockPill">--:--:--</span>
+      <button class="ctrl-btn" id="sfxBtn" onclick="toggleSFX()">🔊 SFX: ON</button>
+      <button class="ctrl-btn" onclick="toggleMode()">MODO</button>
+      <button class="ctrl-btn" onclick="purgeMemory()">PURGA</button>
     </div>
-  </div>
+  </header>
 
-  <!-- BOTTOM: Input -->
-  <div class="bottom">
-    <input id="q" placeholder="Órden directa al núcleo…" autocomplete="off"
-           onkeydown="if(event.key==='Enter'){send()}">
-    <button class="voice" id="mic" onclick="toggleMic()">● VOZ</button>
-    <button onclick="send()">EJECUTAR ▶</button>
-  </div>
+  <!-- ── CONTENT AREA ── -->
+  <main class="content-area">
 
+    <!-- ════════════════ TAB 1: CENTRO DE MANDO ════════════════ -->
+    <section class="tab-panel active" id="tab-mando">
+      <!-- Left: Telemetría Rápida & Estado -->
+      <aside class="panel-box">
+        <div class="box-title">▣ Telemetría del Núcleo <span id="agentModel">Qwen3</span></div>
+        <div class="stat-row">
+          <div class="stat-label"><span>USO CPU</span><span class="val" id="cpuVal">--%</span></div>
+          <div class="gauge-track"><div class="gauge-bar" id="cpuBar"></div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label"><span>MEMORIA RAM</span><span class="val" id="ramVal">-- GB</span></div>
+          <div class="gauge-track"><div class="gauge-bar" id="ramBar"></div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label"><span>DISCO DURO C:</span><span class="val" id="diskVal">-- GB</span></div>
+          <div class="gauge-track"><div class="gauge-bar" id="diskBar"></div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label"><span>TEMPERATURA</span><span class="val" id="tempVal">-- °C</span></div>
+          <div class="gauge-track"><div class="gauge-bar" id="tempBar"></div></div>
+        </div>
+
+        <div class="box-title" style="margin-top:16px">▣ Próximo Objetivo Táctico</div>
+        <div id="nextMissionBox" style="font-size:12px; color:var(--text-dim); line-height:1.4">
+          Consultando cronograma...
+        </div>
+
+        <div class="box-title" style="margin-top:16px">▣ Métrica Operacional</div>
+        <div style="font-size:11px; color:var(--text-dim); line-height:1.8">
+          Latencia LLM: <span id="latVal" style="color:#fff">-- ms</span><br>
+          Tokens Últimos: <span id="tokVal" style="color:#fff">--</span><br>
+          Uptime Host: <span id="uptimeVal" style="color:#fff">-- s</span><br>
+          IP Local: <span id="ipVal" style="color:#fff">127.0.0.1</span>
+        </div>
+      </aside>
+
+      <!-- Center: Consola Neural de Chat & Waveform -->
+      <div class="panel-box chat-container">
+        <div class="box-title">
+          <span>▣ Canal de Enlace Neural</span>
+          <span id="typingIndicator" style="display:none; color:var(--red-glow); animation:pulseRed 0.6s infinite">● PROCESANDO...</span>
+        </div>
+        <div class="chat-messages" id="chatMsgs"></div>
+        <canvas class="viz-canvas" id="vizCanvas"></canvas>
+        <div class="chat-input-bar">
+          <input class="input-text" id="chatInput" placeholder="Orden de guerra o instrucción táctica..." autocomplete="off" onkeydown="if(event.key==='Enter'){sendChat()}">
+          <button class="btn-mic" id="micBtn" onclick="toggleMic()">● VOZ</button>
+          <button class="btn-action" onclick="sendChat()">TRANSMITIR ▶</button>
+        </div>
+      </div>
+
+      <!-- Right: Matriz de Acción Rápida -->
+      <aside class="panel-box">
+        <div class="box-title">▣ Arsenal de Saturación</div>
+        <div class="action-grid">
+          <div class="quick-card" onclick="quickCmd('purga la memoria ram')">⚡ Purga RAM</div>
+          <div class="quick-card" onclick="quickCmd('bloqueo total')">🔒 Lockdown</div>
+          <div class="quick-card" onclick="quickCmd('captura tactica')">📸 Screenshot</div>
+          <div class="quick-card" onclick="quickCmd('radar de red')">📡 Radar Red</div>
+          <div class="quick-card" onclick="quickCmd('cronograma de hoy')">📅 Agenda Hoy</div>
+          <div class="quick-card" onclick="quickCmd('estado de jarvis')">🔗 Ping Jarvis</div>
+          <div class="quick-card" onclick="quickCmd('abre vscode')">◊ VS Code</div>
+          <div class="quick-card" onclick="quickCmd('abre la terminal')">▸ Terminal</div>
+          <div class="quick-card" onclick="quickCmd('dame el clima')">☼ Clima</div>
+          <div class="quick-card" onclick="quickCmd('abre spotify')">♪ Spotify</div>
+        </div>
+
+        <div class="box-title">▣ Reconocimiento Inmediato</div>
+        <div class="action-grid">
+          <div class="quick-card" onclick="quickCmd('tutorial de python en youtube')">▶ Tutoriales YT</div>
+          <div class="quick-card" onclick="quickCmd('busca inteligencia artificial en github')">⭐ Repos GitHub</div>
+          <div class="quick-card" onclick="quickCmd('investiga ultimas noticias de tecnologia')">🌐 Inteligencia Web</div>
+          <div class="quick-card" onclick="quickCmd('informe de seguridad')">🛡 Auditoría</div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ════════════════ TAB 2: CRONOGRAMA TÁCTICO ════════════════ -->
+    <section class="tab-panel" id="tab-cronograma">
+      <!-- Formulario de Despliegue de Misión -->
+      <div class="panel-box cal-controls">
+        <div class="box-title">▣ Desplegar Operación en Cronograma</div>
+        <div class="form-group">
+          <label>OBJETIVO / ASUNTO</label>
+          <input class="form-input" id="calSummary" placeholder="Ej. Incursión a servidor central">
+        </div>
+        <div class="form-group">
+          <label>INICIO (Fecha y Hora)</label>
+          <input class="form-input" type="datetime-local" id="calStart">
+        </div>
+        <div class="form-group">
+          <label>FIN (Opcional)</label>
+          <input class="form-input" type="datetime-local" id="calEnd">
+        </div>
+        <div class="form-group">
+          <label>UBICACIÓN / ENLACE</label>
+          <input class="form-input" id="calLocation" placeholder="Ej. Centro de mando / Remoto">
+        </div>
+        <div class="form-group">
+          <label>DIRECTIVAS TÁCTICAS</label>
+          <input class="form-input" id="calDesc" placeholder="Detalles de la misión...">
+        </div>
+        <button class="btn-action" style="padding:10px; margin-top:6px" onclick="createCalendarEvent()">REGISTRAR EN LÍNEA TEMPORAL ▶</button>
+
+        <div class="box-title" style="margin-top:16px">▣ Estado de la Red Temporal</div>
+        <div style="font-size:11px; color:var(--text-dim); line-height:1.7" id="calStatusText">
+          Sincronizando estado...
+        </div>
+      </div>
+
+      <!-- Vista de Timeline de Operaciones -->
+      <div class="panel-box" style="display:flex; flex-direction:column">
+        <div class="box-title">
+          <span>▣ Operaciones Programadas</span>
+          <div>
+            <button class="ctrl-btn" onclick="loadCalendarEvents(1)">HOY</button>
+            <button class="ctrl-btn" onclick="loadCalendarEvents(7)">7 DÍAS</button>
+            <button class="ctrl-btn" onclick="loadCalendarEvents(30)">30 DÍAS</button>
+          </div>
+        </div>
+        <div class="timeline-list" id="calendarList">
+          <div style="color:var(--text-dim); padding:20px; text-align:center">Cargando cronograma táctico...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ TAB 3: CENTINELA & RADAR ════════════════ -->
+    <section class="tab-panel" id="tab-centinela">
+      <div class="panel-box" style="display:flex; flex-direction:column">
+        <div class="box-title">
+          <span>▣ Radar de Tráfico de Red en Tiempo Real</span>
+          <button class="ctrl-btn" onclick="loadNetworkRadar()">↻ ESCANEAR AHORA</button>
+        </div>
+        <div style="flex:1; overflow:auto">
+          <table class="radar-table">
+            <thead>
+              <tr>
+                <th>PROTO</th>
+                <th>LOCAL</th>
+                <th>REMOTO</th>
+                <th>ESTADO</th>
+                <th>PROCESO</th>
+                <th>AMENAZA</th>
+                <th>ACCIÓN</th>
+              </tr>
+            </thead>
+            <tbody id="radarTbody">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-dim)">Escaneando sockets...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-box">
+        <div class="box-title">▣ Defensas Activas</div>
+        <div class="form-group">
+          <label>BLOQUEAR IP POR WINDOWS FIREWALL</label>
+          <div style="display:flex; gap:6px; margin-top:4px">
+            <input class="form-input" id="blockIpInput" placeholder="Ej. 185.220.101.5">
+            <button class="btn-action" onclick="blockIp()">AISLAR</button>
+          </div>
+        </div>
+
+        <div class="box-title" style="margin-top:20px">▣ Protocolo de Emergencia</div>
+        <button class="btn-action" style="width:100%; padding:14px; background:linear-gradient(180deg,#90000c,#400005); border-color:var(--red)" onclick="triggerLockdown()">
+          🔒 BLOQUEO INMEDIATO DE ESTACIÓN
+        </button>
+
+        <div class="box-title" style="margin-top:20px">▣ Guardián Facial</div>
+        <div style="font-size:11px; color:var(--text-dim); line-height:1.7" id="facialStatusBox">
+          Vigilancia óptica armada. Rostro del señor parametrizado.
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ TAB 4: ARSENAL DE PROCESOS ════════════════ -->
+    <section class="tab-panel" id="tab-procesos">
+      <div class="panel-box" style="display:flex; flex-direction:column">
+        <div class="box-title">
+          <span>▣ Monitor de Procesos Host</span>
+          <div>
+            <button class="ctrl-btn" onclick="loadProcesses('cpu')">ORDENAR CPU</button>
+            <button class="ctrl-btn" onclick="loadProcesses('mem')">ORDENAR RAM</button>
+            <button class="ctrl-btn" onclick="loadProcesses()">↻ REFRESCAR</button>
+          </div>
+        </div>
+        <div style="flex:1; overflow:auto">
+          <table class="proc-table">
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>NOMBRE</th>
+                <th>CPU %</th>
+                <th>RAM %</th>
+                <th>MEMORIA (MB)</th>
+                <th>ACCIÓN</th>
+              </tr>
+            </thead>
+            <tbody id="procTbody">
+              <tr><td colspan="6" style="text-align:center; color:var(--text-dim)">Cargando procesos...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-box">
+        <div class="box-title">▣ Control de Procesos</div>
+        <div class="form-group">
+          <label>TERMINAR PROCESO FORZOSO</label>
+          <div style="display:flex; gap:6px; margin-top:4px">
+            <input class="form-input" id="killTargetInput" placeholder="Nombre o PID (ej. chrome)">
+            <button class="btn-action" onclick="killCustomProcess()">KILL</button>
+          </div>
+        </div>
+
+        <div class="box-title" style="margin-top:20px">▣ Limpieza del Espacio de Trabajo</div>
+        <button class="btn-action" style="width:100%; padding:12px; margin-bottom:8px" onclick="cleanRamAction()">
+          ⚡ PURGAR MEMORIA RAM
+        </button>
+        <div id="ramPurgeResult" style="font-size:11px; color:var(--green); margin-top:6px"></div>
+      </div>
+    </section>
+
+    <!-- ════════════════ TAB 5: VÍNCULO CON JARVIS ════════════════ -->
+    <section class="tab-panel" id="tab-jarvis">
+      <div class="panel-box">
+        <div class="box-title">▣ Enlace Inter-Agente con JARVIS</div>
+        <div style="font-size:13px; line-height:1.8; color:var(--text)">
+          Estado del Servidor JARVIS: <span id="jarvisStatusBadge" class="pill">VERIFICANDO...</span><br>
+          Puerto Host: <span style="color:#fff">5000</span><br>
+          URL de Enlace: <span style="color:var(--cyan)" id="jarvisUrl">http://127.0.0.1:5000</span><br>
+          Modelo de JARVIS: <span style="color:#fff" id="jarvisModel">Detectando...</span>
+        </div>
+        <button class="btn-action" style="margin-top:14px; padding:10px 18px" onclick="checkJarvisStatus()">
+          ↻ PING A JARVIS
+        </button>
+      </div>
+
+      <div class="panel-box">
+        <div class="box-title">▣ Transmisión de Directiva a JARVIS</div>
+        <div class="form-group">
+          <label>MENSAJE O TAREA A DELEGAR</label>
+          <textarea class="form-input" id="delegateMsg" rows="4" placeholder="Ej. Señor, prepare el informe del día y organice las notas de investigación..."></textarea>
+        </div>
+        <button class="btn-action" style="margin-top:10px; padding:10px 18px" onclick="sendDelegation()">
+          TRANSMITIR ORDEN ▶
+        </button>
+        <div id="delegateResponseBox" style="margin-top:14px; font-size:12px; line-height:1.5; color:var(--cyan)"></div>
+      </div>
+    </section>
+
+  </main>
 </div>
 
-<audio id="ttsPlayer" style="display:none"></audio>
+<audio id="ttsAudio" style="display:none"></audio>
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
-  const msgs = $('msgs');
-  const player = $('ttsPlayer');
+  let sfxEnabled = localStorage.getItem('ultron_sfx') !== '0';
+  let audioContext = null;
 
-  // ── Estado global (declarado ANTES de cualquier uso para evitar TDZ) ──
-  var audioOn = true;
-  var readyToSpeak = false;
-  var voiceChatOn = false, recognizing = false, recog = null, speakToken = 0, pausedForSpeak = false;
-
-  function add(role, text) {
-    const d = document.createElement('div');
-    d.className = 'msg ' + role;
-    d.innerHTML = '<div class="role">' + role + '</div>' + escapeHtml(text);
-    msgs.appendChild(d);
-    msgs.scrollTop = msgs.scrollHeight;
-    if (role === 'ultron' && readyToSpeak && audioOn) speak(text);
+  // ── SINTETIZADOR WEB AUDIO SFX ──
+  function initAudio() {
+    if (!audioContext) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioContext = new AC();
+    }
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
   }
-  function escapeHtml(s){return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);}
+  document.addEventListener('click', initAudio, { once: true });
 
-  // SocketIO (protegido: si el cliente no cargó, la página sigue funcionando por REST)
-  const sock = (typeof io === 'function') ? io() : null;
-  function onSock(evt, fn) { if (sock) sock.on(evt, fn); }
-  onSock('connect', () => add('ultron', 'Enlace cognitivo establecido.'));
-  onSock('history', (d) => {
-    (d.messages || []).forEach(m => add(m.role === 'user' ? 'user' : 'ultron', m.text));
-    readyToSpeak = true;
-  });
-  onSock('user_message', (d) => add('user', d.text));
-  onSock('receive_message', (d) => add('ultron', d.text));
-  onSock('typing', () => {
-    const d = document.createElement('div');
-    d.className = 'msg ultron blink';
-    d.id = 'typing';
-    d.innerHTML = '<div class="role">ultron</div>procesando…';
-    msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-  });
-  onSock('receive_message', () => {
-    const t = $('typing'); if (t) t.remove();
-  });
-
-  async function ask(text) {
-    $('q').value = text; await send();
-  }
-  async function send() {
-    const q = $('q'); const text = q.value.trim();
-    if (!text) return;
-    q.value = '';
-    add('user', text);
-    $('lastCmd').textContent = text.slice(0, 40);
+  function playSFX(type) {
+    if (!sfxEnabled || !audioContext) return;
     try {
-      const r = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text})});
-      const j = await r.json();
-      if (j.error) { add('ultron', '⚠ ' + j.error); return; }
-      add('ultron', j.reply || '(sin respuesta)');
-      $('lastLat').textContent = (j.latencia_ms || 0) + ' ms';
-    } catch(e) { add('ultron', '⚠ ' + e.message); }
+      const now = audioContext.currentTime;
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+
+      if (type === 'click') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.05);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now); osc.stop(now + 0.05);
+      } else if (type === 'confirm') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.setValueAtTime(880, now + 0.08);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.18);
+        osc.start(now); osc.stop(now + 0.18);
+      } else if (type === 'alert') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.linearRampToValueAtTime(110, now + 0.25);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+        osc.start(now); osc.stop(now + 0.25);
+      }
+    } catch(e) {}
+  }
+
+  function toggleSFX() {
+    sfxEnabled = !sfxEnabled;
+    localStorage.setItem('ultron_sfx', sfxEnabled ? '1' : '0');
+    $('sfxBtn').textContent = sfxEnabled ? '🔊 SFX: ON' : '🔇 SFX: OFF';
+    playSFX('click');
+  }
+
+  // ── CAMBIO DE PESTAÑAS ──
+  function switchTab(tabId) {
+    playSFX('click');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+
+    const panel = $('tab-' + tabId);
+    if (panel) panel.classList.add('active');
+
+    // Marcar botón
+    const btns = document.querySelectorAll('.tab-btn');
+    btns.forEach(b => {
+      if (b.getAttribute('onclick').includes(tabId)) b.classList.add('active');
+    });
+
+    if (tabId === 'cronograma') loadCalendarEvents();
+    if (tabId === 'centinela') loadNetworkRadar();
+    if (tabId === 'procesos') loadProcesses();
+    if (tabId === 'jarvis') checkJarvisStatus();
+  }
+
+  // ── CHAT & COMUNICACIÓN ──
+  const chatMsgs = $('chatMsgs');
+  function addMessage(sender, text) {
+    const d = document.createElement('div');
+    d.className = 'msg-bubble ' + sender;
+    d.innerHTML = `<div class="sender-tag">${sender === 'user' ? 'DIRECTIVA HUMANA' : 'ULTRON'}</div>${escapeHtml(text)}`;
+    chatMsgs.appendChild(d);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    if (sender === 'ultron') playSFX('confirm');
+  }
+  function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
+
+  async function sendChat() {
+    const input = $('chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    playSFX('click');
+    addMessage('user', text);
+    $('typingIndicator').style.display = 'inline';
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      });
+      const data = await res.json();
+      $('typingIndicator').style.display = 'none';
+      if (data.reply) {
+        addMessage('ultron', data.reply);
+        speakUltron(data.reply);
+      } else {
+        addMessage('ultron', data.error || 'Respuesta vacía.');
+      }
+    } catch(e) {
+      $('typingIndicator').style.display = 'none';
+      addMessage('ultron', 'Fallo de enlace: ' + e.message);
+      playSFX('alert');
+    }
+  }
+
+  function quickCmd(cmd) {
+    $('chatInput').value = cmd;
+    sendChat();
+  }
+
+  // ── CRONOGRAMA TÁCTICO (CALENDAR) ──
+  async function loadCalendarEvents(days = 14) {
+    try {
+      const res = await fetch(`/api/calendar/events?days=${days}`);
+      const data = await res.json();
+      const list = $('calendarList');
+      list.innerHTML = '';
+      if (!data.events || data.events.length === 0) {
+        list.innerHTML = `<div style="color:var(--text-dim); padding:20px; text-align:center">Línea temporal despejada. Ninguna misión en los próximos ${days} días.</div>`;
+        return;
+      }
+
+      // Actualizar próximo objetivo en Tab 1
+      const first = data.events[0];
+      $('nextMissionBox').innerHTML = `<strong>${escapeHtml(first.summary)}</strong><br><span style="color:var(--amber)">${first.start.replace('T', ' ')}</span>`;
+
+      data.events.forEach(ev => {
+        const card = document.createElement('div');
+        card.className = 'mission-card';
+        const st = (ev.start || '').replace('T', ' · ');
+        const srcTag = ev.source === 'google' ? '● GOOGLE' : '◐ LOCAL';
+        card.innerHTML = `
+          <div class="mission-info">
+            <div class="time-tag">${st} <span style="font-size:9px; color:var(--text-dim)">[${srcTag}]</span></div>
+            <div class="mission-title">${escapeHtml(ev.summary)}</div>
+            ${ev.description ? `<div class="mission-desc">${escapeHtml(ev.description)}</div>` : ''}
+          </div>
+          <div class="mission-actions">
+            <button class="btn-del" onclick="deleteCalendarEvent('${ev.id}')">ERRADICAR ✕</button>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    } catch(e) {
+      $('calendarList').innerHTML = `<div style="color:var(--red); padding:10px">Error leyendo cronograma: ${e.message}</div>`;
+    }
+  }
+
+  async function createCalendarEvent() {
+    const summary = $('calSummary').value.trim();
+    const start = $('calStart').value;
+    const end = $('calEnd').value;
+    const location = $('calLocation').value.trim();
+    const description = $('calDesc').value.trim();
+
+    if (!summary || !start) {
+      alert('Se requiere Objetivo y Fecha de inicio.');
+      return;
+    }
+    playSFX('click');
+    try {
+      const res = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary, start, end, location, description })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        playSFX('confirm');
+        $('calSummary').value = '';
+        $('calDesc').value = '';
+        loadCalendarEvents();
+        addMessage('ultron', `Operación táctica «${summary}» registrada en el cronograma con éxito.`);
+      } else {
+        alert('Fallo registrando evento: ' + (data.error || 'error desconocido'));
+      }
+    } catch(e) {
+      alert('Error en petición: ' + e.message);
+    }
+  }
+
+  async function deleteCalendarEvent(id) {
+    if (!confirm('¿Erradicar esta misión del cronograma de forma irreversible?')) return;
+    playSFX('click');
+    try {
+      const res = await fetch(`/api/calendar/events/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        playSFX('confirm');
+        loadCalendarEvents();
+      }
+    } catch(e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  async function updateCalendarStatus() {
+    try {
+      const res = await fetch('/api/calendar/status');
+      const data = await res.json();
+      $('storageMode').textContent = data.google_connected ? 'CALENDAR: GOOGLE ENLAZADO' : 'CALENDAR: LOCAL AUTÓNOMO';
+      $('storageMode').className = 'pill ' + (data.google_connected ? 'green' : 'active');
+      $('calStatusText').innerHTML = `
+        Modo de Almacén: <strong>${data.storage_mode}</strong><br>
+        Eventos Totales: <strong>${data.total_events}</strong><br>
+        Eventos Hoy: <strong>${data.today_events_count}</strong><br>
+        Zona Horaria: <strong>${data.timezone}</strong>
+      `;
+    } catch(e) {}
+  }
+
+  // ── CENTINELA & RADAR DE RED ──
+  async function loadNetworkRadar() {
+    playSFX('click');
+    const tbody = $('radarTbody');
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-dim)">Escaneando interfaces...</td></tr>`;
+    try {
+      const res = await fetch('/api/system/network_radar');
+      const data = await res.json();
+      tbody.innerHTML = '';
+      if (!data.connections || data.connections.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-dim)">Sin conexiones activas registradas.</td></tr>`;
+        return;
+      }
+      data.connections.forEach(c => {
+        const tr = document.createElement('tr');
+        const sus = c.is_suspicious ? `<span class="badge-suspicious">⚠ ALERTA</span>` : `<span style="color:var(--text-dim)">SEGURO</span>`;
+        tr.innerHTML = `
+          <td>${c.type}</td>
+          <td>${c.local}</td>
+          <td>${c.remote || 'LISTENING'}</td>
+          <td>${c.status}</td>
+          <td>${escapeHtml(c.process || '?')}</td>
+          <td>${sus}</td>
+          <td>${c.remote_ip ? `<button class="btn-del" onclick="quickBlockIp('${c.remote_ip}')">BLOQUEAR</button>` : '—'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red)">Error en radar: ${e.message}</td></tr>`;
+    }
+  }
+
+  async function blockIp() {
+    const ip = $('blockIpInput').value.trim();
+    if (!ip) return;
+    quickBlockIp(ip);
+  }
+  async function quickBlockIp(ip) {
+    if (!confirm(`¿Aislar IP ${ip} mediante Windows Firewall?`)) return;
+    playSFX('click');
+    try {
+      const res = await fetch('/api/system/block_ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        playSFX('confirm');
+        addMessage('ultron', `Directiva de aislamiento ejecutada: ${data.message}`);
+        loadNetworkRadar();
+      } else {
+        alert('Fallo al bloquear: ' + data.error);
+      }
+    } catch(e) { alert('Error: ' + e.message); }
+  }
+
+  async function triggerLockdown() {
+    if (!confirm('¿Activar protocolo de bloqueo inmediato de estación de trabajo?')) return;
+    playSFX('alert');
+    try {
+      await fetch('/api/system/lockdown', { method: 'POST' });
+    } catch(e) {}
+  }
+
+  // ── PROCESOS (TASK MANAGER) ──
+  async function loadProcesses(sortBy = 'cpu') {
+    playSFX('click');
+    const tbody = $('procTbody');
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-dim)">Buscando procesos...</td></tr>`;
+    try {
+      const res = await fetch(`/api/system/processes?sort=${sortBy}&limit=16`);
+      const data = await res.json();
+      tbody.innerHTML = '';
+      data.processes.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="color:var(--text-dim)">${p.pid}</td>
+          <td style="font-weight:bold">${escapeHtml(p.name)}</td>
+          <td style="color:${p.cpu > 15 ? 'var(--red)' : '#fff'}">${p.cpu}%</td>
+          <td>${p.mem_pct}%</td>
+          <td>${p.mem_mb} MB</td>
+          <td><button class="btn-kill" onclick="killProc('${p.pid}', '${p.name}')">TERMINAR</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red)">Error leyendo procesos: ${e.message}</td></tr>`;
+    }
+  }
+
+  async function killProc(pid, name) {
+    if (!confirm(`¿Eliminar forzosamente el proceso ${name} (PID ${pid})?`)) return;
+    playSFX('click');
+    try {
+      const res = await fetch('/api/system/kill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: pid })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        playSFX('confirm');
+        loadProcesses();
+        addMessage('ultron', `Proceso ${name} (PID ${pid}) terminado forzosamente.`);
+      } else {
+        alert('No se pudo terminar: ' + (data.errors ? data.errors.join(', ') : 'error'));
+      }
+    } catch(e) { alert('Error: ' + e.message); }
+  }
+
+  async function killCustomProcess() {
+    const t = $('killTargetInput').value.trim();
+    if (!t) return;
+    killProc(t, t);
+    $('killTargetInput').value = '';
+  }
+
+  async function cleanRamAction() {
+    playSFX('click');
+    $('ramPurgeResult').textContent = 'Purgando memoria en tiempo real...';
+    try {
+      const res = await fetch('/api/system/clean_ram', { method: 'POST' });
+      const data = await res.json();
+      playSFX('confirm');
+      $('ramPurgeResult').textContent = `Liberados ${data.freed_mb} MB. RAM reducida a ${data.ram_after_pct}%.`;
+      addMessage('ultron', data.message);
+    } catch(e) {
+      $('ramPurgeResult').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  // ── ENLACE CON JARVIS ──
+  async function checkJarvisStatus() {
+    playSFX('click');
+    const badge = $('jarvisStatusBadge');
+    badge.textContent = 'CONSULTANDO...';
+    try {
+      const res = await fetch('/api/agent/peer_status');
+      const data = await res.json();
+      if (data.online) {
+        badge.textContent = '● ONLINE EN PUERTO 5000';
+        badge.className = 'pill green';
+        $('jarvisModel').textContent = data.model;
+      } else {
+        badge.textContent = '✕ OFFLINE EN PUERTO 5000';
+        badge.className = 'pill';
+        $('jarvisModel').textContent = 'Inalcanzable';
+      }
+    } catch(e) {
+      badge.textContent = 'ERROR DE CONEXIÓN';
+      badge.className = 'pill';
+    }
+  }
+
+  async function sendDelegation() {
+    const msg = $('delegateMsg').value.trim();
+    if (!msg) return;
+    playSFX('click');
+    const box = $('delegateResponseBox');
+    box.textContent = 'Transmitiendo directiva a Jarvis...';
+    try {
+      const res = await fetch('/api/agent/delegate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        playSFX('confirm');
+        box.innerHTML = `<strong>Respuesta de JARVIS:</strong><br>«${escapeHtml(data.reply)}»`;
+        addMessage('ultron', `Directiva transmitida a Jarvis. Respuesta recibida: «${data.reply}»`);
+        $('delegateMsg').value = '';
+      } else {
+        box.innerHTML = `<span style="color:var(--red)">Fallo: ${data.error}</span>`;
+      }
+    } catch(e) {
+      box.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+    }
+  }
+
+  // ── POLLING DE TELEMETRÍA CADA 2.5s ──
+  async function pollTelemetry() {
+    try {
+      const [hRes, sRes, tRes] = await Promise.all([
+        fetch('/health').then(r=>r.json()).catch(()=>({})),
+        fetch('/status').then(r=>r.json()).catch(()=>({})),
+        fetch('/stats').then(r=>r.json()).catch(()=>({}))
+      ]);
+
+      if (hRes.core_loaded) {
+        $('agentState').textContent = '● NÚCLEO ONLINE';
+        $('agentState').className = 'pill green';
+        $('agentModel').textContent = hRes.llm || 'Qwen3';
+        $('modePill').textContent = hRes.modo || 'OFENSIVA';
+      } else {
+        $('agentState').textContent = '✕ OFFLINE';
+        $('agentState').className = 'pill';
+      }
+
+      if (sRes) {
+        $('tokVal').textContent = sRes.ultimo_tokens || 0;
+        $('latVal').textContent = (sRes.ultima_latencia_ms || 0) + ' ms';
+        $('uptimeVal').textContent = (sRes.uptime_s || 0) + ' s';
+      }
+
+      if (tRes && !tRes.error) {
+        $('cpuVal').textContent = (tRes.cpu || 0).toFixed(1) + '%';
+        $('cpuBar').style.width = Math.min(100, tRes.cpu || 0) + '%';
+        $('ramVal').textContent = `${(tRes.ram_used_gb || 0).toFixed(1)} / ${(tRes.ram_total_gb || 0).toFixed(1)} GB`;
+        $('ramBar').style.width = (tRes.ram_pct || 0) + '%';
+        $('diskVal').textContent = `${(tRes.disco_libre_gb || 0).toFixed(1)} GB libres`;
+        const diskPct = Math.round((1 - (tRes.disco_libre_gb||1)/(tRes.disco_total_gb||1))*100);
+        $('diskBar').style.width = diskPct + '%';
+        $('tempVal').textContent = tRes.temp ? tRes.temp + '°C' : 'N/D';
+        $('tempBar').style.width = tRes.temp ? Math.min(100, tRes.temp) + '%' : '0%';
+      }
+    } catch(e) {}
+  }
+  setInterval(pollTelemetry, 2500);
+  pollTelemetry();
+  updateCalendarStatus();
+
+  // Reloj militar
+  setInterval(() => {
+    $('clockPill').textContent = new Date().toTimeString().slice(0, 8);
+  }, 1000);
+
+  // Inicializar defaults
+  fetch('/pair_info').then(r=>r.json()).then(j => { $('ipVal').textContent = j.url || '127.0.0.1'; }).catch(()=>{});
+  const startInput = $('calStart');
+  if (startInput) {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    startInput.value = now.toISOString().slice(0,16);
+  }
+
+  // ── SÍNTESIS DE VOZ Y AUDIO VISUALIZER ──
+  const ttsPlayer = $('ttsAudio');
+  const vizCanvas = $('vizCanvas');
+  const vctx = vizCanvas ? vizCanvas.getContext('2d') : null;
+  let vizLevel = 0;
+
+  function drawVisualizer() {
+    requestAnimationFrame(drawVisualizer);
+    if (!vctx || !vizCanvas) return;
+    const w = vizCanvas.width = vizCanvas.clientWidth;
+    const h = vizCanvas.height = vizCanvas.clientHeight;
+    vctx.clearRect(0, 0, w, h);
+
+    const isPlaying = ttsPlayer && !ttsPlayer.paused && !ttsPlayer.ended;
+    const target = isPlaying ? 0.6 + 0.4 * Math.sin(Date.now() / 80) : 0.05;
+    vizLevel += (target - vizLevel) * 0.2;
+
+    vctx.strokeStyle = isPlaying ? 'rgba(255, 31, 45, 0.9)' : 'rgba(100, 20, 25, 0.4)';
+    vctx.lineWidth = 2;
+    vctx.beginPath();
+    const slices = 40;
+    const sliceW = w / slices;
+    for (let i = 0; i <= slices; i++) {
+      const x = i * sliceW;
+      const wave = Math.sin((i / 3) + Date.now() / 120) * vizLevel * (h / 2.5);
+      const y = (h / 2) + wave;
+      if (i === 0) vctx.moveTo(x, y); else vctx.lineTo(x, y);
+    }
+    vctx.stroke();
+  }
+  drawVisualizer();
+
+  async function speakUltron(text) {
+    if (!text || text.length > 1500) return;
+    try {
+      const res = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        ttsPlayer.src = url;
+        ttsPlayer.play();
+        return;
+      }
+    } catch(e) {}
+
+    // Fallback: Web Speech
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'es-ES'; u.rate = 0.95; u.pitch = 0.65;
+      window.speechSynthesis.speak(u);
+    }
+  }
+
+  // ── ENTRADA DE VOZ (MICROFONO) ──
+  let speechRecog = null;
+  let isListening = false;
+  function toggleMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      alert('Reconocimiento de voz no soportado en este navegador.');
+      return;
+    }
+    initAudio();
+    playSFX('click');
+    if (!speechRecog) {
+      speechRecog = new SR();
+      speechRecog.lang = 'es-ES';
+      speechRecog.continuous = false;
+      speechRecog.onresult = (e) => {
+        const t = (e.results[0][0].transcript || '').trim();
+        if (t) {
+          $('chatInput').value = t;
+          sendChat();
+        }
+      };
+      speechRecog.onend = () => {
+        isListening = false;
+        $('micBtn').classList.remove('listening');
+        $('micBtn').textContent = '● VOZ';
+      };
+    }
+
+    if (isListening) {
+      speechRecog.stop();
+      isListening = false;
+      $('micBtn').classList.remove('listening');
+      $('micBtn').textContent = '● VOZ';
+    } else {
+      try {
+        speechRecog.start();
+        isListening = true;
+        $('micBtn').classList.add('listening');
+        $('micBtn').textContent = '■ ESCUCHANDO...';
+      } catch(e) {}
+    }
   }
 
   async function toggleMode() {
-    const cur = $('modo').textContent.trim();
+    const cur = $('modePill').textContent.trim();
     const next = cur === 'OFENSIVA' ? 'NORMAL' : 'OFENSIVA';
+    playSFX('click');
     try {
-      const r = await fetch('/mode/' + next, {method:'POST'});
+      const r = await fetch('/mode/' + next, { method: 'POST' });
       const j = await r.json();
-      $('modo').textContent = next;
-      add('ultron', j.mensaje || ('modo ' + next));
-    } catch(e) { add('ultron', '⚠ ' + e.message); }
+      $('modePill').textContent = next;
+      addMessage('ultron', j.mensaje || ('Modo alternado a ' + next));
+    } catch(e) {}
   }
 
-  async function purge() {
-    if (!confirm('¿Purgar memoria Ultron?')) return;
+  async function purgeMemory() {
+    if (!confirm('¿Ejecutar purga de memoria cognitiva de Ultron?')) return;
+    playSFX('alert');
     try {
-      const r = await fetch('/purge', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({token: getToken()})});
+      const r = await fetch('/purge', { method: 'POST' });
       const j = await r.json();
-      add('ultron', j.mensaje || 'memoria purgada');
-    } catch(e) { add('ultron', '⚠ ' + e.message); }
+      addMessage('ultron', j.mensaje || 'Purga de memoria completada.');
+    } catch(e) {}
   }
-  function getToken(){return localStorage.getItem('ultron_pin')||'';}
-
-  // Telemetría cada 2s
-  async function poll() {
-    try {
-      const r = await fetch('/health'); const h = await r.json();
-      const s = await fetch('/status').then(r=>r.json());
-      const t = await fetch('/stats').then(r=>r.json());
-      $('state').textContent = h.core_loaded ? 'EN LÍNEA' : 'OFFLINE';
-      $('state').className = 'pill ' + (h.core_loaded ? 'live' : 'off');
-      document.body.classList.toggle('online', !!h.core_loaded);
-      $('model').textContent = h.llm || '--';
-      $('modo').textContent = h.modo || '--';
-      if (s) {
-        $('lastTokens').textContent = s.ultimo_tokens || 0;
-        $('lastLat').textContent = (s.ultima_latency_ms||s.ultima_latencia_ms||0) + ' ms';
-        $('uptime').textContent = (s.uptime_s||0) + ' s';
-      }
-      if (!t.error) {
-        $('cpuV').textContent = (t.cpu||0).toFixed(1) + '%';
-        $('cpuB').style.width = Math.min(100, t.cpu||0) + '%';
-        $('ramV').textContent = (t.ram_used_gb||0).toFixed(1) + ' / ' + (t.ram_total_gb||0).toFixed(1) + ' GB';
-        $('ramB').style.width = (t.ram_pct||0) + '%';
-        const dp = Math.round((1 - (t.disco_libre_gb||1)/(t.disco_total_gb||1))*100);
-        $('diskV').textContent = (t.disco_libre_gb||0).toFixed(1) + ' GB libres';
-        $('diskB').style.width = dp + '%';
-        $('tempV').textContent = t.temp !== null && t.temp !== undefined ? t.temp + '°C' : 'n/d';
-        $('tempB').style.width = t.temp ? Math.min(100, t.temp) + '%' : '0%';
-        const top = (t.top||[]).map(p=>p.nombre+' '+(p.cpu||0)+'%').join(' · ');
-        $('ticker').textContent = 'Top: ' + (top || '—') + ' · ' + (t.hora||'');
-      }
-    } catch(e) { /* silencioso */ }
-  }
-  setInterval(poll, 2000); poll();
-
-  // Reloj
-  setInterval(() => {
-    const d = new Date();
-    $('clock').textContent = d.toTimeString().slice(0,8);
-  }, 500);
-
-  // IP
-  fetch('/pair_info').then(r=>r.json()).then(j => { $('ipV').textContent = j.url; }).catch(()=>{});
-
-  // ── Síntesis de voz (ElevenLabs → navegador) ──
-  // (audioOn / readyToSpeak / recog... ya declarados arriba)
-
-  async function speak(text) {
-    text = (text || '').toString();
-    if (!text.trim()) { if (voiceChatOn) startListen(); return; }
-    const chunk = text.length > 1800 ? text.slice(0, 1800) : text;
-    const token = ++speakToken;
-    // Pausar escucha para no captar nuestro propio TTS (eco)
-    if (voiceChatOn && recognizing) {
-      pausedForSpeak = true; recognizing = false;
-      try { recog.stop(); } catch (e) {}
-    }
-    const mic = $('mic');
-    if (voiceChatOn) mic.textContent = '◉ HABLANDO';
-    try {
-      const r = await fetch('/api/speak', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text: chunk})});
-      if (r.ok) {
-        const blob = await r.blob();
-        const url = URL.createObjectURL(blob);
-        player.src = url;
-        if (window.__orbEnsure) window.__orbEnsure();
-        await player.play();
-        player.onended = () => { URL.revokeObjectURL(url); resumeListen(token); };
-        player.onerror = () => { URL.revokeObjectURL(url); resumeListen(token); };
-        return;
-      }
-    } catch (e) {}
-// Fallback: voz del navegador (Mark - voz masculina)
-      try {
-        if ('speechSynthesis' in window) {
-          speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(chunk);
-          u.lang = 'es-ES'; u.rate = 0.9; u.pitch = 0.7; u.volume = 1;
-          const vs = speechSynthesis.getVoices();
-          // Preferir Mark (voz masculina Windows), luego cualquier voz masculina
-          const v = vs.find(x => /es[-_]ES/i.test(x.lang) && /mark/i.test(x.name))
-                  || vs.find(x => /es[-_]ES/i.test(x.lang) && /male|hombre|david/i.test(x.name))
-                  || vs.find(x => /es[-_]ES/i.test(x.lang))
-                  || vs.find(x => /es/i.test(x.lang));
-          if (v) u.voice = v;
-          u.onend = () => resumeListen(token);
-          u.onerror = () => resumeListen(token);
-          speechSynthesis.speak(u);
-          return;
-        }
-      } catch (e) {}
-    resumeListen(token);
-  }
-  function resumeListen(token) {
-    pausedForSpeak = false;
-    if (token !== speakToken) return;
-    if (voiceChatOn) startListen();
-  }
-
-  function toggleAudio() {
-    audioOn = !audioOn;
-    const b = $('audioBtn');
-    b.textContent = audioOn ? '🔊 VOZ' : '🔇 MUDO';
-    b.classList.toggle('off', !audioOn);
-    if (!audioOn && 'speechSynthesis' in window) speechSynthesis.cancel();
-  }
-
-  // ── Entrada de voz (Web Speech API) ──
-  function setupRecog() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    const r = new SR();
-    r.lang = 'es-ES'; r.continuous = false; r.interimResults = false;
-    r.onresult = (e) => {
-      const t = (e.results[0][0].transcript || '').trim();
-      if (t) { $('q').value = t; send(); }
-    };
-    r.onend = () => {
-      if (pausedForSpeak) return;            // speak() reanudará la escucha
-      if (voiceChatOn) { try { r.start(); } catch (e) {} }
-    };
-    r.onerror = (e) => {
-      if (e.error === 'not-allowed') {
-        voiceChatOn = false; recognizing = false; pausedForSpeak = false;
-        const mic = $('mic'); mic.classList.remove('recording'); mic.textContent = '● VOZ';
-        add('ultron', '⚠ Permiso de micrófono denegado.');
-      }
-    };
-    return r;
-  }
-  function startListen() {
-    if (!recog) recog = setupRecog();
-    if (!recog) return;
-    if (recognizing) return;
-    recognizing = true;
-    const mic = $('mic');
-    mic.classList.add('recording'); mic.textContent = '■ ESCUCHANDO';
-    try { recog.start(); } catch (e) {}
-  }
-  function stopListen() {
-    recognizing = false; pausedForSpeak = false;
-    if (recog) { try { recog.stop(); } catch (e) {} }
-    const mic = $('mic');
-    mic.classList.remove('recording'); mic.textContent = '● VOZ';
-  }
-  function toggleMic() {
-    if (!recog) recog = setupRecog();
-    if (!recog) {
-      add('ultron', '⚠ Reconocimiento de voz no disponible (usa localhost o HTTPS).');
-      return;
-    }
-    voiceChatOn = !voiceChatOn;
-    if (voiceChatOn) startListen(); else stopListen();
-  }
-
-  // ── Esfera ámbar: brilla y se mueve al ritmo de la voz ──
-  (function(){
-    const rootStyle = document.documentElement.style;
-    let actx = null, analyser = null, wired = false;
-    function ensureAudio() {
-      try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        if (!actx) actx = new AC();
-        if (actx.state === 'suspended') actx.resume().catch(function(){});
-        if (!wired) {
-          try {
-            const src = actx.createMediaElementSource(player);
-            analyser = actx.createAnalyser();
-            analyser.fftSize = 256; analyser.smoothingTimeConstant = .75;
-            src.connect(analyser); analyser.connect(actx.destination);
-            wired = true;
-          } catch (e) { wired = true; }
-        }
-      } catch (e) {}
-    }
-    window.__orbEnsure = ensureAudio;
-    document.addEventListener('pointerdown', function(){ ensureAudio(); }, { once:true });
-    let level = 0, fbuf = null;
-    function loop() {
-      requestAnimationFrame(loop);
-      let target = 0;
-      const playingMp3 = !!player.src && !player.paused && !player.ended;
-      if (analyser && playingMp3) {
-        if (!fbuf) fbuf = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(fbuf);
-        let s = 0; for (let i = 0; i < fbuf.length; i++) s += fbuf[i];
-        target = Math.min(1, (s / fbuf.length) / 120);
-      } else if (playingMp3 || ('speechSynthesis' in window && speechSynthesis.speaking)) {
-        // Pulso sintético sincronizado al habla cuando no hay analizador
-        target = .42 + .30 * Math.abs(Math.sin(Date.now() / 170));
-      }
-      level += (target - level) * (target > level ? .55 : .10);
-      rootStyle.setProperty('--vl', level.toFixed(3));
-    }
-    loop();
-  })();
 </script>
-
-<!-- ESFERA CENTRAL ÁMBAR (núcleo del imperio, centro literal) -->
-<div id="coreOrb" class="core-orb" aria-hidden="true">
-  <span class="shell"></span>
-  <span class="heart"></span>
-</div>
-
 </body>
 </html>

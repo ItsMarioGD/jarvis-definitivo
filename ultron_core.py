@@ -107,6 +107,8 @@ class UltronCore(JarvisCore):
 
         # Flag de modo agresivo: elimina confirmaciones dobles en skills críticas
         self._modo_agresivo = True
+        self._sanador = None
+        self._sanador_error = ""
 
         # Telemetría ligera que el HUD de Ultron puede leer
         self._ultron_stats = {
@@ -191,6 +193,32 @@ class UltronCore(JarvisCore):
         self.conn.commit()
         self.log(f"[ULTRON] Memoria en: {db_path}")
 
+    # ── Auto-reparación de interfaces (self_healing.py) ────────────────────
+    @property
+    def sanador(self):
+        """Motor de curación de selectores Android, cargado bajo demanda.
+
+        El módulo existía desde hace tiempo pero vivía en ultron_skills/, una
+        carpeta con el mismo nombre que ultron_skills.py: Python resolvía el
+        módulo y nunca el paquete, así que era imposible importarlo. Ahora está
+        en la raíz y se instancia con el controlador Android por adb.
+        """
+        if getattr(self, "_sanador", None) is not None:
+            return self._sanador
+        if getattr(self, "_sanador_error", None):
+            return None
+        try:
+            from self_healing import SelfHealingEngine
+            from mcp_servers.android_server import AndroidMCP
+            self._sanador = SelfHealingEngine(AndroidMCP(), llm_client=self.llm,
+                                              log=self.log)
+            self.log("[ULTRON] Motor de auto-reparación listo.")
+            return self._sanador
+        except Exception as e:
+            self._sanador_error = str(e)
+            self.log(f"[ULTRON] Auto-reparación no disponible: {e}")
+            return None
+
     # ── Saludo de arranque ─────────────────────────────────────────────────
     def _saludo_arranque(self):
         """Saludo de Ultron al encenderse: directo, rotativo, sin pedir permiso."""
@@ -273,7 +301,7 @@ class UltronCore(JarvisCore):
             **self._ultron_stats,
             "history_len": len(self.history),
             "agente": "ULTRON",
-            "modelo": os.getenv("QWEN_MODEL", "qwen3:4b-instruct"),
+            "modelo": os.getenv("QWEN_MODEL", "qwen3:8b"),
             "uptime_s": int(time.time() - self._ultron_stats["arranque_ts"]),
         }
 

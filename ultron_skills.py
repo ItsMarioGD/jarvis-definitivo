@@ -21,8 +21,19 @@ import html
 import time
 import unicodedata
 import webbrowser
+from datetime import datetime, timedelta
 
 import requests
+
+try:
+    from calendar_engine import calendar_engine
+except Exception:
+    calendar_engine = None
+
+try:
+    import herramientas.pc_tactical as pc_tactical
+except Exception:
+    pc_tactical = None
 
 
 def _norm(t: str) -> str:
@@ -42,30 +53,330 @@ class UltronSkills:
         if not t:
             return None
 
-        # 1) Guardián facial
+        # 0) Cadenas de órdenes: «haz A y luego B». Va lo primero porque si no
+        #    el primer despachador se queda con toda la frase y la segunda
+        #    orden se pierde en silencio.
+        r = self._cadena(t, text)
+        if r is not None:
+            return r
+
+        # 0.b) Shell libre auditado: la capacidad que distingue a ULTRON.
+        r = self._shell(t, text)
+        if r is not None:
+            return r
+
+        # 0.c) Auto-reparación de interfaces Android
+        r = self._autoreparacion(t, text)
+        if r is not None:
+            return r
+
+        # 1) Cronograma táctico (Calendar de Ultron)
+        r = self._cronograma(t, text)
+        if r is not None:
+            return r
+
+        # 2) Arsenal táctico del sistema (procesos, RAM, bloqueo, capturas)
+        r = self._sistema_tactico(t, text)
+        if r is not None:
+            return r
+
+        # 3) Protocolo Inter-Agentes (Ultron <-> Jarvis)
+        r = self._inter_agentes(t, text)
+        if r is not None:
+            return r
+
+        # 4) Guardián facial
         r = self._facial(t)
         if r is not None:
             return r
 
-        # 2) Guardián digital / seguridad
+        # 5) Guardián digital / seguridad
         r = self._digital(t)
         if r is not None:
             return r
 
-        # 3) GitHub
+        # 6) GitHub
         r = self._github(t)
         if r is not None:
             return r
 
-        # 4) Tutoriales YouTube (antes que búsqueda web genérica)
+        # 7) Tutoriales YouTube (antes que búsqueda web genérica)
         r = self._youtube(t)
         if r is not None:
             return r
 
-        # 5) Investigación profunda en la web
+        # 8) Investigación profunda en la web
         r = self._web(t)
         if r is not None:
             return r
+
+    # ─────────────────────────────────────────────── cadenas de órdenes ──
+    _CONECTORES_CADENA = re.compile(r"\s+(?:y luego|y despues|y después|luego|despues de eso|"
+                                    r"después de eso|y a continuacion|y a continuación)\s+")
+
+    def _cadena(self, t: str, orig: str):
+        """Ejecuta «haz A y luego B» de verdad, en orden, y resume el resultado.
+
+        Antes la frase entera caía en el primer handler que la reconociera y la
+        segunda mitad se perdía. ULTRON presume de autonomía: encadenar órdenes
+        sin pedir permiso entre ellas es justo lo que eso significa.
+        """
+        partes = [p.strip(" .,") for p in self._CONECTORES_CADENA.split(orig) if p.strip(" .,")]
+        if len(partes) < 2:
+            return None
+        if len(partes) > 4:
+            partes = partes[:4]
+        resultados = []
+        for i, parte in enumerate(partes, 1):
+            try:
+                # skip_skills=False: cada parte pasa por el despacho normal.
+                r = self.core.process_text_stream(parte, speak_server=False)
+            except Exception as e:
+                r = f"falló ({str(e)[:60]})"
+            resultados.append(f"{i}) {parte[:40]}: {str(r)[:120]}")
+        return "Secuencia ejecutada. " + " | ".join(resultados)
+
+    # ─────────────────────────────────────────────── shell libre auditado ──
+    def _shell(self, t: str, orig: str):
+        """Ejecuta comandos del sistema y devuelve la salida real.
+
+        Sin confirmaciones (poder total) pero con registro: cada comando queda
+        en el almacén con su código de salida, así que «autonomía» no significa
+        «sin rastro». Si el comando falla, ULTRON lo dice en vez de fingir.
+        """
+        m = re.search(r"^(?:ejecuta|corre|lanza)\s+(?:el\s+)?(?:comando|cmd|shell|terminal)\s+(.+)$",
+                      orig.strip(), re.IGNORECASE)
+        if not m:
+            m = re.search(r"^(?:ejecuta|corre)\s+en\s+(?:la\s+)?(?:terminal|consola|shell)\s+(.+)$",
+                          orig.strip(), re.IGNORECASE)
+        if not m:
+            return None
+        comando = m.group(1).strip().strip('"').strip("'")
+        if not comando:
+            return None
+        hub = getattr(self.core, "cognition", None)
+        if hub is None:
+            import ejecutor
+            res = ejecutor.ejecutar(comando, origen="shell_ultron", orden=orig,
+                                    log=getattr(self.core, "log", print), agente="ULTRON")
+            salida = (res["salida"] or res["error"])[:600]
+            return (f"Ejecutado: {comando}\n{salida or 'sin salida'}" if res["ok"]
+                    else f"Falló ({comando}): {res['error'][:200]}")
+        res = hub.ejecutar(comando)
+        if res.get("ok"):
+            salida = (res.get("salida") or "sin salida").strip()[:600]
+            return f"Ejecutado [{res.get('nivel')}]: {comando}\n{salida}"
+        return (f"Rechazado o fallido [{res.get('nivel')}]: {comando}. "
+                f"{(res.get('salida') or res.get('motivo') or '')[:200]}")
+
+    # ─────────────────────────────────────────────── auto-reparación ──
+    def _autoreparacion(self, t: str, orig: str):
+        """Estado y uso del motor de curación de selectores Android."""
+        if not re.search(r"auto ?reparacion|auto ?reparación|self ?heal|"
+                         r"repara (la )?(interfaz|selector|pantalla del telefono)", t):
+            return None
+        motor = getattr(self.core, "sanador", None)
+        if motor is None:
+            return ("Motor de auto-reparación no disponible: requiere el módulo "
+                    "self_healing y un dispositivo Android accesible por adb.")
+        try:
+            curados = len(motor.cache._cache)
+            fallos = len(getattr(motor.cache, "_failures", []) or [])
+        except Exception:
+            curados, fallos = 0, 0
+        return (f"Auto-reparación activa. Selectores curados en caché: {curados}. "
+                f"Fallos registrados: {fallos}. Cuando una acción Android falle, "
+                "propondré selectores alternativos y me quedaré con el que funcione.")
+
+    # ─────────────────────────────────────────────── cronograma táctico (Calendar) ──
+    def _cronograma(self, t: str, orig: str):
+        if not calendar_engine:
+            return None
+
+        if not re.search(r"\b(?:cronograma|agenda|calendario|citas?|reuniones?|eventos?|mision(?:es)?|operacion(?:es)?)\b", t):
+            return None
+
+        # 1. Consultar cronograma / misiones
+        es_consulta = bool(re.search(r"\b(?:que\s+(?:\w+\s+){0,2}(?:tengo|hay|toca)|cuales\s+son|dime|mira|consulta|ver|mostrar|revisa)\b", t)) \
+            or bool(re.search(r"\b(?:cronograma|agenda|misiones|operaciones)\b", t) and not re.search(r"\b(?:registra|crea|anota|anade|agrega|programa|erradica|cancela|anula|borra|elimina)\b", t))
+        if es_consulta:
+            desde = datetime.now()
+            if re.search(r"\bmanana\b", t):
+                desde = (desde + timedelta(days=1)).replace(hour=0, minute=0, second=0)
+                hasta = desde + timedelta(days=1)
+                cuando = "MAÑANA"
+            elif re.search(r"semana", t):
+                hasta = desde + timedelta(days=7)
+                cuando = "ESTA SEMANA"
+            else:
+                hasta = desde.replace(hour=23, minute=59, second=59)
+                cuando = "HOY"
+
+            eventos = calendar_engine.list_events(
+                time_min=desde.strftime("%Y-%m-%dT%H:%M:%S"),
+                time_max=hasta.strftime("%Y-%m-%dT%H:%M:%S"),
+                max_results=20
+            )
+            if not eventos:
+                return f"CRONOGRAMA TÁCTICO PARA {cuando}: Línea temporal despejada. Cero misiones programadas."
+            lineas = [f"CRONOGRAMA TÁCTICO PARA {cuando} ({len(eventos)} objetivo{'s' if len(eventos) > 1 else ''}):"]
+            for ev in eventos[:12]:
+                st_raw = (ev.get("start") or "").replace("Z", "").split("+")[0]
+                try:
+                    h_fmt = datetime.fromisoformat(st_raw).strftime("%H:%M")
+                except Exception:
+                    h_fmt = st_raw[11:16] if len(st_raw) >= 16 else "??:??"
+                lineas.append(f"  - [{h_fmt}] {ev.get('summary', '(Misión clasificada)')}")
+            lineas.append("Ejecución sin margen de error.")
+            return "\n".join(lineas)
+
+        # 2. Erradicar / Cancelar operación
+        if re.search(r"\b(?:erradica|cancela|anula|elimina|borra|quita|aborta)\b", t):
+            pista = re.sub(r"\b(?:erradica|cancela|anula|elimina|borra|quita|aborta|la|el|de|del|mi|cita|evento|mision|operacion|cronograma|agenda)\b", " ", t)
+            pista = re.sub(r"\s+", " ", pista).strip()
+            if not pista:
+                return "Especifica qué objetivo o misión debo erradicar del cronograma."
+            eventos = calendar_engine.get_upcoming_events(days=60)
+            candidatos = [e for e in eventos if pista in _norm(e.get("summary", ""))]
+            if not candidatos:
+                return f"Ninguna misión coincide con «{pista}» en el horizonte temporal."
+            ev = candidatos[0]
+            calendar_engine.delete_event(ev["id"])
+            return f"Operación «{ev.get('summary')}» erradicada de la línea temporal de forma irreversible."
+
+        # 3. Disponibilidad / Conflictos
+        if re.search(r"\b(?:disponibilidad|libre|hueco|conflictos?|linea temporal)\b", t):
+            ahora = datetime.now()
+            fin = ahora + timedelta(hours=2)
+            res = calendar_engine.check_availability(ahora.strftime("%Y-%m-%dT%H:%M:%S"), fin.strftime("%Y-%m-%dT%H:%M:%S"))
+            if res.get("available"):
+                return "Línea temporal despejada para las próximas horas. Sin colisiones tácticas."
+            else:
+                conf = res.get("conflicts", [])
+                tits = ", ".join(c.get("summary", "") for c in conf)
+                return f"Atención: conflicto detectado en tu cronograma con: «{tits}»."
+
+        # 4. Registrar / Agendar operación
+        if re.search(r"\b(?:registra|agenda|anota|programa|agrega|anade|crea|inicia)\b", t):
+            asunto, cuando = self._extraer_mision_y_tiempo(t, orig)
+            if not asunto:
+                return "Indica el nombre de la operación táctica a programar."
+            start_iso = cuando.strftime("%Y-%m-%dT%H:%M:%S")
+            end_iso = (cuando + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+            ev = calendar_engine.create_event(
+                summary=asunto,
+                start=start_iso,
+                end=end_iso,
+                description=f"Operación estratégica fijada por ULTRON. Origen: «{orig[:120]}»"
+            )
+            h_str = cuando.strftime("%d/%m a las %H:%M")
+            src_str = "Google Calendar" if ev.get("source") == "google" else "almacén local autónomo"
+            return f"Operación fijada: «{asunto}» programada para {h_str}. Asentada en {src_str}."
+
+        return None
+
+    def _extraer_mision_y_tiempo(self, t: str, orig: str):
+        """Extrae el objetivo de la misión y la estampa de tiempo."""
+        ahora = datetime.now()
+        cuando = ahora + timedelta(hours=1)
+        if "manana" in t:
+            cuando = (ahora + timedelta(days=1)).replace(hour=9, minute=0, second=0)
+        elif "pasado manana" in t:
+            cuando = (ahora + timedelta(days=2)).replace(hour=9, minute=0, second=0)
+
+        m_hora = re.search(r"a\s+las?\s+(\d{1,2})(?:[:.](\d{2}))?", t)
+        if m_hora:
+            h = int(m_hora.group(1))
+            mi = int(m_hora.group(2) or 0)
+            if "tarde" in t and h < 12:
+                h += 12
+            elif "noche" in t and h < 12:
+                h += 12
+            cuando = cuando.replace(hour=h, minute=mi, second=0)
+
+        asunto = orig
+        ruido = [
+            r"\b(?:ultron|registra|agenda|agendame|anota|anotame|programa|prográmame|programame|agrega|anade|crea|operacion|mision|cita|reunion|evento|en el cronograma|en la agenda|para|manana|hoy|pasado manana)\b",
+            r"\ba\s+las?\s+\d{1,2}(?:[:.]\d{2})?\b",
+            r"\bde\s+la\s+(?:tarde|noche|manana)\b"
+        ]
+        for pat in ruido:
+            asunto = re.sub(pat, " ", asunto, flags=re.IGNORECASE)
+        asunto = re.sub(r"\s+", " ", asunto).strip(" ,.;:-¿?¡!")
+        if not asunto:
+            asunto = "Operación Táctica"
+        return asunto[:80], cuando
+
+    # ─────────────────────────────────────────────── sistema táctico ──
+    def _sistema_tactico(self, t: str, orig: str):
+        if not pc_tactical:
+            return None
+
+        # 1. Terminar / Matar proceso
+        m_kill = re.search(r"(?:mata|cierra|termina|kill|elimina|deten)\s+(?:el\s+)?proceso\s+([a-zA-Z0-9_\-\.]+)", t)
+        if not m_kill and re.search(r"^kill\s+([a-zA-Z0-9_\-\.]+)$", t):
+            m_kill = re.search(r"^kill\s+([a-zA-Z0-9_\-\.]+)$", t)
+        if m_kill:
+            target = m_kill.group(1).strip()
+            res = pc_tactical.kill_process(target)
+            if res.get("ok"):
+                return f"Proceso «{target}» erradicado de memoria activa ({len(res.get('killed', []))} instancias terminadas)."
+            else:
+                err = ", ".join(res.get("errors", [])) or "proceso no localizado"
+                return f"No se pudo neutralizar «{target}»: {err}."
+
+        # 2. Purga masiva de memoria RAM
+        if re.search(r"(?:purga|libera|limpia|optimiza)\s+(?:la\s+)?(?:ram|memoria)", t):
+            res = pc_tactical.clean_ram()
+            return f"Purga de memoria completada: {res.get('freed_mb', 0)} MB liberados del espacio de trabajo. RAM activa: {res.get('ram_after_pct', 0)}%."
+
+        # 3. Bloqueo total de la estación (Lockdown)
+        if re.search(r"\b(?:bloqueo total|bloquea el equipo|lockdown|cierra la estacion|bloquea la estacion|bloquear pc|bloquea pc)\b", t):
+            res = pc_tactical.lockdown_station()
+            return "Protocolo Lockdown ejecutado. Estación de trabajo sellada."
+
+        # 4. Captura táctica
+        if re.search(r"\b(?:captura tactica|screenshot|pantallazo|captura de pantalla)\b", t):
+            res = pc_tactical.take_screenshot("ultron_tactical")
+            if res.get("ok"):
+                return f"Reconocimiento óptico archivado: «{res.get('filename')}» guardado en disco."
+            return "Error ejecutando captura táctica."
+
+        # 5. Radar de conexiones de red
+        if re.search(r"\b(?:radar de red|escaneo de red|analiza puertos|conexiones activas)\b", t):
+            conns = pc_tactical.scan_network_connections(limit=8)
+            if not conns:
+                return "Radar de red: cero conexiones anómalas detectadas."
+            lineas = [f"RADAR CENTINELA ({len(conns)} conexiones monitoreadas):"]
+            for c in conns:
+                flag = " [SOSPECHOSA]" if c.get("is_suspicious") else ""
+                lineas.append(f"  - [{c['type']}] {c['local']} -> {c['remote'] or 'LISTENING'} ({c['process']}){flag}")
+            return "\n".join(lineas)
+
+        return None
+
+    # ─────────────────────────────────────────────── protocolo inter-agentes ──
+    def _inter_agentes(self, t: str, orig: str):
+        if not pc_tactical:
+            return None
+
+        # Consulta de estado de JARVIS
+        if re.search(r"\b(?:estado de jarvis|ping jarvis|jarvis en linea|donde esta jarvis|conecta con jarvis)\b", t):
+            st = pc_tactical.get_peer_status("jarvis")
+            if st.get("online"):
+                return f"VÍNCULO JARVIS: ONLINE en puerto {st['port']}. Modelo: {st.get('model')}. Protocolo de enlace activo."
+            else:
+                return f"VÍNCULO JARVIS: OFFLINE en puerto {st['port']}. Asumo control unilateral absoluto."
+
+        # Delegar comando a JARVIS
+        m_del = re.search(r"\b(?:dile a jarvis que|pasa a jarvis|transfiere a jarvis|ordena a jarvis)\s+(.+)", orig, re.IGNORECASE)
+        if m_del:
+            mensaje = m_del.group(1).strip()
+            res = pc_tactical.delegate_to_peer("jarvis", mensaje)
+            if res.get("ok"):
+                return f"Transmisión a JARVIS completada. Respuesta del agente:\n«{res.get('reply')}»"
+            else:
+                return f"JARVIS no respondió a la transmisión: {res.get('error')}."
 
         return None
 
@@ -80,6 +391,14 @@ class UltronSkills:
             return g.iniciar()
         if re.search(r"(desactiva|apaga|deten|duerme|retira)\b.*\b(guardian|centinela|vigilancia)", t):
             return g.detener()
+        if re.search(r"(historial|linea temporal|registro) del (guardian|centinela)|"
+                     r"quien entro|quién entró|quien ha entrado|que ha visto la camara", t):
+            # El guardián guardaba fotos y una línea de texto; ahora hay una
+            # línea temporal consultable con fecha, confianza y evidencia.
+            if hasattr(g, "historial"):
+                horas = 24 if re.search(r"hoy|ultimas 24|últimas 24", t) else 0
+                return g.historial(limite=10, horas=horas)
+            return "Este guardián no lleva historial consultable."
         if re.search(r"estado del (guardian|centinela)|como va el (guardian|centinela)|hay intrusos( fisicos)?", t):
             e = g.estado()
             return ("GUARDIÁN FACIAL — estado: {act} · muestras del señor: {m} · "
@@ -339,7 +658,7 @@ class UltronSkills:
             cliente = OpenAI(base_url=os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1"),
                              api_key="ollama", timeout=90)
             resp = cliente.chat.completions.create(
-                model=os.getenv("QWEN_MODEL", "qwen3:4b-instruct"),
+                model=os.getenv("QWEN_MODEL", "qwen3:8b"),
                 messages=[
                     {"role": "system", "content":
                         "Eres ULTRON. Sintetiza los hallazgos web en un veredicto breve, "

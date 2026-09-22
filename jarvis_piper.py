@@ -39,6 +39,19 @@ VOICES = {
         "quality": "high",
         "speaker": "sharvard"
     },
+    # Voces mexicanas: ULTRON no puede sonar igual que JARVIS.
+    "es_MX-ald-medium": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_MX/ald/medium",
+        "size_mb": 63,
+        "quality": "high",
+        "speaker": "ald"
+    },
+    "es_MX-claude-high": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_MX/claude/high",
+        "size_mb": 110,
+        "quality": "high",
+        "speaker": "claude"
+    },
 }
 
 DEFAULT_VOICE = "es_ES-davefx-medium"
@@ -58,6 +71,34 @@ def _ruta(voice_id: str, ext: str) -> str:
 def disponible(voice_id: str = DEFAULT_VOICE) -> bool:
     """Verifica si el modelo está descargado y válido."""
     return os.path.exists(_ruta(voice_id, ".onnx")) and os.path.getsize(_ruta(voice_id, ".onnx")) > 1000000
+
+
+def _arreglar_config(voice_id: str = DEFAULT_VOICE) -> bool:
+    """Normaliza el .onnx.json de la voz.
+
+    Algunas voces del repositorio de Rhasspy (es_MX-ald, entre otras) traen
+    "phoneme_type": "PhonemeType.ESPEAK" en vez de "espeak". Piper 1.8 lo
+    rechaza y la voz no carga, con un error que no dice qué hacer. Se corrige
+    al descargar, una sola vez.
+    """
+    ruta = _ruta(voice_id, ".onnx.json")
+    if not os.path.exists(ruta):
+        return False
+    try:
+        import json
+        with open(ruta, encoding="utf-8") as f:
+            datos = json.load(f)
+        tipo = str(datos.get("phoneme_type", ""))
+        if "." in tipo:
+            datos["phoneme_type"] = tipo.rsplit(".", 1)[1].lower()
+            with open(ruta, "w", encoding="utf-8") as f:
+                json.dump(datos, f, ensure_ascii=False)
+            print(f"[PIPER] Config de {voice_id} normalizada ({tipo} -> "
+                  f"{datos['phoneme_type']}).")
+            return True
+    except Exception as e:
+        print(f"[PIPER] No pude revisar la config de {voice_id}: {e}")
+    return False
 
 
 def _descargar(voice_id: str = DEFAULT_VOICE) -> bool:
@@ -89,6 +130,7 @@ def _descargar(voice_id: str = DEFAULT_VOICE) -> bool:
                 print(f"[PIPER] Descargando {voice_id}{ext}...")
                 urlretrieve(base_url + "/" + voice_id + ext, ruta)
 
+        _arreglar_config(voice_id)
         return disponible(voice_id)
 
     except Exception as e:
@@ -109,6 +151,15 @@ def _cargar(voice_id: str = DEFAULT_VOICE):
                 from piper import PiperVoice
                 _voz_cache[voice_id] = PiperVoice.load(_ruta(voice_id, ".onnx"))
             except Exception as e:
+                # Las voces descargadas antes de que existiera el arreglo
+                # todavia pueden tener la config mal. Se corrige y se reintenta.
+                if _arreglar_config(voice_id):
+                    try:
+                        from piper import PiperVoice
+                        _voz_cache[voice_id] = PiperVoice.load(_ruta(voice_id, ".onnx"))
+                        return _voz_cache.get(voice_id)
+                    except Exception as e2:
+                        e = e2
                 print(f"[PIPER] Error carga: {e}")
                 return None
     return _voz_cache.get(voice_id)

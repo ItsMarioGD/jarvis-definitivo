@@ -110,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
             core = _get_core()
             self._json(200, {
                 "ok": True,
-                "llm": os.getenv("QWEN_MODEL", "qwen3:4b-instruct"),
+                "llm": os.getenv("QWEN_MODEL", "qwen3:8b"),
                 "voice_id": os.getenv("ELEVENLABS_VOICE_ID", ""),
                 "mode": os.getenv("JARVIS_MODE", "full"),
                 "core_loaded": bool(core),
