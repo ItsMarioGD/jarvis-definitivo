@@ -842,6 +842,10 @@ _GEOMETRIAS = {
 # Electrones que el átomo central comparte con cada tipo de ligando.
 _ENLACES = {"H": 1, "F": 1, "Cl": 1, "Br": 1, "I": 1, "O": 2, "S": 2, "Se": 2,
             "N": 3, "P": 3, "C": 4}
+# Cuánto se acorta un enlace al subir de orden, respecto del simple. Valores
+# empíricos de uso común: con ellos el N≡N sale a 111 pm (mide 110) y el C=O
+# del CO2 a 122 (mide 116), en vez de a 142 los dos.
+_ACORTA = {1: 1.00, 2: 0.86, 3: 0.78}
 
 
 def _direcciones(dominios: int) -> list:
@@ -942,6 +946,30 @@ def _esfera(centro, r: float, n: int = 14):
     return verts, caras
 
 
+def _separar(destino, orden: int, hueco: float = 0.16) -> list:
+    """Los extremos de las `orden` varillas de un enlace simple, doble o triple.
+
+    Se apartan del eje en una dirección perpendicular cualquiera: lo que se
+    quiere ver es CUÁNTAS varillas hay, no en qué plano están.
+    """
+    import numpy as np
+    q = np.asarray(destino, dtype=float)
+    if orden <= 1:
+        return [((0.0, 0.0, 0.0), tuple(q))]
+    eje = q / (np.linalg.norm(q) or 1.0)
+    # Un vector que no sea paralelo al eje, para el producto vectorial.
+    auxiliar = np.array([0.0, 0.0, 1.0])
+    if abs(float(np.dot(eje, auxiliar))) > 0.9:
+        auxiliar = np.array([1.0, 0.0, 0.0])
+    perp = np.cross(eje, auxiliar)
+    perp = perp / (np.linalg.norm(perp) or 1.0) * hueco
+    if orden == 2:
+        corrimientos = [perp, -perp]
+    else:
+        corrimientos = [perp, -perp, np.zeros(3)]
+    return [(tuple(c), tuple(q + c)) for c in corrimientos]
+
+
 def _cilindro(p, q, r: float, n: int = 10):
     """Varilla entre dos átomos."""
     import numpy as np
@@ -988,22 +1016,42 @@ def modelo_3d_molecula(formula: str, carpeta: str = "", abrir_visor: bool = Fals
     atomos = [(central, (0.0, 0.0, 0.0), rc)]
     for lig, d in zip(ligandos, usados):
         rl = _RADIO.get(lig, 0.9)
-        dist = rc + rl
+        # Los radios covalentes tabulados son de ENLACE SIMPLE. Un doble enlace
+        # es más corto, y un triple más todavía: sin corregirlo, el N≡N salía a
+        # 142 pm cuando mide 110, y el modelo dejaba de ser preciso justo en las
+        # moléculas donde el orden de enlace es lo interesante.
+        dist = (rc + rl) * _ACORTA.get(max(1, min(_ENLACES.get(lig, 1), 3)), 1.0)
         atomos.append((lig, (d[0] * dist, d[1] * dist, d[2] * dist), rl))
     verts, caras, colores = [], [], []
+
+    def _pegar(v, c, color):
+        nonlocal verts, caras, colores
+        base = len(verts)
+        verts += v
+        caras += [tuple(i + base for i in cara) for cara in c]
+        colores += [color] * len(v)
+
     for sim, pos, r in atomos:
-        v, c = _esfera(pos, r * 0.42, 14)
-        base = len(verts)
-        verts += v
-        caras += [tuple(i + base for i in cara) for cara in c]
-        col = _COLOR.get(sim, (0.55, 0.6, 0.7))
-        colores += [col] * len(v)
-    for sim, pos, _r in atomos[1:]:
-        v, c = _cilindro((0, 0, 0), pos, 0.10, 10)
-        base = len(verts)
-        verts += v
-        caras += [tuple(i + base for i in cara) for cara in c]
-        colores += [(0.62, 0.72, 0.80)] * len(v)
+        _pegar(*_esfera(pos, r * 0.42, 14), _COLOR.get(sim, (0.55, 0.6, 0.7)))
+
+    # Enlaces con su ORDEN: uno, dos o tres varillas paralelas. Un doble enlace
+    # dibujado como uno simple no es un detalle estético: es el dato que dice
+    # que el CO2 es lineal y rígido, y que el eteno no gira sobre su enlace.
+    ordenes = []
+    for (sim, pos, _r), orden in zip(atomos[1:], [_ENLACES.get(l, 1) for l in ligandos]):
+        orden = max(1, min(int(orden), 3))
+        ordenes.append((sim, orden))
+        for desplazado in _separar(pos, orden):
+            _pegar(*_cilindro(desplazado[0], desplazado[1], 0.075, 10),
+                   (0.62, 0.72, 0.80))
+
+    # Pares solitarios: los dominios que NO llevan ligando. Son los que doblan
+    # el ángulo del agua a 104,5° y los que hacen básico al amoniaco, así que
+    # verlos importa tanto como ver los enlaces.
+    lobulos = dirs[:pares] if len(dirs) >= pares else []
+    for d in lobulos:
+        centro = (d[0] * rc * 1.45, d[1] * rc * 1.45, d[2] * rc * 1.45)
+        _pegar(*_esfera(centro, rc * 0.30, 10), (0.45, 0.85, 1.00))
     out = carpeta or M.carpeta_salida(f"molecula-{formula}")
     obj = M.exportar_obj(verts, caras, os.path.join(out, "molecula.obj"), formula)
     stl = M.exportar_stl(verts, caras, os.path.join(out, "molecula.stl"), formula)
@@ -1012,6 +1060,19 @@ def modelo_3d_molecula(formula: str, carpeta: str = "", abrir_visor: bool = Fals
     html = M.visor_web(datos, os.path.join(out, "visor.html"), f"Molécula {formula}")
     mm = masa_molar(formula)
     pasos = list(g["pasos"])
+    # Cada enlace, con su orden y su longitud: el dato concreto, no el dibujo.
+    nombres_orden = {1: "simple", 2: "doble", 3: "triple"}
+    for (sim, orden), (_s, pos, _r) in zip(ordenes, atomos[1:]):
+        longitud = math.sqrt(sum(c * c for c in pos))
+        pasos.append(f"Enlace {central}–{sim}: {nombres_orden.get(orden, 'múltiple')}"
+                     f", longitud ≈ {longitud * 100:.0f} pm "
+                     f"(suma de radios covalentes {_RADIO.get(central, 1.0):.2f} + "
+                     f"{_RADIO.get(sim, 0.9):.2f} Å)")
+    if pares:
+        pasos.append(f"{pares} par{'es' if pares > 1 else ''} solitario"
+                     f"{'s' if pares > 1 else ''} dibujado"
+                     f"{'s' if pares > 1 else ''} como lóbulos azules: "
+                     "ocupan más sitio que un enlace y por eso cierran el ángulo.")
     if mm.get("ok"):
         pasos.append(f"Masa molar M = {mm['masa_molar']:.4f} g/mol")
     pasos.append(f"Modelo 3D con {len(atomos)} átomos guardado en {out}")

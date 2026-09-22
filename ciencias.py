@@ -24,6 +24,7 @@ química y este módulo:
     «enséñame la tabla periódica»
 """
 import json
+import math
 import os
 import re
 
@@ -53,7 +54,10 @@ _DISPARA = re.compile(
     r"\bph\b|p\s*h\s+de|valoraci[oó]n|titulaci[oó]n|cin[eé]tica\s+qu[ií]mica|arrhenius|"
     r"equilibrio\s+qu[ií]mico|entalp[ií]a|ley\s+de\s+hess|pila|nernst|electroqu[ií]mic|"
     r"tabla\s+peri[oó]dica|configuraci[oó]n\s+electr[oó]nica|geometr[ií]a\s+molecular|"
-    r"mol[eé]cula\s+de|elemento\s+qu[ií]mico|n[uú]mero\s+at[oó]mico)\b",
+    r"mol[eé]cula\s+de|elemento\s+qu[ií]mico|n[uú]mero\s+at[oó]mico|"
+    # Simulaciones: «simula», «anímame», «quiero verlo moverse».
+    r"simula\w*|simulaci[oó]n|an[ií]ma\w*|atractor|efecto\s+mariposa|"
+    r"[oó]rbita\w*|ciclotr[oó]n|onda\s+estacionaria)\b",
     re.IGNORECASE)
 
 _PIDE_GRAFICA = re.compile(
@@ -102,7 +106,9 @@ Esquema:
    "circuito_rc","diagrama_pv","lente","relatividad",
    "masa_molar","balancear","estequiometria","ph","valoracion","cinetica",
    "arrhenius","equilibrio","hess","pila","molecula","elemento",
-   "tabla_periodica","configuracion"],
+   "tabla_periodica","configuracion","simular"],
+ "simulacion": "con accion=simular: tiro|orbita|pendulo|muelle|carga|lorenz|cuerda|membrana|molecula|ecuaciones",
+ "parametros": "con accion=simular: diccionario de parametros, p.ej. {\"l1\":1,\"l2\":0.8}",
  "expresion": "la expresion en notacion Python/sympy, con ** para potencias",
  "expresiones": ["varias, si hay varias curvas o ecuaciones"],
  "variable": "x",
@@ -142,7 +148,7 @@ def plan(core, enunciado: str, log=print) -> dict:
     if core is None:
         return base
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         _n, url, modelo, clave = core._proveedores()[0]
         cli = OpenAI(base_url=url, api_key=clave)
         r = cli.chat.completions.create(
@@ -236,6 +242,101 @@ def _expresion_del_texto(t: str) -> str:
     return s
 
 
+# ── simulaciones: de la frase al sistema y sus parámetros ──────────────────
+_PIDE_SIMULAR = re.compile(
+    r"\b(simula\w*|simulaci[oó]n|anima\w*|animaci[oó]n|en\s+movimiento|"
+    r"mu[eé]ve\w*|evoluci[oó]n\s+de|ver\s+c[oó]mo\s+se\s+mueve)\b", re.I)
+
+# Palabra que delata cada sistema del catálogo.
+_SISTEMAS_SIM = (
+    ("lorenz", r"\blorenz\b|efecto\s+mariposa|atractor|caos\s+determinista"),
+    ("orbita", r"\b[oó]rbit\w*|planeta|sistema\s+solar|kepler|gravitaci|"
+               r"tierra\s+y\s+la\s+luna|sol\s+y\s+la\s+tierra"),
+    ("pendulo", r"\bp[eé]ndulo\b"),
+    ("carga", r"carga\s+(el[eé]ctrica|en\s+un\s+campo)|lorentz|ciclotr[oó]n|"
+              r"part[ií]cula\s+cargada"),
+    ("membrana", r"\bmembrana\b|\btambor\b|chladni|ondas?\s+en\s+(2|dos)\s*d"),
+    ("cuerda", r"\bcuerda\b|onda\s+estacionaria|arm[oó]nico\s+de\s+una"),
+    ("muelle", r"\bmuelle\b|\bresorte\b|masa[- ]muelle|oscilador|resonancia|"
+               r"amortigua\w*"),
+    ("molecula", r"\bmol[eé]cula\b|vibraci[oó]n\s+molecular|modo\s+normal"),
+    ("tiro", r"tiro\s+parab|proyectil|trayectoria|lanz\w*|ca[ñn][oó]n|"
+             r"rozamiento\s+del\s+aire"),
+)
+
+
+# Cosas que sólo tienen sentido animadas: no hace falta decir «simula».
+_SIMULA_SOLO = re.compile(
+    r"\blorenz\b|efecto\s+mariposa|atractor|ciclotr[oó]n|p[eé]ndulo\s+doble", re.I)
+
+
+def _plan_simulacion(texto: str, bajo: str, base: dict):
+    """¿Pide ver algo MOVERSE? Entonces no es una gráfica: es una simulación."""
+    if not (_PIDE_SIMULAR.search(bajo) or _SIMULA_SOLO.search(bajo)):
+        return None
+    nums = _numeros(bajo)
+
+    def _num(i, por_defecto):
+        """Los números del enunciado por posición, con valor de reserva."""
+        return float(nums[i]) if len(nums) > i else por_defecto
+
+    # Ecuaciones dictadas: «simula x'' = -9.8 - 0.1*x'»
+    if re.search(r"[A-Za-z]\s*(''|\"|´´)\s*=", texto) or \
+            re.search(r"\bd[A-Za-z]\s*/\s*dt\s*=", texto):
+        trozos = [x.strip() for x in re.split(r"[;\n]|\by\b(?=\s*[A-Za-z]\w*\s*')",
+                                              texto) if "=" in x]
+        limpias = []
+        for x in trozos:
+            m = re.search(r"([A-Za-z]\w*\s*(?:''|\"|´´|'|´)?\s*=\s*.+)$", x)
+            if m:
+                limpias.append(m.group(1).strip(" .?!"))
+        if limpias:
+            return {**base, "accion": "simular", "simulacion": "ecuaciones",
+                    "parametros": {"ecuaciones": limpias}}
+
+    for nombre, patron in _SISTEMAS_SIM:
+        if not re.search(patron, bajo, re.I):
+            continue
+        params = {}
+        if nombre == "pendulo":
+            if re.search(r"\bdoble\b", bajo):
+                params = {"l1": _num(0, 1.0), "l2": _num(1, 0.8)}
+            else:
+                params = {"l1": _num(0, 1.0), "l2": 0.0}
+        elif nombre == "orbita":
+            if re.search(r"luna", bajo):
+                params = {"sistema": "tierra-luna"}
+            elif re.search(r"sistema\s+solar|planeta|interior", bajo):
+                params = {"sistema": "interior"}
+            else:
+                params = {"sistema": "sol-tierra"}
+        elif nombre == "tiro":
+            params = {"v0": _num(0, 25.0), "angulo": _num(1, 45.0)}
+            if re.search(r"rozamiento|aire|resistencia", bajo):
+                params["k_roce"] = 0.12
+        elif nombre == "muelle":
+            params = {"k": _num(0, 10.0)}
+            if re.search(r"resonancia", bajo):
+                params.update({"F": 1.0, "w": math.sqrt(params["k"]), "c": 0.15})
+        elif nombre == "molecula":
+            # Primero el nombre en castellano («agua», «amoniaco»), que es como
+            # se dicta; la fórmula escrita sólo si no hay nombre conocido.
+            comun = _busca_formula_comun(texto)
+            m = re.search(r"\b((?:[A-Z][a-z]?\d*){1,6})\b", texto)
+            params = {"formula": comun or (m.group(1) if m else "H2O")}
+            if re.search(r"flexi|tijera", bajo):
+                params["modo"] = "flexion"
+            elif re.search(r"asim[eé]tric", bajo):
+                params["modo"] = "asimetrico"
+        elif nombre == "membrana" and len(nums) >= 2:
+            params = {"modo": (int(nums[0]), int(nums[1]))}
+        return {**base, "accion": "simular", "simulacion": nombre,
+                "parametros": params}
+
+    # Pide simular pero no dice de qué: que lo diga el catálogo.
+    return {**base, "accion": "simular", "simulacion": "", "parametros": {}}
+
+
 def plan_por_reglas(enunciado: str) -> dict:
     """Analizador sin LLM. Cubre los casos que se dicen a diario."""
     t = (enunciado or "").strip()
@@ -248,6 +349,12 @@ def plan_por_reglas(enunciado: str) -> dict:
          "enunciado": t, "datos": {"nums": _numeros(bajo)}}
     if _PIDE_HOLOGRAMA.search(bajo):
         p["holograma"] = True
+
+    # ── simulaciones: van PRIMERO porque «simula la órbita» también casa con
+    # las reglas de física, y lo que el señor ha pedido es verlo moverse ──
+    sim = _plan_simulacion(t, bajo, p)
+    if sim:
+        return sim
 
     # ── química ──
     if re.search(r"\btabla\s+peri[oó]dica\b", bajo):
@@ -591,7 +698,7 @@ def explicar(core, enunciado: str, r: dict, log=print) -> str:
         desarrollo="\n".join(f"  {s}" for s in ([r.get("titular", "")] + pasos))[:3000],
         bloque_latex=bloque, formato=formato)
     try:
-        from openai import OpenAI
+        from proveedor_claude import cliente as OpenAI
         _n, url, modelo, clave = core._proveedores()[0]
         cli = OpenAI(base_url=url, api_key=clave)
         resp = cli.chat.completions.create(
@@ -663,6 +770,25 @@ def ejecutar(core, p: dict, log=print) -> dict:
     titulo = p.get("titulo") or ""
     r = {"titular": "", "pasos": [], "png": "", "html": "", "obj": "", "stl": "",
          "carpeta": "", "accion": accion}
+
+    # ── simulación: lo único que se MUEVE ──
+    if accion == "simular":
+        import simulacion as SIM
+        sistema = (p.get("simulacion") or "").strip().lower()
+        if not sistema:
+            r["titular"] = "¿Qué quiere que simule, señor?"
+            r["pasos"] = ["Sé simular esto:"] + [
+                f"  {k} — {d}" for k, (_f, d) in SIM.CATALOGO.items()]
+            return r
+        s = SIM.simular(sistema, p.get("parametros") or {},
+                        abrir_visor=False, log=log)
+        r["pasos"] = s.get("pasos") or s.get("notas") or []
+        if not s.get("ok"):
+            r["titular"] = "No pude montar esa simulación, señor."
+            return r
+        r.update({"html": s.get("html", ""), "carpeta": s.get("carpeta", "")})
+        r["titular"] = f"Simulación lista, señor: {s['datos'].get('titulo', sistema)}."
+        return r
 
     # ── matemáticas ──
     if accion == "ecuacion":

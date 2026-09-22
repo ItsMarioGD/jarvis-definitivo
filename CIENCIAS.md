@@ -66,6 +66,7 @@ que un visor que cargara los datos aparte no funcionaría.
 | `matematica.py` | el motor: dictado → notación, sympy, muestreo robusto, láminas 2D/3D, mallas y visor |
 | `fisica.py` | banco de 74 leyes con símbolos y unidades (elige y despeja sola) + análisis con gráfica |
 | `quimica.py` | tabla periódica de 118 elementos, masas molares, balanceo, pH, cinética, RPECV en 3D |
+| `simulacion.py` | el motor que hace que las cosas **se muevan**: Runge-Kutta 4 y visor animado |
 | `entrenar_ciencias.py` | el examen de 50 problemas y la memoria de frases aprendidas |
 
 ## Tipos de gráfica
@@ -80,6 +81,59 @@ proyectadas, superficies paramétricas `(u,v)`, curvas en el espacio exportadas
 como tubo sólido, campos vectoriales con divergencia y rotacional, y
 superficies **implícitas** `F(x,y,z)=0` reconstruidas por *surface nets* (una
 esfera sale con radio exacto a menos de 0,3 % con malla de 24³).
+
+## Simulaciones: lo único que se mueve
+
+Una gráfica es un retrato. Una simulación es el sistema **evolucionando**, y es
+donde se entiende lo que una lámina no enseña: la órbita cerrándose, el péndulo
+doble volviéndose loco, la carga enroscándose en el campo.
+
+Basta con decir **«simula…»** o **«anímame…»**:
+
+| Se dice | Qué sale |
+|---|---|
+| «simula el péndulo doble» | dos masas, el caos en directo y la energía conservándose |
+| «anima la órbita de la tierra y la luna» | N cuerpos con la ley de Newton, integrada de verdad |
+| «quiero ver el efecto mariposa» | Lorenz con un gemelo que sale a una millonésima y acaba lejísimos |
+| «simula un tiro a 30 m/s con 50 grados y rozamiento» | la trayectoria real, y cuántos metros se comió el aire |
+| «simula una carga en un campo magnético» | la hélice del ciclotrón, con su periodo |
+| «simula el muelle en resonancia» | la amplitud creciendo hasta que el amortiguamiento la frena |
+| «simula la onda estacionaria de una cuerda» | los modos superpuestos, con sus nodos quietos |
+| «simula la membrana modo 2 1» | el tambor vibrando y sus líneas nodales |
+| «anima la molécula de amoniaco» | la molécula vibrando en estiramiento o flexión |
+| «simula x'' = -0.4x' - 9x» | **las ecuaciones que usted dicte**, integradas con Runge-Kutta 4 |
+
+El visor trae play/pausa (o barra espaciadora), barra de tiempo para rebobinar,
+velocidad ×2 y ÷2, estela, ejes y un panel con las magnitudes vivas —energía,
+velocidad, separación— actualizándose marco a marco.
+
+**Por qué Runge-Kutta 4 y no Euler:** con Euler una órbita se abre en espiral y
+parece física cuando sólo es error de truncamiento. Las pruebas comprueban que
+la energía total se conserva con menos de un 0,1 % de deriva; por eso la elipse
+cierra.
+
+La última puerta, `ecuaciones`, es la que quita el techo: no hace falta que
+alguien previera el tema. Se dictan las ecuaciones y se integran. Si falta el
+valor de una constante, se pide en vez de inventárselo.
+
+## Enlaces químicos, con su orden y su longitud
+
+El modelo de bolas y varillas dibuja ahora el **orden de enlace** —una, dos o
+tres varillas— y los **pares solitarios** como lóbulos azules. Y las distancias
+se corrigen por orden, porque los radios covalentes tabulados son de enlace
+simple:
+
+| Molécula | Enlace | JARVIS | Medido | Error |
+|---|---|---|---|---|
+| H₂O | O–H simple | 97 pm | 96 pm | 1 % |
+| CH₄ | C–H simple | 107 pm | 109 pm | 1 % |
+| CO₂ | C=O doble | 122 pm | 116 pm | 5 % |
+| SO₂ | S=O doble | 147 pm | 143 pm | 2 % |
+| N₂ | N≡N triple | 111 pm | 110 pm | 0 % |
+| CCl₄ | C–Cl simple | 178 pm | 177 pm | 0 % |
+
+Sin la corrección, el N≡N salía a 142 pm cuando mide 110: el modelo dejaba de
+ser preciso justo en las moléculas donde el orden de enlace es lo interesante.
 
 ## El entrenamiento
 
@@ -173,9 +227,10 @@ enseña las dos.
 
 ## Herramientas que ve el modelo
 
-`resolver_ciencia`, `graficar`, `formula_fisica` y `quimica`. Las cuatro están
-marcadas como lectura en `permisos.py`: solo calculan y dejan la lámina en su
-carpeta, así que no piden confirmación ni en modo lectura.
+`resolver_ciencia`, `graficar`, `formula_fisica`, `quimica` y
+`simular_ciencia`. Las cinco están marcadas como lectura en `permisos.py`: solo
+calculan y dejan la lámina —o el visor animado— en su carpeta, así que no piden
+confirmación ni en modo lectura.
 
 ## Panel AEON
 
