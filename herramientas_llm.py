@@ -368,6 +368,56 @@ class Herramientas:
                "incognita": {"type": "string",
                              "description": "qué despejar; vacío si solo falta una"}},
               ["ecuacion"]),
+            h("tarjetas_estudio", "Tarjetas de estudio con repaso espaciado, "
+                                  "sacadas de los APUNTES del señor: crearlas "
+                                  "de un tema, preguntarle la que toque hoy, "
+                                  "corregir su respuesta o dar el parte. Es lo "
+                                  "que hace que se aprenda el temario, no solo "
+                                  "que lo tenga guardado.",
+              {"accion": {"type": "string",
+                          "description": "crear, siguiente, estado u olvidar"},
+               "tema": texto,
+               "respuesta": {"type": "string",
+                             "description": "para corregir: lo que ha contestado"},
+               "id": {"type": "integer", "description": "la tarjeta que se corrige"}}),
+            h("informe_practica", "Redacta un informe o memoria de prácticas y lo "
+                                  "deja en .tex, .docx y .md. Usa los apuntes del "
+                                  "señor y deja entre corchetes lo que no puede "
+                                  "saber (mediciones, fechas). No lo entrega.",
+              {"encargo": {"type": "string", "description": "de qué va el informe"},
+               "calculos": {"type": "string",
+                            "description": "resultados ya resueltos que debe usar"}},
+              ["encargo"]),
+            h("vectores_fuerzas", "Vectores y estática: módulo y ángulos, "
+                                  "descomponer una fuerza, resultante, "
+                                  "equilibrio, momento (M = r × F) y reacciones "
+                                  "de una viga apoyada. Puede DIBUJAR las "
+                                  "fuerzas en 3D.",
+              {"accion": {"type": "string",
+                          "description": "analizar, descomponer, resultante, "
+                                         "equilibrio, momento, viga o dibujar"},
+               "datos": {"type": "string",
+                         "description": "JSON con lo que pida la acción, p. ej. "
+                                        "{\"fuerzas\": [[100,0,0],[0,80,0]]} o "
+                                        "{\"magnitud\": 100, \"angulo\": 30}"}},
+              ["accion"]),
+            h("portal_academico", "El campus virtual del señor: entra, lee sus "
+                                  "asignaturas, las entregas pendientes con su "
+                                  "fecha, baja el material al índice buscable o "
+                                  "mete las entregas en el calendario. NO "
+                                  "teclea contraseñas ni entrega nada: eso lo "
+                                  "hace el señor.",
+              {"accion": {"type": "string",
+                          "description": "tareas (por defecto), cursos, material, "
+                                         "calendario, estado o configurar"},
+               "dato": {"type": "string",
+                        "description": "la asignatura para «material», o la "
+                                       "dirección del campus para «configurar»"}}),
+            h("borrador_entrega", "Prepara el BORRADOR de una entrega con el "
+                                  "enunciado del campus y los apuntes del señor, "
+                                  "y lo guarda en un archivo. No la envía.",
+              {"tarea": {"type": "string", "description": "nombre de la entrega"}},
+              ["tarea"]),
             h("vectorizar_documentos", "Completa la búsqueda POR SIGNIFICADO de "
                                        "los documentos ya indexados que aún no "
                                        "tienen vector. Úsala si el señor dice "
@@ -644,6 +694,86 @@ class Herramientas:
     def _t_vectorizar_documentos(self, a):
         import indice_documentos
         return indice_documentos.vectorizar_pendientes(log=self.log)
+
+    def _t_tarjetas_estudio(self, a):
+        import estudio
+        accion = (a.get("accion") or "siguiente").strip().lower()
+        tema = (a.get("tema") or "").strip()
+        if accion.startswith("crear") or accion.startswith("hacer"):
+            return estudio.crear(self.core, tema, log=self.log)
+        if accion.startswith("olvid") or accion.startswith("borr"):
+            return estudio.olvidar(tema)
+        if accion.startswith("estado") or accion.startswith("resumen"):
+            return estudio.resumen(tema)
+        if accion.startswith("corregir") and a.get("id"):
+            r = estudio.corregir(self.core, int(a["id"]),
+                                 a.get("respuesta", ""), log=self.log)
+            return f"[{r['nota']}] {r['comentario']}"
+        s = estudio.siguiente(tema)
+        return (f"(tarjeta {s['id']}) {s['mensaje']}" if s.get("hay")
+                else s.get("mensaje", ""))
+
+    def _t_informe_practica(self, a):
+        import informe
+        return informe.redactar(self.core, a.get("encargo", ""),
+                                calculos=a.get("calculos", ""),
+                                log=self.log).get("mensaje", "")
+
+    def _t_vectores_fuerzas(self, a):
+        import vectores
+        accion = (a.get("accion") or "analizar").strip().lower()
+        datos = a.get("datos") or {}
+        if isinstance(datos, str):
+            try:
+                datos = json.loads(datos) if datos.strip() else {}
+            except Exception:
+                self.log(f"[VECTORES] Datos ilegibles: {str(datos)[:80]}")
+                datos = {}
+        try:
+            if accion.startswith("descomp"):
+                r = vectores.descomponer(float(datos.get("magnitud", 0)),
+                                         float(datos.get("angulo", 0)),
+                                         float(datos.get("elevacion", 0)))
+            elif accion.startswith("result"):
+                r = vectores.resultante(datos.get("fuerzas") or [])
+            elif accion.startswith("equilib"):
+                r = vectores.equilibrio(datos.get("fuerzas") or [])
+            elif accion.startswith("moment"):
+                r = vectores.momento(datos.get("fuerza"), datos.get("punto"),
+                                     datos.get("respecto_a", (0, 0, 0)))
+            elif accion.startswith("viga"):
+                r = vectores.viga(float(datos.get("longitud", 0)),
+                                  datos.get("cargas") or [])
+            elif accion.startswith("dibuj"):
+                r = vectores.dibujar(datos.get("fuerzas") or [],
+                                     datos.get("nombres"), log=self.log)
+            else:
+                r = vectores.analizar(datos.get("vector") or datos.get("fuerzas") or [0, 0, 0])
+        except Exception as e:
+            return f"No pude con eso, señor: {e}"
+        return "\n".join(r.get("pasos") or ["Sin resultado."])
+
+    def _t_portal_academico(self, a):
+        import portal_academico as P
+        accion = (a.get("accion") or "tareas").strip().lower()
+        dato = (a.get("dato") or "").strip()
+        if accion.startswith("config"):
+            return P.configurar(dato)
+        if accion.startswith("curso") or accion.startswith("asignat"):
+            r = P.cursos(log=self.log)
+            lista = "\n".join(f"  · {c['nombre']}" for c in (r.get("cursos") or [])[:20])
+            return (r.get("mensaje", "") + ("\n" + lista if lista else ""))
+        if accion.startswith("material"):
+            return P.material(dato, log=self.log).get("mensaje", "")
+        if accion.startswith("calend") or accion.startswith("agend"):
+            return P.al_calendario(self.core, log=self.log)
+        if accion.startswith("estado") or accion.startswith("resumen"):
+            return P.resumen(log=self.log)
+        return P.tareas(log=self.log).get("mensaje", "")
+
+    def _t_borrador_entrega(self, a):
+        import portal_academico as P
+        return P.borrador(self.core, a.get("tarea", ""), log=self.log)
 
     def _t_recados_pendientes(self, a):
         import recados

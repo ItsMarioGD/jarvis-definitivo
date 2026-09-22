@@ -402,7 +402,14 @@ def buscar(consulta: str, k: int = 5, log=print) -> list:
         con = _con()
         try:
             if _hay_fts(con):
-                limpia = re.sub(r'["\'\-*()]', " ", consulta).strip()
+                # FTS5 tiene sintaxis propia y una consulta dictada la pisa
+                # sin querer: los dos puntos de «caída libre: medida» son el
+                # operador de columna, y la búsqueda moría con «no such
+                # column: libre». Fuera todo lo que FTS5 interpreta, y las
+                # palabras reservadas en minúscula para que no manden.
+                limpia = re.sub(r'[:"\'\-*()^{}\[\]~]', " ", consulta)
+                limpia = re.sub(r"\b(AND|OR|NOT|NEAR)\b", lambda m: m.group(0).lower(),
+                                limpia).strip()
                 try:
                     filas = con.execute(
                         "SELECT ruta, texto, rank FROM busqueda "

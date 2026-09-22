@@ -413,6 +413,9 @@ Funciona igual desde el PC o desde el móvil:
   estaba en marcha se informa y no se reinicia; lo que no se puede encender se
   dice y por qué, en vez de fingir que todo fue bien. Valen también «ya
   llegué», «ya estoy en casa», «he llegado» y «estoy de vuelta».
+- **La universidad** — «mira el campus», «qué tengo que entregar», «hazme
+  tarjetas de derivadas», «pregúntame», «descompón 100 newtons a 30 grados»,
+  «hazme el informe de la práctica 3». Ver [CARRERA.md](CARRERA.md).
 - **Simulaciones en 3D** — «simula el péndulo doble», «anima la órbita de la
   Tierra y la Luna», «quiero ver el efecto mariposa», «simula x'' = -9.8».
   Ver [CIENCIAS.md](CIENCIAS.md).

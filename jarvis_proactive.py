@@ -77,6 +77,7 @@ class ProactiveEngine:
             self._check_routine,
             self._check_security,
             self._check_updates,
+            self._check_entregas,
         ])
 
     def start(self):
@@ -223,6 +224,45 @@ class ProactiveEngine:
             pass
         return events
 
+    def _check_entregas(self) -> List[ProactiveEvent]:
+        """Entregas del campus que vencen pronto.
+
+        Solo mira lo YA leído del portal, sin entrar a la web: un motor que
+        corre cada dos minutos no puede abrir un navegador cada vez. Quien
+        refresca es «mira el campus», que el señor pide o programa aparte.
+        """
+        events = []
+        try:
+            import portal_academico as portal
+        except Exception:
+            return events
+        try:
+            for t in portal.urgentes():
+                faltan = t["vence"] - time.time()
+                horas = int(faltan / 3600)
+                # Mientras más cerca, más alto grita. Una entrega que vence hoy
+                # no es lo mismo que una de dentro de tres días.
+                if horas <= 24:
+                    prioridad = ProactivePriority.HIGH
+                    cuando = f"en {horas} horas" if horas > 1 else "en menos de una hora"
+                else:
+                    prioridad = ProactivePriority.MEDIUM
+                    cuando = f"en {int(faltan // 86400)} días"
+                titulo = str(t.get("titulo") or "")[:70]
+                events.append(ProactiveEvent(
+                    id=f"entrega_{abs(hash(titulo + str(int(t['vence']))))%10**8}",
+                    priority=prioridad,
+                    category="estudios",
+                    title=f"Entrega {cuando}",
+                    message=(f"«{titulo}»"
+                             + (f" de {t['curso']}" if t.get("curso") else "")
+                             + f" vence {cuando}, señor."),
+                    suggested_action="notify",
+                    action_data={"url": t.get("url", "")}))
+        except Exception:
+            pass
+        return events
+
     def _check_battery(self) -> List[ProactiveEvent]:
         """Nivel de batería bajo."""
         events = []
@@ -325,18 +365,20 @@ class ProactiveEngine:
         events = []
         try:
             import requests
-            # Test latencia a Ollama
-            r = requests.get("http://localhost:11434/api/tags", timeout=3)
+            # Latencia hasta la API de Anthropic, que es donde vive el cerebro.
+            # Un HEAD a la raiz basta: no gasta tokens y mide la red.
+            r = requests.head("https://api.anthropic.com", timeout=5)
             latency = r.elapsed.total_seconds() * 1000
-            if latency > 5000:
+            if latency > 3000:
                 events.append(ProactiveEvent(
                     id=f"net_{int(time.time())}",
                     priority=ProactivePriority.MEDIUM,
                     category="network",
-                    title="Latencia alta al modelo local",
-                    message=f"Ollama responde en {latency:.0f}ms. ¿Reinicio servicio?",
-                    suggested_action="ask_confirmation",
-                    action_data={"confirm_text": "reinicie Ollama", "command": "restart_ollama"}
+                    title="Latencia alta al cerebro",
+                    message=f"Anthropic responde en {latency:.0f}ms; "
+                            "las respuestas iran lentas.",
+                    suggested_action="notify",
+                    action_data={}
                 ))
         except Exception:
             pass

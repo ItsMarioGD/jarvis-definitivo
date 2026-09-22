@@ -20,6 +20,7 @@ Todo corre en modo seguro o con dobles: ninguna prueba apaga el equipo.
 """
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -1893,3 +1894,343 @@ def test_busqueda_por_significado():
            "«vectorizar_documentos» tiene método")
     _check("vectorizar_documentos" in permisos._LECTURA,
            "vectorizar es lectura: no cambia ningún documento")
+
+
+# ── 48. Vectores y estática ────────────────────────────────────────────────
+def test_vectores_estatica():
+    print("\n== 48. VECTORES Y ESTATICA ==")
+    import vectores as V
+
+    # Leer vectores como se dictan.
+    _check(V.leer([3, 4]) == [3.0, 4.0, 0.0], "una lista corta se completa a 3D")
+    _check(V.leer("3i + 4j") == [3.0, 4.0, 0.0], "notación i, j, k")
+    _check(V.leer("-2i + 5k") == [-2.0, 0.0, 5.0], "con signos y saltándose una")
+    v = V.leer("10 N a 90 grados")
+    _check(abs(v[0]) < 1e-9 and abs(v[1] - 10) < 1e-9,
+           "«10 N a 90 grados» apunta al eje Y", f"-> {v}")
+
+    # El 3-4-12 da 13 exacto: si sale otra cosa, el módulo está mal.
+    _check(abs(V.modulo([3, 4, 12]) - 13.0) < 1e-12, "|(3,4,12)| = 13")
+    _check(abs(V.modulo(V.unitario([3, 4, 12])) - 1.0) < 1e-12,
+           "el unitario mide exactamente 1")
+    _check(V.modulo([0, 0, 0]) == 0 and V.unitario([0, 0, 0]) == [0, 0, 0],
+           "el vector nulo no divide por cero")
+
+    _check(abs(V.escalar([1, 0, 0], [0, 1, 0])) < 1e-12,
+           "el escalar de dos perpendiculares es 0")
+    _check(V.vectorial([1, 0, 0], [0, 1, 0]) == [0.0, 0.0, 1.0],
+           "i × j = k", f"-> {V.vectorial([1, 0, 0], [0, 1, 0])}")
+    _check(abs(V.angulo([1, 0, 0], [0, 1, 0]) - 90.0) < 1e-9, "el ángulo sale en grados")
+    _check(abs(V.angulo([1, 0, 0], [-1, 0, 0]) - 180.0) < 1e-9,
+           "y los opuestos dan 180° sin salirse del arco coseno")
+
+    # Descomponer: 100 N a 30° son 86,60 y 50,00.
+    d = V.descomponer(100, 30)
+    _check(abs(d["vector"][0] - 86.6025403) < 1e-5 and abs(d["vector"][1] - 50.0) < 1e-9,
+           "100 N a 30° se descomponen bien", f"-> {d['vector'][:2]}")
+
+    # Equilibrio.
+    eq = V.equilibrio([[10, 0, 0], [0, 10, 0], [-10, -10, 0]])
+    _check(eq["equilibrio"], "tres fuerzas que se anulan están en equilibrio")
+    eq2 = V.equilibrio([[10, 0, 0], [5, 0, 0]])
+    _check(not eq2["equilibrio"] and abs(eq2["falta"][0] + 15.0) < 1e-9,
+           "y si no, dice exactamente qué fuerza falta", f"-> {eq2['falta']}")
+
+    # Momento: r = 2i, F = 10j  ->  M = 20k, brazo 2 m.
+    m = V.momento([0, 10, 0], [2, 0, 0])
+    _check(abs(m["vector"][2] - 20.0) < 1e-9, "M = r × F da 20k", f"-> {m['vector']}")
+    _check(any("Brazo" in p and "2.0" in p for p in m["pasos"]),
+           "y saca el brazo de 2 m", f"-> {[p for p in m['pasos'] if 'Brazo' in p]}")
+
+    # Viga: 1000 N a 2 m de una viga de 6 m -> Rb = 333,33 y Ra = 666,67.
+    viga = V.viga(6.0, [(2.0, 1000.0)])
+    _check(abs(viga["Rb"] - 1000 * 2 / 6) < 1e-9 and abs(viga["Ra"] - 1000 * 4 / 6) < 1e-9,
+           "las reacciones de la viga salen de ΣM = 0",
+           f"-> Ra={viga['Ra']:.2f} Rb={viga['Rb']:.2f}")
+    _check(abs(viga["Ra"] + viga["Rb"] - 1000.0) < 1e-9,
+           "y suman la carga total")
+    fuera = V.viga(6.0, [(9.0, 100.0)])
+    _check(not fuera.get("ok"), "una carga fuera de la viga se rechaza")
+
+    # El dibujo escribe su visor.
+    r = V.dibujar([[100, 0, 0], [0, 80, 0]], abrir_visor=False, log=lambda *a: None)
+    _check(r.get("ok") and os.path.exists(r["html"]),
+           "el diagrama de fuerzas se escribe")
+    _check(V.dibujar([], abrir_visor=False, log=lambda *a: None).get("ok") is False,
+           "sin fuerzas no se inventa un diagrama")
+
+    # Cableado.
+    import permisos
+    from herramientas_llm import Herramientas
+    caja = Herramientas(None, log=lambda *a: None)
+    nombres = [d["function"]["name"] for d in caja.definiciones()]
+    _check("vectores_fuerzas" in nombres and hasattr(caja, "_t_vectores_fuerzas"),
+           "«vectores_fuerzas» está declarada y tiene método")
+    _check("vectores_fuerzas" in permisos._LECTURA, "y es lectura: solo calcula")
+    roto = caja._t_vectores_fuerzas({"accion": "viga", "datos": "{esto no es json"})
+    _check("Necesito" in roto, "un JSON roto del modelo no la tumba")
+
+
+# ── 49. Estudio: tarjetas y repaso espaciado ───────────────────────────────
+def test_estudio_repaso():
+    print("\n== 49. ESTUDIO ==")
+    import estudio
+
+    # El intervalo, que es todo el algoritmo. Se prueba sobre una tarjeta
+    # puesta a mano para no depender del cerebro.
+    with estudio._lock:
+        con = estudio._con()
+        try:
+            con.execute("DELETE FROM tarjetas WHERE tema = '__prueba__'")
+            cur = con.execute(
+                "INSERT INTO tarjetas (tema, pregunta, respuesta, fuente, creada, "
+                "proxima, intervalo, factor) VALUES (?,?,?,?,?,?,?,?)",
+                ("__prueba__", "¿2 + 2?", "4", "test", time.time(), time.time(),
+                 0.0, estudio.FACTOR_INICIAL))
+            ident = cur.lastrowid
+            con.commit()
+        finally:
+            con.close()
+
+    def _lee():
+        with estudio._lock:
+            con = estudio._con()
+            try:
+                return con.execute(
+                    "SELECT intervalo, factor, aciertos, fallos FROM tarjetas "
+                    "WHERE id = ?", (ident,)).fetchone()
+            finally:
+                con.close()
+
+    estudio.calificar(ident, "bien")
+    i1, f1, a1, _x = _lee()
+    _check(abs(i1 - 1.0) < 1e-9 and a1 == 1,
+           "el primer acierto pone la tarjeta a un día", f"-> {i1}")
+
+    estudio.calificar(ident, "bien")
+    i2, f2, _a, _x = _lee()
+    _check(abs(i2 - estudio.FACTOR_INICIAL) < 1e-9,
+           "el segundo acierto la multiplica por el factor", f"-> {i2}")
+
+    estudio.calificar(ident, "fallo")
+    i3, f3, _a, fal3 = _lee()
+    _check(abs(i3 - 1.0) < 1e-9 and fal3 == 1,
+           "un fallo la devuelve a mañana", f"-> {i3}")
+    _check(f3 < f2, "y baja el factor de facilidad", f"-> {f3} vs {f2}")
+
+    # El factor nunca baja del mínimo: si no, la tarjeta se pregunta a diario
+    # para siempre y acabas odiándola.
+    for _ in range(20):
+        estudio.calificar(ident, "fallo")
+    _i, f_final, _a, _f = _lee()
+    _check(f_final >= estudio.FACTOR_MINIMO,
+           f"el factor no baja de {estudio.FACTOR_MINIMO}", f"-> {f_final}")
+
+    # Y el intervalo no se dispara a diez años.
+    with estudio._lock:
+        con = estudio._con()
+        try:
+            con.execute("UPDATE tarjetas SET intervalo = 900, factor = 3.0 "
+                        "WHERE id = ?", (ident,))
+            con.commit()
+        finally:
+            con.close()
+    estudio.calificar(ident, "facil")
+    i_tope, _f, _a, _x = _lee()
+    _check(i_tope <= 365.0, "el intervalo se corta en un año", f"-> {i_tope}")
+
+    # Lo que toca hoy y lo que no.
+    pendientes_antes = len(estudio.pendientes("__prueba__"))
+    _check(pendientes_antes == 0,
+           "una tarjeta con fecha lejana NO toca hoy", f"-> {pendientes_antes}")
+
+    _check("no borro todas" in estudio.olvidar("").lower(),
+           "«olvida las tarjetas» sin tema no borra nada")
+    _check("Borradas 1" in estudio.olvidar("__prueba__"),
+           "y con tema sí borra")
+
+    # Cableado.
+    import permisos
+    from herramientas_llm import Herramientas
+    caja = Herramientas(None, log=lambda *a: None)
+    nombres = [d["function"]["name"] for d in caja.definiciones()]
+    _check("tarjetas_estudio" in nombres and hasattr(caja, "_t_tarjetas_estudio"),
+           "«tarjetas_estudio» está declarada y tiene método")
+
+    # La voz: contestar sin que haya pregunta no revienta.
+    from skills.plugins import get_plugin_registry
+    reg = get_plugin_registry(log=lambda *a: None)
+    plug = next((i for _p, n, i, _x in reg.plugins if n.startswith("estudiar")), None)
+    if _check(plug is not None, "el plugin de estudio se carga solo"):
+        class _C:
+            log = staticmethod(lambda *a: None)
+        r = plug.handle("respondo lo que sea", _C())
+        _check("no le había preguntado" in (r or "").lower(),
+               "contestar sin pregunta se avisa, no se traga", f"-> {str(r)[:50]}")
+        for frase in ("que hora es", "abre spotify", "pon musica"):
+            _check(not any(any(x.search(frase) for x in rx)
+                           for _p, n, _i, rx in reg.plugins if n.startswith("estudiar")),
+                   f"«{frase}» no lo secuestra el estudio")
+
+
+# ── 50. Portal académico ───────────────────────────────────────────────────
+def test_portal_academico():
+    print("\n== 50. PORTAL ==")
+    import portal_academico as P
+
+    guardada = P._cfg()
+    try:
+        P.configurar("campus.pruebas.edu")
+        _check(P._cfg()["url"] == "https://campus.pruebas.edu",
+               "la dirección se guarda con su https")
+        _check(P.resumen_estado()["configurado"], "y queda configurado")
+
+        # Las fechas: Moodle manda segundos y Canvas texto ISO.
+        _check(abs(P._fecha(1700000000) - 1700000000) < 1, "una fecha de Moodle (segundos)")
+        iso = P._fecha("2027-03-15T10:00:00Z")
+        _check(iso > 1_700_000_000, "una fecha de Canvas (ISO)", f"-> {iso}")
+        _check(P._fecha(None) == 0.0 and P._fecha("") == 0.0,
+               "sin fecha no se inventa una")
+
+        # Cómo se cuenta el tiempo que falta.
+        _check(P._cuando(0) == "sin fecha", "una tarea sin fecha lo dice")
+        _check(P._cuando(time.time() - 100) == "VENCIDA", "una vencida se marca")
+        _check("mañana" in P._cuando(time.time() + 86400 * 1.5), "y mañana es mañana")
+
+        # Urgentes: solo las de verdad.
+        estado = P._estado_leer()
+        estado["tareas"] = [
+            {"titulo": "Cerca", "curso": "A", "vence": time.time() + 3600 * 10,
+             "url": "", "entregado": False},
+            {"titulo": "Lejos", "curso": "B", "vence": time.time() + 86400 * 30,
+             "url": "", "entregado": False},
+            {"titulo": "Hecha", "curso": "C", "vence": time.time() + 3600,
+             "url": "", "entregado": True}]
+        P._estado_guardar(estado)
+        urgentes = [t["titulo"] for t in P.urgentes()]
+        _check(urgentes == ["Cerca"],
+               "solo avisa de lo que vence pronto y no está entregado",
+               f"-> {urgentes}")
+
+        # Y el motor proactivo las convierte en aviso.
+        from jarvis_proactive import ProactiveEngine
+        motor = ProactiveEngine.__new__(ProactiveEngine)
+        eventos = motor._check_entregas()
+        _check(len(eventos) == 1 and "Cerca" in eventos[0].message,
+               "el motor proactivo avisa de la entrega que vence",
+               f"-> {[e.title for e in eventos]}")
+        _check(eventos[0].priority.name == "HIGH",
+               "y si vence en horas, lo dice alto")
+    finally:
+        estado = P._estado_leer()
+        estado["tareas"] = []
+        P._estado_guardar(estado)
+        P._guardar_cfg(guardada)
+
+    # Cableado.
+    import permisos
+    from herramientas_llm import Herramientas
+    caja = Herramientas(None, log=lambda *a: None)
+    nombres = [d["function"]["name"] for d in caja.definiciones()]
+    for n in ("portal_academico", "borrador_entrega"):
+        _check(n in nombres and hasattr(caja, f"_t_{n}"),
+               f"«{n}» está declarada y tiene método")
+    _check(permisos.evaluar("borrador_entrega") == "confirmar",
+           "el borrador se confirma: escribe un archivo y gasta cerebro")
+
+    # La voz.
+    from skills.plugins import get_plugin_registry
+    reg = get_plugin_registry(log=lambda *a: None)
+
+    def _toca(frase):
+        return any(any(r.search(frase) for r in rx)
+                   for _p, n, _i, rx in reg.plugins if n.startswith("portal"))
+    for frase in ("que tengo que entregar", "mis asignaturas", "mira el campus",
+                  "pon las entregas en el calendario"):
+        _check(_toca(frase), f"«{frase}» llega al campus")
+    for frase in ("que hora es", "abre el navegador", "mira mi pantalla"):
+        _check(not _toca(frase), f"«{frase}» NO lo secuestra el campus")
+
+
+# ── 51. Informes ───────────────────────────────────────────────────────────
+def test_informes():
+    print("\n== 51. INFORMES ==")
+    import informe
+
+    # Escapar LaTeX: sin esto, un «100 %» comenta el resto de la línea y el
+    # informe sale mutilado sin que se vea por qué.
+    escapado = informe._escapar_tex("100 % de R&D con _guiones_ y #1")
+    for bruto, seguro in (("%", r"\%"), ("&", r"\&"), ("_", r"\_"), ("#", r"\#")):
+        _check(seguro in escapado, f"«{bruto}» se escapa para LaTeX")
+    _check("\\textbackslash" in informe._escapar_tex("C:\\ruta"),
+           "y la barra invertida también")
+
+    # Las plantillas salen enteras.
+    secciones = [{"titulo": "Objetivo", "texto": "Medir la gravedad al 100 %."},
+                 {"titulo": "Conclusiones", "texto": "Sale 9,8 m/s²."}]
+    formulas = [{"nombre": "Caída libre", "latex": "v = v_0 + a t",
+                 "explicacion": "Velocidad frente al tiempo."}]
+    tex = informe._plantilla_tex("Práctica 1", "Mario", secciones, formulas,
+                                 ["Tipler, Física"])
+    _check("\\documentclass" in tex and "\\end{document}" in tex,
+           "el .tex sale completo")
+    _check("\\section{Objetivo}" in tex, "con sus secciones")
+    _check("v = v_0 + a t" in tex,
+           "y la fórmula NO se escapa: es LaTeX a propósito")
+    _check("100 \\%." in tex, "pero el texto sí", f"-> {[l for l in tex.split(chr(10)) if '100' in l]}")
+    _check("thebibliography" in tex, "y lleva bibliografía")
+
+    md = informe._plantilla_md("Práctica 1", "Mario", secciones, formulas, [])
+    _check(md.startswith("# Práctica 1") and "## Objetivo" in md,
+           "el .md sale con sus encabezados")
+
+    # El nombre de archivo no se lleva caracteres que Windows no admite.
+    nombre = informe._nombre_archivo("Práctica 1: ¿medir? g/s <2>")
+    _check(not set(nombre) & set('<>:"/\\|?*'),
+           f"el nombre de archivo queda limpio", f"-> {nombre}")
+
+    _check(informe.resumen_estado()["docx"],
+           "python-docx está, así que se puede entregar el .docx")
+
+    # Cableado.
+    import permisos
+    from herramientas_llm import Herramientas
+    caja = Herramientas(None, log=lambda *a: None)
+    nombres = [d["function"]["name"] for d in caja.definiciones()]
+    _check("informe_practica" in nombres and hasattr(caja, "_t_informe_practica"),
+           "«informe_practica» está declarada y tiene método")
+    _check(permisos.evaluar("informe_practica") == "confirmar",
+           "y se confirma: escribe tres archivos")
+
+
+# ── 52. pensar.py: el cerebro no se queda a medias ─────────────────────────
+def test_pensar_rescata():
+    print("\n== 52. PENSAR ==")
+    import pensar
+
+    # Rescatar JSON de donde sea, que es lo que hacen los modelos pequeños.
+    casos = [
+        ('{"a": 1}', {"a": 1}),
+        ('Aquí tienes:\n```json\n{"a": 1}\n```\nEspero que sirva', {"a": 1}),
+        ("bla bla {'a': 1} bla", {"a": 1}),
+        ('[{"n": 2}]', [{"n": 2}]),
+    ]
+    for crudo, esperado in casos:
+        _check(pensar._rescatar_json(crudo) == esperado,
+               f"rescata el JSON de {crudo[:28]!r}",
+               f"-> {pensar._rescatar_json(crudo)}")
+    _check(pensar._rescatar_json("no hay json aquí") is None,
+           "y si no hay JSON, lo dice en vez de inventarlo")
+    _check(pensar._rescatar_json("") is None and pensar._rescatar_json(None) is None,
+           "el vacío no revienta")
+
+    # Sin cerebro, se devuelve vacío en vez de reventar.
+    class _SinCerebro:
+        log = staticmethod(lambda *a: None)
+
+        def _proveedores(self):
+            raise RuntimeError("no hay")
+    _check(pensar.texto(_SinCerebro(), "s", "u", log=lambda *a: None) == "",
+           "sin cerebro devuelve vacío, no una excepción")
+    _check(not pensar.disponible(_SinCerebro()),
+           "y se puede preguntar si lo hay antes de intentarlo")

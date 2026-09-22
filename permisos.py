@@ -41,6 +41,10 @@ _LECTURA = {
     "resolver_ciencia", "graficar", "formula_fisica", "quimica",
     "simular_ciencia", "despejar_ecuacion", "convertir_unidades",
     "vectorizar_documentos",
+    # El campus: leerlo no cambia nada de nadie.
+    "portal_academico",
+    # Estudio y estática: preguntan, calculan y dibujan.
+    "tarjetas_estudio", "vectores_fuerzas",
 }
 
 # Efecto real: se paran y piden confirmación en modo normal.
@@ -59,6 +63,9 @@ _CONFIRMAR = {
     # dentro. Nunca teclea contraseñas ni paga, pero un clic en una web no
     # tiene diario de deshacer: se confirma antes.
     "navegador_tarea",
+    # El borrador y el informe escriben archivos y gastan un buen
+    # rato de cerebro.
+    "borrador_entrega", "informe_practica",
 }
 
 # Todo lo demás (abrir_app, crear_nota, temporizador, recordatorio, captura,
