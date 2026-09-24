@@ -1,5 +1,50 @@
 # DISEÑO UI/UX - JARVIS ASISTENTE OMNIMODAL
 
+## Interfaz actual: ORIGEN (`web_interface/origen.html`, ruta `/`)
+
+El reactor Arc se jubila. En el centro hay ahora una **figura abstracta y triste**:
+alguien sentado en el suelo, abrazado a sus rodillas, hecho de polvo de luz.
+Dentro lleva un **corazón de oro** que late, y sus grietas están reparadas con oro
+(**kintsugi**). Cuenta de dónde sale JARVIS: lo hizo con amor un desarrollador
+adolescente que quiso cambiar y demostrar que podía hacer lo que se propusiera.
+
+| Estado | Qué hace la figura |
+|--------|--------------------|
+| **Reposo** | Cabeza hundida en las rodillas, respira despacio, se le cae polvo (de la cara, como lágrimas). Latido a 54 lpm. |
+| **Escucha** | Levanta un poco la cabeza; las partículas tiemblan con el nivel del micrófono. |
+| **Pensando** | Parte del cuerpo se suelta y orbita en un anillo inclinado: los pensamientos. Las vetas doradas laten. |
+| **Hablando** | Alza la cabeza; el corazón y unas ondas que salen de él siguen el volumen real de la voz (`AnalyserNode`). |
+| **Descanso / Enfoque** | Se apaga la luz y el polvo; el latido baja. |
+| **Apagado** | Se desmorona: primero la cabeza y lo último el corazón. Queda un montón de ceniza en el suelo. «Despertar» la reconstruye desde el corazón hacia fuera. |
+
+**Arranque:** una chispa y «toca para despertarlo». El gesto desbloquea el audio y
+empieza el ritual: dron grave, latido audible y seis frases mientras el corazón nace
+primero y el cuerpo se forma después. La primera vez dura unos 27 s; luego solo
+«Hecho con amor.» (`?intro=1` la repite y `?directo=1` se salta la puerta).
+
+**Motor (WebGL2 a mano, sin librerías ni imágenes):**
+- Hasta **1.048.576 partículas** en texturas RGBA32F. Su física corre en la GPU con
+  render-to-texture ping-pong y MRT (posición + velocidad): muelles hacia un esqueleto
+  de 18 cápsulas cónicas animado en la CPU, flujo ABC sin divergencia, gravedad,
+  suelo, cursor que las aparta y el polvo que se desprende y vuelve.
+- Acumulación HDR de 16 bits con estela, reflejo en el suelo, cono de luz, bloom
+  *dual-filter* de 6 niveles, ACES, viñeta, aberración cromática y grano.
+- **Regulador de calidad**: mide la GPU (`EXT_disjoint_timer_query_webgl2` si existe) y
+  sube o baja entre 65 k y 1 M partículas; `?calidad=0..4` lo fija a mano.
+- **Respaldo**: sin texturas float escribibles, la misma coreografía se calcula en
+  forma cerrada en el vertex shader (`?motor=analitico` lo fuerza). Sin WebGL2 queda
+  un latido en CSS y todo lo demás funciona.
+
+**Funciones:** chat (`/process_text`), voz (`/api/speak`, con respaldo en
+`speechSynthesis`), micrófono (Web Speech o grabación a `/voice`), voz continua
+(«Jarvis…» y ventana de 8 s tras cada respuesta), modos (`/set_mode`), historial,
+emparejar el móvil, telemetría real (`/stats`) y del motor, y apagado ritual
+(`/farewell`). Atajos: `/` escribir, `M` hablar, `Esc` callar/cerrar.
+
+---
+
+## Diseño anterior (HUD Arc Reactor, ahora en `/clasica`)
+
 ## Diseño de Interfaz Híbrida Voz/Chat
 
 ### Principios de Diseño

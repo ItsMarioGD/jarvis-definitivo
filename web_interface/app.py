@@ -429,6 +429,15 @@ def _history_messages(limite=40):
 # ── RUTAS REST (compatibilidad con el HUD de escritorio) ──────────────────────
 @app.route('/')
 def index():
+    """ORIGEN: la interfaz principal (figura de partículas en WebGL2)."""
+    resp = send_from_directory('.', 'origen.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/clasica')
+def clasica():
+    """El HUD de siempre, con todos sus módulos, por si se echa de menos."""
     return send_from_directory('.', 'index.html')
 
 

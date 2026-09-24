@@ -887,6 +887,16 @@ def test_interfaz_web():
     _check(r.status_code == 200 and b"MODULOS" in r.data,
            "«/modulos.js» sirve los modulos compartidos", f"-> {r.status_code}")
 
+    # 5c. ORIGEN es la portada; el HUD clásico sigue a mano en /clasica.
+    r = cliente.get("/")
+    _check(r.status_code == 200 and b'data-interfaz="origen"' in r.data,
+           "«/» sirve la interfaz ORIGEN", f"-> {r.status_code}")
+    _check(b"/process_text" in r.data and b"/api/speak" in r.data,
+           "ORIGEN habla con el núcleo y con la voz del servidor")
+    r = cliente.get("/clasica")
+    _check(r.status_code == 200 and b"<title>JARVIS</title>" in r.data,
+           "«/clasica» conserva el HUD de siempre", f"-> {r.status_code}")
+
     # 6. La caducidad del PIN y del emparejamiento están puestas.
     _check(servidor.PIN_DIAS > 0, "el PIN caduca")
     _check(servidor.PAIR_DIAS > 0, "los emparejamientos caducan")
