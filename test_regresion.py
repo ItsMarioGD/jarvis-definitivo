@@ -917,6 +917,38 @@ def test_interfaz_web():
     r = cliente.get("/api/local_token")
     _check(r.status_code == 200 and (r.get_json() or {}).get("token") == pin,
            "el propio PC recibe el PIN sin teclearlo")
+
+    # 5f. Fuera de casa por Tailscale: todo llega desde 127.0.0.1 y la IP real
+    # viene en X-Forwarded-For. Antes eso contaba como «el propio PC».
+    tailscale = {"X-Forwarded-For": "100.64.9.9"}
+    for ruta in ("/pair_info", "/pin_actual", "/api/local_token"):
+        r = cliente.get(ruta, headers=tailscale)
+        _check(r.status_code == 403, f"«{ruta}» por Tailscale no cuenta como el PC",
+               f"-> {r.status_code}")
+    r = cliente.get("/pair_info", headers={"Tailscale-Funnel-Request": "?1"})
+    _check(r.status_code == 403, "lo que entra por Funnel (Internet) tampoco")
+    r = cliente.post("/api/remoto/preparar", headers=tailscale)
+    _check(r.status_code == 403, "el acceso remoto solo se activa desde el PC")
+    r = cliente.get("/pair_info", environ_base=fuera, headers={"X-Forwarded-For": "127.0.0.1"})
+    _check(r.status_code == 403, "desde la red no vale inventarse X-Forwarded-For")
+    for _ in range(servidor.INTENTOS_MAX):
+        cliente.get("/token_ok?token=000000", headers=tailscale)
+    r = cliente.get("/token_ok?token=000000", headers=tailscale)
+    _check((r.get_json() or {}).get("bloqueado") is True,
+           "quien prueba PINes por Tailscale acaba bloqueado (antes era «el PC»)")
+    servidor._fallos.pop("100.64.9.9", None)
+
+    # 5g. Sin ventanas de consola: lo que lanza el servidor sale oculto.
+    import sin_ventanas
+
+    class _Proceso:
+        def __init__(self, *args, **kwargs):
+            self.banderas = kwargs.get("creationflags", 0)
+    sin_ventanas.envolver(_Proceso)
+    _check(_Proceso(["powershell"]).banderas == sin_ventanas.CREATE_NO_WINDOW,
+           "powershell y tailscale se lanzan sin ventana")
+    _check(_Proceso(["cmd"], creationflags=0x10).banderas == 0x10,
+           "quien pide una consola a propósito la sigue teniendo")
     r = cliente.get("/")
     _check(b'src="/modulos.js"' in r.data,
            "ORIGEN carga los módulos compartidos")

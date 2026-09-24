@@ -25,12 +25,17 @@ Generar, Ojos, Teléfono, Voz, Aprender, Especialistas, Datos y web, Historial,
 Guardián y Enlace. Lo de ULTRON pasa por una pasarela (`/api/nexus/u/…`) desde
 el mismo origen: no hay un segundo PIN que teclear.
 
-**El móvil.** En ORIGEN, botón del móvil: sale un QR con el PIN dentro. El
-teléfono (en el mismo Wi-Fi) lo escanea y entra en la misma interfaz, sin teclear
-nada; si no carga, el diálogo ofrece las otras direcciones del PC y, si hace
-falta, abre el puerto en el cortafuegos de Windows. El PIN y el QR solo se ven
-desde el PC: otro aparato de la red no puede emparejarse solo. El micrófono del
-teléfono necesita HTTPS (módulo Enlace → acceso remoto); sin él, se le escribe.
+**El móvil, en casa y fuera.** En ORIGEN, botón del móvil: sale un QR con el PIN
+dentro; el teléfono lo escanea y entra en la misma interfaz, sin teclear nada.
+Para usarlo **fuera de casa**, una sola vez: instala [Tailscale](https://tailscale.com/download)
+(gratis) en el PC y en el móvil con la misma cuenta. A partir de ahí, al pulsar
+el botón del móvil JARVIS activa solo el acceso privado por HTTPS (`tailscale
+serve`, sin abrir nada en el router) y el QR pasa a una dirección
+`https://<tu-pc>.<red>.ts.net/mobile` que vale en casa, en la calle y con datos
+móviles, y con la que además funciona el micrófono del teléfono. Sin Tailscale,
+el QR usa el Wi-Fi de casa. El PIN y el QR solo se ven desde el PC; lo que entra
+por Tailscale no cuenta como «el propio PC» y necesita el PIN. El servidor ya no
+abre ventanas de consola al consultar la red o Tailscale.
 
 Las interfaces antiguas (clásica, NEXUS, ÆON, panel, la del móvil, el HUD de
 escritorio y el HUD de React) ya no existen: sus direcciones llevan a ORIGEN.

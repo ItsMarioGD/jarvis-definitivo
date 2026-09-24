@@ -314,6 +314,13 @@ select.mcampo{padding-right:8px}
 .par-dirs button{display:flex;justify-content:space-between;gap:10px;text-align:left;padding:9px 12px;border-radius:10px;border:1px solid var(--line);font:400 11px/1.4 var(--mono);color:var(--ink2)}
 .par-dirs button span{color:var(--faint)}
 .par-dirs button.activa{border-color:rgba(232,178,106,.45);color:var(--oro2)}
+.par-remoto{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(236,231,222,.02)}
+.par-remoto h4{font:500 9px/1 var(--mono);letter-spacing:.26em;color:var(--oro2);margin-bottom:8px}
+.par-remoto p{font:400 13px/1.5 var(--sans);color:var(--ink2)}
+.par-remoto p + p{margin-top:6px}
+.par-remoto b{color:#8fe3b0;font-weight:600}
+.par-remoto a{color:var(--oro2)}
+.par-remoto .mbtn{margin-top:10px}
 .par-ayuda{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .par-ayuda p{font:400 13px/1.5 var(--sans);color:var(--ink2);margin-top:8px}
 .par-ayuda p b{color:#ffcf8a;font-weight:600}
@@ -501,10 +508,11 @@ body.sin-gl .sin-gl-pulso{
         <div class="url" id="parUrl">—</div>
       </div>
     </div>
-    <p class="pista" style="margin-top:12px">Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC).
+    <p class="pista" id="parPista" style="margin-top:12px">Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC).
       Ya lleva el PIN dentro. Si no carga, prueba otra dirección:</p>
     <div class="par-dirs" id="parDirs"></div>
     <div class="par-estado" id="parEstado">Esperando al teléfono…</div>
+    <div class="par-remoto" id="parRemoto" hidden></div>
     <div class="par-ayuda" id="parAyuda" hidden></div>
     <button class="cerrar" data-cerrar>LISTO</button>
   </div>
@@ -2074,26 +2082,75 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
   $$('.velo').forEach(v => v.addEventListener('click', e => { if (e.target === v || e.target.hasAttribute('data-cerrar')) v.classList.remove('on'); }));
 
   // ─── Emparejar el móvil ──────────────────────────────────────────────────
-  const Par = { t:null, url:'', antes:null };
-  function pararPar(){ clearInterval(Par.t); Par.t = null; }
-  function qrDe(url){ $('#parQr').src = '/qr?url=' + encodeURIComponent(url) + '&v=' + Date.now(); $('#parUrl').textContent = url; }
-  async function refrescarPar(){
+  // Lo caro (direcciones, Tailscale, cortafuegos) se pide al abrir y cada 30 s;
+  // si el teléfono ya entró, cada 3 s (eso solo lee un fichero en el PC).
+  const Par = { info:null, estado:null, url:'', elegida:false, antes:null, preparado:false };
+  function pararPar(){ clearInterval(Par.info); clearInterval(Par.estado); Par.info = Par.estado = null; }
+  function qrDe(url){
+    $('#parQr').src = '/qr?url=' + encodeURIComponent(url) + '&v=' + Date.now();
+    $('#parUrl').textContent = url;
+    $('#parPista').textContent = url.startsWith('https://')
+      ? 'Escanea el QR con la cámara del teléfono (con Tailscale activado): funciona en casa y fuera, y ya lleva el PIN dentro.'
+      : 'Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC). Ya lleva el PIN dentro. Si no carga, prueba otra dirección:';
+  }
+  function enlaces(t){ return esc(t).replace(/(https?:\/\/[^\s)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+
+  function pintarRemoto(r, texto){
+    const el = $('#parRemoto');
+    let html = '<h4>FUERA DE CASA</h4>';
+    if (!r || !r.instalado) {
+      html += '<p>Para usar JARVIS fuera de casa, instala <b style="color:inherit">Tailscale</b> (gratis) en este PC y en el móvil, con la misma cuenta. Cuando lo tengas, vuelve a abrir esto: se configura solo.</p>' +
+              '<a class="mbtn" href="https://tailscale.com/download" target="_blank" rel="noopener">Descargar Tailscale</a>';
+    } else if (!r.activo) {
+      html += '<p>Tailscale está instalado pero no conectado. Ábrelo en el PC e inicia sesión; después vuelve a abrir esto.</p>';
+    } else if (!r.publicado) {
+      html += '<p>' + (texto ? enlaces(texto) : 'Activando el acceso desde fuera…') + '</p>';
+    } else if (!r.moviles.length) {
+      html += '<p><b>✓ Acceso desde fuera activo</b> (' + esc(r.url) + ').</p>' +
+              '<p>Falta el móvil: instala Tailscale en él con la misma cuenta y actívalo. En cuanto aparezca, el QR cambia solo a la dirección que funciona en casa y fuera.</p>';
+    } else {
+      html += '<p><b>✓ Funciona en casa y fuera</b> — el QR usa ' + esc(r.url) + '</p>' +
+              '<p>Solo ten Tailscale activado en el móvil (' + esc(r.moviles.join(', ')) + ').</p>';
+    }
+    if (texto && r && r.publicado) html += '<p>' + enlaces(texto) + '</p>';
+    el.innerHTML = html;
+    el.hidden = false;
+  }
+
+  function pintarInfo(d, texto){
+    $('#parPin').textContent = d.pin || '······';
+    const urls = (d.urls && d.urls.length) ? d.urls : [{ url: d.url, via: 'red local' }];
+    if (!Par.elegida || !urls.some(u => u.url === Par.url)) {
+      Par.elegida = false;
+      if (d.url !== Par.url) { Par.url = d.url; qrDe(Par.url); }
+    }
+    $('#parDirs').innerHTML = urls.map(u =>
+      `<button type="button" data-url="${esc(u.url)}" class="${u.url === Par.url ? 'activa' : ''}">${esc(u.url)}<span>${esc(u.via || '')}</span></button>`).join('');
+    pintarRemoto(d.remoto, texto);
+    const motivos = (d.diagnostico || []).map(m => `<p><b>${esc(m.que || '')}</b><br>${esc(m.hacer || '')}</p>`).join('');
+    const puerto = d.firewall && d.firewall.hace_falta;
+    $('#parAyuda').hidden = !motivos && !puerto;
+    $('#parAyuda').innerHTML = motivos +
+      (puerto ? '<button type="button" class="mbtn" id="parPuerto">Abrir el puerto en Windows</button>' : '');
+  }
+
+  async function cargarInfoPar(fresco){
     try {
-      const d = await (await fetch('/pair_info')).json();
+      const d = await (await fetch('/pair_info' + (fresco ? '?fresco=1' : ''))).json();
       if (d.error) throw new Error(d.error);
-      $('#parPin').textContent = d.pin || '······';
-      const urls = (d.urls && d.urls.length) ? d.urls : [{ url: d.url, ip: '', via: 'red local' }];
-      if (!Par.url || !urls.some(u => u.url === Par.url)) { Par.url = urls[0].url; qrDe(Par.url); }
-      $('#parDirs').innerHTML = urls.map(u =>
-        `<button type="button" data-url="${esc(u.url)}" class="${u.url === Par.url ? 'activa' : ''}">${esc(u.url)}<span>${esc(u.via || '')}</span></button>`).join('');
-      const motivos = (d.diagnostico || []).map(m => `<p><b>${esc(m.que || '')}</b><br>${esc(m.hacer || '')}</p>`).join('');
-      const puerto = d.firewall && d.firewall.hace_falta;
-      $('#parAyuda').hidden = !motivos && !puerto;
-      $('#parAyuda').innerHTML = motivos +
-        (puerto ? '<button type="button" class="mbtn" id="parPuerto">Abrir el puerto en Windows</button>' : '');
+      pintarInfo(d);
+      // Con Tailscale listo pero sin publicar, se activa solo: tocar, escanear y listo.
+      const r = d.remoto || {};
+      if (r.instalado && r.activo && !r.publicado && !Par.preparado) {
+        Par.preparado = true;
+        const p = await (await fetch('/api/remoto/preparar', { method:'POST' })).json();
+        if (!p.error) pintarInfo(Object.assign({ pin: d.pin }, p), p.texto);
+      }
     } catch (e) {
       $('#parUrl').textContent = 'No pude leer los datos de emparejamiento.';
     }
+  }
+  async function vigilarPar(){
     try {
       const p = await (await fetch('/pair_status')).json();
       const lista = p.emparejados || [];
@@ -2112,20 +2169,23 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
   $('#parDirs').addEventListener('click', e => {
     const b = e.target.closest('[data-url]');
     if (!b) return;
-    Par.url = b.dataset.url; qrDe(Par.url);
+    Par.url = b.dataset.url; Par.elegida = true; qrDe(Par.url);
     $$('#parDirs button').forEach(x => x.classList.toggle('activa', x === b));
   });
   $('#parAyuda').addEventListener('click', async e => {
     if (e.target.id !== 'parPuerto') return;
     e.target.disabled = true; e.target.textContent = 'Pidiendo permiso a Windows…';
     try { const r = await (await fetch('/abrir_puerto', { method:'POST' })).json(); aviso(r.texto || r.error || 'Hecho'); } catch (err) {}
-    refrescarPar();
+    cargarInfoPar(true);
   });
   $('#bPar').addEventListener('click', () => {
     abrir('#veloPar');
-    Par.url = ''; Par.antes = null;
-    refrescarPar();
-    pararPar(); Par.t = setInterval(refrescarPar, 4000);
+    Object.assign(Par, { url:'', elegida:false, antes:null, preparado:false });
+    pararPar();
+    cargarInfoPar(true);
+    vigilarPar();
+    Par.info = setInterval(() => cargarInfoPar(false), 30000);
+    Par.estado = setInterval(vigilarPar, 3000);
   });
   // Al cerrar el diálogo deja de preguntar.
   new MutationObserver(() => { if (!$('#veloPar').classList.contains('on')) pararPar(); })

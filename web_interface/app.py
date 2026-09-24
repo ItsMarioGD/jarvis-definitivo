@@ -22,6 +22,10 @@ import requests
 
 # Agregar path para importar jarvis_core y generator
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Corre con pythonw: sin esto, cada powershell/tailscale que se lanza abre su
+# propia ventana negra (emparejar el móvil abría una lluvia de ellas).
+import sin_ventanas
+sin_ventanas.activar()
 import jarvis_config
 
 # ── Cargar .env (claves ElevenLabs, etc.) ──
@@ -244,6 +248,30 @@ _fallos = {}          # ip -> [cuantos, momento_del_ultimo]
 LOCALES = ("127.0.0.1", "::1", "localhost")
 
 
+def _ip_cliente() -> str:
+    """IP real de quien pide.
+
+    Tailscale serve/funnel (el acceso desde fuera de casa) entrega cada
+    petición desde 127.0.0.1, y así cualquiera que entrase por ahí pasaba por
+    «el propio PC»: sin PIN, con el PIN regalado en /pin_actual y sin freno
+    para quien lo probara a lo bruto. La IP de verdad viene en
+    X-Forwarded-For. Esa cabecera solo se cree si quien conecta es este mismo
+    equipo (el proxy de Tailscale): desde la red, cualquiera podría inventarla.
+    """
+    try:
+        ip = request.remote_addr or ""
+    except Exception:
+        return ""          # fuera de una petición (hilos) no hay IP
+    if ip in LOCALES:
+        cab = request.headers
+        reenviada = (cab.get("X-Forwarded-For") or "").split(",")[0].strip()
+        if reenviada:
+            return reenviada
+        if any(k.lower().startswith(("tailscale-", "x-forwarded-")) for k in cab.keys()):
+            return "proxy"          # viene de fuera por un proxy: nunca es el PC
+    return ip
+
+
 def _bloqueado(ip: str) -> float:
     """Segundos que le quedan a esta IP castigada. 0 si puede probar."""
     if ip in LOCALES:
@@ -271,10 +299,7 @@ def _anotar_fallo(ip: str):
 def _auth_ok(token, ip: str = ""):
     """¿Vale el PIN? Con freno para el que lo esta adivinando a lo bruto."""
     if not ip:
-        try:
-            ip = request.remote_addr or ""
-        except Exception:
-            ip = ""          # fuera de una peticion (socket, hilos) no hay IP
+        ip = _ip_cliente()
     if ip and _bloqueado(ip):
         return False
     vale = token == AUTH_TOKEN
@@ -420,10 +445,7 @@ def _ips_propias() -> set:
 def _es_este_pc(ip: str = "") -> bool:
     """¿La petición sale del propio PC? (por localhost o por su IP de la red)."""
     if not ip:
-        try:
-            ip = request.remote_addr or ""
-        except Exception:
-            ip = ""
+        ip = _ip_cliente()
     return ip in LOCALES or ip in _ips_propias()
 
 
@@ -444,7 +466,7 @@ def filtro_ips():
     cualquiera en el mismo WiFi podía emparejarse solo. Ahora pasa el propio PC,
     los aparatos emparejados y quien trae el PIN; el resto, nada.
     """
-    ip = request.remote_addr or ""
+    ip = _ip_cliente()
     if _es_este_pc(ip):
         return None
     if request.path in _RUTAS_PUBLICAS or request.path.startswith("/webhook/"):
@@ -513,44 +535,103 @@ def interfaz_antigua():
     return redirect('/' + (f'?token={token}' if token else ''), code=302)
 
 
+_cache_par = {"ts": 0.0, "datos": None}
+SEGUNDOS_CACHE_PAR = 20
+
+
+def _datos_emparejar() -> dict:
+    """Direcciones, acceso desde fuera y diagnóstico, con caché.
+
+    Averiguarlo cuesta lanzar PowerShell y Tailscale varias veces: se hace una
+    vez cada 20 segundos, no en cada consulta del diálogo.
+    """
+    if _cache_par["datos"] is not None and time.time() - _cache_par["ts"] < SEGUNDOS_CACHE_PAR:
+        return _cache_par["datos"]
+    urls = _pair_urls()
+    remoto_info = {"instalado": False, "activo": False, "publicado": False,
+                   "nombre": "", "url": "", "moviles": [], "mensaje": ""}
+    try:
+        import remoto
+        remoto_info["instalado"] = remoto.instalado()
+        if remoto_info["instalado"]:
+            red = remoto.red()
+            remoto_info["activo"] = bool(red.get("activo"))
+            remoto_info["nombre"] = red.get("nombre", "")
+            remoto_info["mensaje"] = red.get("motivo") or red.get("estado") or ""
+            remoto_info["publicado"] = bool(remoto.publicado().get("serve"))
+            remoto_info["moviles"] = [a["nombre"] for a in red.get("aparatos", [])
+                                      if str(a.get("sistema", "")).lower() in ("android", "ios")]
+            if remoto_info["publicado"] and remoto_info["nombre"]:
+                remoto_info["url"] = f"https://{remoto_info['nombre']}/mobile"
+    except Exception as e:
+        remoto_info["mensaje"] = str(e)[:120]
+
+    # La dirección del QR: la de Tailscale con HTTPS vale en casa y fuera (y
+    # deja usar el micrófono), pero solo si el móvil está en Tailscale; si no,
+    # la del WiFi, que al menos funciona en casa.
+    seguras = [u for u in urls if u.get("segura")]
+    resto = [u for u in urls if not u.get("segura")]
+    if remoto_info["url"] and not seguras:
+        seguras = [{"url": remoto_info["url"], "ip": remoto_info["nombre"],
+                    "via": "Tailscale con HTTPS", "segura": True, "remota": True}]
+    if seguras and remoto_info["moviles"]:
+        urls = seguras + resto
+        recomendada = seguras[0]["url"]
+    else:
+        urls = resto + seguras
+        recomendada = urls[0]["url"] if urls else _pair_url()
+
+    datos = {"url": recomendada, "urls": urls, "remoto": remoto_info}
+    try:
+        import red_movil
+        datos["firewall"] = red_movil.firewall()
+        datos["diagnostico"] = red_movil.diagnostico(jarvis_config.PORT)
+    except Exception as e:
+        datos["firewall"] = {"error": str(e)[:80]}
+        datos["diagnostico"] = []
+    _cache_par.update(ts=time.time(), datos=datos)
+    return datos
+
+
 @app.route('/pair_info')
 def pair_info():
-    """Datos para el modal de emparejamiento de la interfaz del PC.
-
-    La página los pide cada pocos segundos: si el router cambia la IP, el QR se
-    rehace solo y el que estaba en pantalla deja de ser una trampa.
-    """
+    """Datos para el diálogo de emparejar del PC (solo desde el PC)."""
     bloqueo = _solo_este_pc()
     if bloqueo:
         return bloqueo
-    datos = {
-        'pin': AUTH_TOKEN,
-        'url': _pair_url(),
-        'urls': _pair_urls(),
-        'dns': _tailscale_dns() or '',
-    }
+    if request.args.get('fresco'):
+        _cache_par["datos"] = None
+    return jsonify({'pin': AUTH_TOKEN, **_datos_emparejar()})
+
+
+@app.route('/api/remoto/preparar', methods=['POST'])
+def remoto_preparar():
+    """Deja JARVIS listo para usarse fuera de casa, si se puede sin preguntar.
+
+    Con Tailscale instalado y con la sesión abierta, publica el servidor en la
+    red PRIVADA del señor (`tailscale serve`), por HTTPS: solo sus aparatos
+    llegan, y con HTTPS el micrófono del móvil funciona. Internet (funnel)
+    nunca se activa desde aquí.
+    """
+    if not _es_este_pc():
+        return jsonify({'error': 'esto se hace desde el PC'}), 403
     try:
         import remoto
-        datos['remoto'] = remoto.estado()
+        texto = remoto.activar(log=print)
     except Exception as e:
-        datos['remoto'] = {'instalado': False, 'error': str(e)[:80]}
-    try:
-        import red_movil
-        datos['firewall'] = red_movil.firewall()
-        datos['diagnostico'] = red_movil.diagnostico(jarvis_config.PORT)
-    except Exception as e:
-        datos['firewall'] = {'error': str(e)[:80]}
-        datos['diagnostico'] = []
-    return jsonify(datos)
+        texto = f'No pude activar el acceso desde fuera: {str(e)[:150]}'
+    _cache_par["datos"] = None
+    return jsonify({'texto': texto, **_datos_emparejar()})
 
 
 @app.route('/abrir_puerto', methods=['POST'])
 def abrir_puerto():
     """Crea la regla del cortafuegos. Solo desde el propio PC."""
-    if (request.remote_addr or '') not in ('127.0.0.1', '::1'):
+    if not _es_este_pc():
         return jsonify({'error': 'esto se hace desde el PC'}), 403
     try:
         import red_movil
+        _cache_par["datos"] = None
         return jsonify({'texto': red_movil.abrir_firewall(log=print),
                         'firewall': red_movil.firewall()})
     except Exception as e:
@@ -560,8 +641,7 @@ def abrir_puerto():
 @app.route('/notify', methods=['POST'])
 def notify_push():
     """Push interno: reenvía avisos de Jarvis al móvil conectado."""
-    remote = request.remote_addr or ''
-    if remote not in ('127.0.0.1', '::1', jarvis_config.ip_actual()):
+    if not _es_este_pc():
         return jsonify({'error': 'forbidden'}), 403
     try:
         data = request.get_json() or {}
@@ -1099,9 +1179,9 @@ def permitir_mi_ip():
     token = (request.headers.get('X-Token') or request.args.get('token')
              or (request.get_json(silent=True) or {}).get('token') or '')
     if not _auth_ok(token):
-        print(f"[auth] Emparejamiento rechazado desde {request.remote_addr}: PIN incorrecto.")
+        print(f"[auth] Emparejamiento rechazado desde {_ip_cliente()}: PIN incorrecto.")
         return jsonify({'error': 'PIN incorrecto o ausente'}), 403
-    ip = request.remote_addr or ''
+    ip = _ip_cliente()
     lista = [e for e in _cargar_ips() if e["ip"] != ip]
     if ip:
         lista.append({"ip": ip, "ts": time.time()})
@@ -1115,10 +1195,11 @@ def acceso_remoto():
     import remoto
     if request.method == 'GET':
         return jsonify(remoto.estado())
-    if (request.remote_addr or '') not in ('127.0.0.1', '::1'):
+    if not _es_este_pc():
         return jsonify({'error': 'esto se enciende desde el propio PC'}), 403
     datos = request.get_json(silent=True) or {}
     accion = (datos.get('accion') or 'activar').lower()
+    _cache_par["datos"] = None
     if accion == 'activar':
         return jsonify({'texto': remoto.activar(log=print), 'estado': remoto.estado()})
     if accion == 'desactivar':
@@ -1139,7 +1220,7 @@ def token_ok():
     rechazaba despues y acababa en la pantalla de login sin saber por que.
     """
     t = request.headers.get('X-Token') or request.args.get('token') or ''
-    espera = _bloqueado(request.remote_addr or '')
+    espera = _bloqueado(_ip_cliente())
     if espera:
         return jsonify({'ok': False, 'bloqueado': True,
                         'minutos': int(espera // 60) + 1})
@@ -1155,8 +1236,8 @@ def pin_actual():
     tiene acceso completo de todos modos, asi que puede recoger el PIN nuevo el
     solo y seguir funcionando sin que el señor se entere.
     """
-    ip = request.remote_addr or ''
-    if ip not in ('127.0.0.1', '::1') and ip not in _allowed_ips():
+    ip = _ip_cliente()
+    if not _es_este_pc(ip) and ip not in _allowed_ips():
         return jsonify({'error': 'este aparato no esta emparejado'}), 403
     return jsonify({'pin': AUTH_TOKEN})
 
@@ -1333,7 +1414,7 @@ def _avisar_voz_al_nucleo(texto: str, fin: bool = False):
     Solo desde este mismo PC: si la voz suena en el móvil, el micrófono del
     ordenador no la oye y no debe abrir una conversación sin nombre.
     """
-    if request.remote_addr not in ('127.0.0.1', '::1'):
+    if not _es_este_pc():
         return
     nucleo = getattr(core, '_c', None)      # sin forzar la carga del núcleo
     try:

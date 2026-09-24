@@ -40,6 +40,13 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+# Corre con pythonw: que ningún powershell/tailscale abra su ventana negra.
+try:
+    import sin_ventanas
+    sin_ventanas.activar()
+except Exception:
+    pass
+
 try:
     from calendar_engine import calendar_engine
 except Exception as _ce_err:

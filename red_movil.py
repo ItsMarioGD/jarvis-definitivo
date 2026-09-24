@@ -34,9 +34,11 @@ def _powershell(orden: str, timeout: int = 12) -> str:
     if os.name != "nt":
         return ""
     try:
+        # Sin ventana: desde pythonw cada powershell abría su propia consola.
         r = subprocess.run(["powershell", "-NoProfile", "-Command", orden],
                            capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace",
+                           creationflags=0x08000000)
         return (r.stdout or "").strip()
     except Exception:
         return ""
