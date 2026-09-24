@@ -2468,6 +2468,125 @@ def api_panel_accion():
         return jsonify({'ok': False, 'texto': str(e)[:200]}), 500
 
 
+# ── NUEVOS ENDPOINTS: WEB DEMO, LLAMADAS, EMAIL ───────────────────────────────
+
+@app.route('/api/webdemo/crear', methods=['POST'])
+def api_webdemo_crear():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    datos = request.get_json(silent=True) or {}
+    nombre = (datos.get('nombre') or '').strip()
+    industria = (datos.get('industria') or 'general').strip()
+    descripcion = (datos.get('descripcion') or '').strip()
+    idioma = (datos.get('idioma') or 'es').strip()
+    if not nombre:
+        return jsonify({'ok': False, 'error': 'nombre requerido'}), 400
+    try:
+        import jarvis_webdemo
+        resultado = jarvis_webdemo.crear_demo(
+            nombre, industria, descripcion, idioma, log=print)
+        return jsonify(resultado), (200 if resultado.get('ok') else 500)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+
+
+@app.route('/api/webdemo/lista', methods=['GET'])
+def api_webdemo_lista():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import jarvis_webdemo
+        return jsonify({'demos': jarvis_webdemo.listar_demos(log=print)})
+    except Exception as e:
+        return jsonify({'demos': [], 'error': str(e)[:200]})
+
+
+@app.route('/api/llamar', methods=['POST'])
+def api_llamar():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    datos = request.get_json(silent=True) or {}
+    mensaje = (datos.get('mensaje') or 'JARVIS requiere su atención, señor.').strip()
+    canal = (datos.get('canal') or 'auto').strip()
+    try:
+        import jarvis_llamadas
+        resultado = jarvis_llamadas.notificar(mensaje, canal=canal, log=print)
+        return jsonify(resultado), (200 if resultado.get('ok') else 500)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+
+
+@app.route('/api/llamar/estado', methods=['GET'])
+def api_llamar_estado():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    try:
+        import jarvis_llamadas
+        return jsonify(jarvis_llamadas.estado())
+    except Exception as e:
+        return jsonify({'disponible': False, 'error': str(e)[:200]})
+
+
+@app.route('/api/correo/inbox', methods=['GET'])
+def api_correo_inbox():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    limite = min(int(request.args.get('limite', 10)), 25)
+    try:
+        import correo_gmail
+        mensajes = correo_gmail.bandeja(limite=limite, log=print)
+        return jsonify({'ok': True, 'mensajes': mensajes})
+    except Exception as e:
+        return jsonify({'ok': False, 'mensajes': [], 'error': str(e)[:200]})
+
+
+@app.route('/api/correo/leer', methods=['GET'])
+def api_correo_leer():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    msg_id = request.args.get('id', '')
+    if not msg_id:
+        return jsonify({'ok': False, 'error': 'id requerido'}), 400
+    try:
+        import correo_gmail
+        contenido = correo_gmail.leer(msg_id, log=print)
+        return jsonify({'ok': True, 'mensaje': contenido})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]})
+
+
+@app.route('/api/correo/responder', methods=['POST'])
+def api_correo_responder():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    datos = request.get_json(silent=True) or {}
+    destino = (datos.get('destino') or '').strip()
+    asunto = (datos.get('asunto') or '').strip()
+    cuerpo = (datos.get('cuerpo') or '').strip()
+    if not all([destino, cuerpo]):
+        return jsonify({'ok': False, 'error': 'destino y cuerpo requeridos'}), 400
+    try:
+        import correo_gmail
+        resultado = correo_gmail.enviar(destino, asunto, cuerpo, log=print)
+        return jsonify({'ok': resultado.get('ok', False),
+                        'mensaje': resultado.get('mensaje', '')})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+
+
+@app.route('/api/correo/resumir', methods=['GET'])
+def api_correo_resumir():
+    if not _auth_ok(_req_token()):
+        return jsonify({'error': 'token invalido'}), 403
+    if not core:
+        return jsonify({'ok': False, 'error': 'core no disponible'}), 503
+    try:
+        resumen = core.process_text_stream("resume los correos nuevos sin leer", speak_server=False)
+        return jsonify({'ok': True, 'resumen': resumen})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+
+
 # ── SOCKETIO: CHAT EN TIEMPO REAL ─────────────────────────────────────────────
 # Clientes de Socket.IO vivos: evita bloquear el PC por una desconexion
 # transitoria del movil.
