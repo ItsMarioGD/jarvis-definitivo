@@ -69,3 +69,9 @@ flask_log.txt
 codegen_test*.txt
 test*_output.txt
 test*_log.txt
+
+# TypeScript build artifacts
+web-hud/tsconfig.tsbuildinfo
+web-hud/tsconfig.node.tsbuildinfo
+web-hud/vite.config.d.ts
+web-hud/vite.config.js
