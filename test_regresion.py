@@ -3004,3 +3004,6 @@ def test_respuestas_completas():
     app = open(os.path.join(raiz, "web_interface", "app.py"), encoding="utf-8").read()
     _check("response[:500]" not in app and "resp[:1500]" not in app,
            "el servidor web devuelve la respuesta entera")
+    origen = open(os.path.join(raiz, "web_interface", "origen.html"), encoding="utf-8").read()
+    _check(".slice(0, 1800)" not in origen and "trocearVoz" in origen,
+           "ORIGEN dice la respuesta entera, por trozos")

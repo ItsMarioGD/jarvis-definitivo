@@ -452,7 +452,7 @@ body.sin-gl .sin-gl-pulso{
       <button class="chip" data-c="Dame las noticias de hoy">noticias</button>
     </div>
     <form class="barra-in" id="formulario" autocomplete="off">
-      <input id="entrada" type="text" placeholder="Háblale… o escríbele" aria-label="Mensaje para JARVIS" maxlength="2000">
+      <input id="entrada" type="text" placeholder="Háblale… o escríbele" aria-label="Mensaje para JARVIS" maxlength="12000">
       <button type="button" class="bt mic" id="bMic" aria-label="Hablar" title="Hablar (M)">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
       </button>
@@ -1782,7 +1782,7 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
   };
 
   // ─── Subtítulos ──────────────────────────────────────────────────────────
-  const Sub = { palabras:[], mostradas:0, inicio:0, dur:0, modo:null, bordes:[], sintetico:false };
+  const Sub = { palabras:[], mostradas:0, inicio:0, dur:0, modo:null, bordes:[], sintetico:false, tramo:null };
   function subtitularTu(txt){
     const el = $('#subTu');
     el.textContent = txt.length > 160 ? txt.slice(0, 157) + '…' : txt;
@@ -1801,7 +1801,7 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
       el.appendChild(s); Sub.palabras.push(s); Sub.bordes.push(pos); pos += t.length;
     }
     el.scrollTop = 0;
-    Sub.modo = null;
+    Sub.modo = null; Sub.tramo = null;
   }
   function revelarHasta(n){
     n = Math.min(Sub.palabras.length, Math.max(0, Math.floor(n)));
@@ -1835,6 +1835,38 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     setTimeout(() => { if (id === App.vozId) $('#subJ').classList.add('vieja'); }, 9000);
   }
 
+  // Respuestas largas en trozos de unas pocas frases. De una pieza se cortaba a
+  // 1800 caracteres y el navegador deja de hablar a los ~15 s de una misma
+  // locución: las explicaciones largas se quedaban a medias.
+  function trocearVoz(texto, max){
+    max = max || 600;
+    const frases = String(texto || '').replace(/[*#`_]+/g, '').split(/(?<=[.!?…:;])\s+|\n+/);
+    const trozos = []; let actual = '';
+    for (let f of frases) {
+      f = f.trim(); if (!f) continue;
+      while (f.length > max) {
+        // Frase enorme sin puntos: se parte por una coma o un espacio.
+        let corte = f.lastIndexOf(', ', max);
+        if (corte < max/2) corte = f.lastIndexOf(' ', max);
+        if (corte < max/2) corte = max;
+        if (actual) { trozos.push(actual); actual = ''; }
+        trozos.push(f.slice(0, corte + 1).trim());
+        f = f.slice(corte + 1).trim();
+      }
+      if (!f) continue;
+      if (actual && actual.length + f.length + 1 > max) { trozos.push(actual); actual = ''; }
+      actual = actual ? actual + ' ' + f : f;
+    }
+    if (actual) trozos.push(actual);
+    return trozos;
+  }
+  const contarPalabras = t => (String(t || '').match(/\S+/g) || []).length;
+  // Qué palabras de los subtítulos cubre cada trozo: [primera, última+1).
+  function tramosDe(trozos, desde){
+    let w = desde || 0;
+    return trozos.map(t => { const n = contarPalabras(t); const r = [w, w + n]; w += n; return r; });
+  }
+
   function decir(texto){
     texto = String(texto || '').trim();
     if (!texto) return;
@@ -1844,62 +1876,96 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
     subtitular(texto);
     ponerEstado('habla');
-    const estimado = Math.max(2200, Math.min(40000, texto.length*62));
+    const estimado = Math.max(2200, texto.length*62);
     if (!App.audio) {
-      revelarPorTiempo(estimado*0.55);
+      const lectura = Math.min(40000, estimado)*0.55;
+      revelarPorTiempo(lectura);
       Sub.sintetico = true;
-      setTimeout(() => finVoz(id), estimado*0.55 + 600);
+      setTimeout(() => finVoz(id), lectura + 600);
       return;
     }
     pausarContinua();
-    const hablar = texto.replace(/\s+/g, ' ').slice(0, 1800);
-    fetch('/api/speak', { method:'POST', headers: JSONH, body: JSON.stringify({ text: hablar, agente: 'jarvis' }) })
-      .then(r => { if (!r.ok || r.status === 204) throw new Error('sin voz de servidor'); return r.blob(); })
-      .then(b => {
+    const trozos = trocearVoz(texto);
+    if (!trozos.length) { finVoz(id); return; }
+    const tramos = tramosDe(trozos);
+    const pedir = t => fetch('/api/speak', { method:'POST', headers: JSONH, body: JSON.stringify({ text: t, agente: 'jarvis' }) })
+      .then(r => { if (!r.ok || r.status === 204) throw new Error('sin voz de servidor'); return r.blob(); });
+    // Sin voz de servidor (o si el navegador no deja reproducir), lo que falta
+    // lo dice el propio navegador, entero y una sola vez.
+    let alNavegadorYa = false;
+    const alNavegador = i => {
+      if (alNavegadorYa || id !== App.vozId) return;
+      alNavegadorYa = true;
+      vozNavegador(id, trozos.slice(i), tramos.slice(i), estimado*(1 - i/trozos.length));
+    };
+    // El audio del trozo siguiente se pide mientras suena el actual: sin huecos.
+    let siguiente = pedir(trozos[0]);
+    const tocar = i => {
+      if (id !== App.vozId) return;
+      if (i >= trozos.length) { finVoz(id); return; }
+      const actual = siguiente;
+      siguiente = i + 1 < trozos.length ? pedir(trozos[i + 1]) : null;
+      if (siguiente) siguiente.catch(() => {});
+      actual.then(b => {
         if (id !== App.vozId) return;
         const url = URL.createObjectURL(b);
         Son.conectarVoz();
         tts.src = url;
-        tts.onended = () => { URL.revokeObjectURL(url); finVoz(id); };
-        tts.onerror = () => { URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado); };
-        Sub.modo = 'audio';
+        tts.onended = () => { URL.revokeObjectURL(url); revelarHasta(tramos[i][1]); tocar(i + 1); };
+        tts.onerror = () => { URL.revokeObjectURL(url); alNavegador(i); };
+        Sub.modo = 'audio'; Sub.tramo = tramos[i];
         return tts.play().catch(err => {
           if (err && err.name === 'NotAllowedError') App.vozBloqueada = true;
-          URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado);
+          URL.revokeObjectURL(url); alNavegador(i);
         });
-      })
-      .catch(() => { if (id === App.vozId) vozNavegador(id, hablar, estimado); });
+      }).catch(() => alNavegador(i));
+    };
+    tocar(0);
   }
 
-  function vozNavegador(id, texto, estimado){
+  function vozNavegador(id, trozos, tramos, estimado){
     if (id !== App.vozId) return;
     revelarPorTiempo(estimado);
     Sub.sintetico = true;
     let terminado = false;
     const acabar = () => { if (terminado) return; terminado = true; Sub.sintetico = false; finVoz(id); };
-    const seguro = setTimeout(acabar, estimado + 4000);
+    // Red por si el navegador nunca avisa del final; con holgura, porque cortar
+    // antes de tiempo volvía a abrir el micrófono con JARVIS aún hablando.
+    const seguro = setTimeout(acabar, estimado*1.5 + 4000);
     try {
       if (!('speechSynthesis' in window)) { clearTimeout(seguro); setTimeout(acabar, estimado); return; }
-      const u = new SpeechSynthesisUtterance(texto);
-      u.lang = 'es-ES'; u.rate = 0.98; u.pitch = 0.92;
       const vs = speechSynthesis.getVoices();
       const v = vs.find(x => /es[-_]ES/i.test(x.lang) && /jorge|pablo|alvaro|david|enrique|male|hombre/i.test(x.name))
              || vs.find(x => /es[-_]ES/i.test(x.lang)) || vs.find(x => /^es/i.test(x.lang));
-      if (v) u.voice = v;
-      u.onboundary = e => {
-        if (id !== App.vozId) return;
-        let n = 0; while (n < Sub.bordes.length && Sub.bordes[n] <= e.charIndex) n++;
-        revelarHasta(n);
-      };
+      // Frases cortas encoladas: ninguna llega al corte de los ~15 segundos.
+      const cortas = [], suyas = [];
+      trozos.forEach((t, k) => {
+        const piezas = trocearVoz(t, 220);
+        tramosDe(piezas, tramos[k] ? tramos[k][0] : 0).forEach((r, j) => { cortas.push(piezas[j]); suyas.push(r); });
+      });
+      if (!cortas.length) { clearTimeout(seguro); acabar(); return; }
       const t0 = performance.now();
-      u.onend = () => { clearTimeout(seguro); acabar(); };
-      // Sin voces instaladas la síntesis falla al instante: los subtítulos
-      // siguen a su ritmo en vez de saltar de golpe al final.
-      u.onerror = ev => {
-        if (ev && ev.error === 'not-allowed') App.vozBloqueada = true;
-        clearTimeout(seguro); setTimeout(acabar, Math.max(0, estimado - (performance.now() - t0)));
-      };
-      speechSynthesis.speak(u);
+      cortas.forEach((c, k) => {
+        const u = new SpeechSynthesisUtterance(c);
+        u.lang = 'es-ES'; u.rate = 0.98; u.pitch = 0.92;
+        if (v) u.voice = v;
+        u.onboundary = e => {
+          if (id !== App.vozId) return;
+          revelarHasta(suyas[k][0] + contarPalabras(c.slice(0, e.charIndex)) + 1);
+        };
+        if (k === cortas.length - 1) {
+          u.onend = () => { clearTimeout(seguro); acabar(); };
+          // Sin voces instaladas la síntesis falla al instante: los subtítulos
+          // siguen a su ritmo en vez de saltar de golpe al final.
+          u.onerror = ev => {
+            if (ev && ev.error === 'not-allowed') App.vozBloqueada = true;
+            clearTimeout(seguro); setTimeout(acabar, Math.max(0, estimado - (performance.now() - t0)));
+          };
+        } else {
+          u.onerror = ev => { if (ev && ev.error === 'not-allowed') App.vozBloqueada = true; };
+        }
+        speechSynthesis.speak(u);
+      });
     } catch (e) { clearTimeout(seguro); setTimeout(acabar, estimado); }
   }
 
@@ -1916,7 +1982,9 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     Motor.audio(nivel);
     Motor.mic(App.escuchando ? Son.nivelMic() : 0);
     if (Sub.modo === 'audio' && !tts.paused && tts.duration && isFinite(tts.duration)) {
-      revelarHasta(Sub.palabras.length*(tts.currentTime/tts.duration)*1.04 + 1);
+      // Con la voz por trozos, cada audio solo avanza las palabras de su tramo.
+      const [w0, w1] = Sub.tramo || [0, Sub.palabras.length];
+      revelarHasta(w0 + (w1 - w0)*(tts.currentTime/tts.duration)*1.04 + 1);
     } else if (Sub.modo === 'tiempo') {
       const f = (performance.now() - Sub.inicio)/Math.max(1, Sub.dur);
       revelarHasta(Sub.palabras.length*f + 1);
