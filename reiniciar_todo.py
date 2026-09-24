@@ -18,6 +18,12 @@ import consola_utf8  # noqa: F401  (salida a prueba de cp1252)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_FILES = ["jarvis_memory.db", "ultron_memory.db"]
+LOGS = os.path.join(ROOT, "jarvis_log")
+
+
+def registro(nombre: str) -> str:
+    """jarvis_log/jarvis.log, jarvis_log/calendar_mcp.log..."""
+    return os.path.join(LOGS, nombre.lower().replace(" ", "_") + ".log")
 
 def kill_pythonw():
     """Mata TODOS los pythonw existentes."""
@@ -154,12 +160,19 @@ def start_server(name, cwd, script, *extra):
     # Home Assistant, por ejemplo, lee HA_TOKEN del entorno y no del fichero).
     entorno = dict(_valores_env())
     entorno.update(os.environ)
+    # Sin consola no se ve nada: lo que diga cada servidor queda en
+    # jarvis_log/<nombre>.log (se empieza de cero en cada arranque).
+    try:
+        os.makedirs(LOGS, exist_ok=True)
+        salida = open(registro(name), "w", encoding="utf-8", errors="replace")
+    except OSError:
+        salida = subprocess.DEVNULL
     try:
         subprocess.Popen(
             [exe, script, *extra],
             cwd=os.path.join(ROOT, cwd), env=entorno,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=salida,
+            stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             creationflags=flags,
             close_fds=True,
@@ -167,6 +180,9 @@ def start_server(name, cwd, script, *extra):
         print(f"  [START] {name} arrancado en {cwd}")
     except Exception as e:
         print(f"  [ERR] {name} no arranco: {e}")
+    finally:
+        if salida is not subprocess.DEVNULL:
+            salida.close()          # el hijo tiene su copia
 
 def wait_health(url, name, timeout=15):
     """Espera a que /health conteste algo.

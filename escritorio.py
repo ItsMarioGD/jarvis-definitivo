@@ -14,8 +14,9 @@ aplicacion) y pywebview usa por debajo este mismo motor de Edge, con mas
 dependencias. Asi es lo mismo sin instalar nada.
 
 Uso:
-    pythonw escritorio.py            abre JARVIS (y arranca el nucleo si hace falta)
-    python escritorio.py --acceso    crea el acceso directo «JARVIS» (escritorio e Inicio)
+    doble clic en el icono «JARVIS»  (lo crea el propio JARVIS la primera vez que arranca)
+    pythonw escritorio.py            lo mismo: abre JARVIS y arranca el nucleo si hace falta
+    python escritorio.py --acceso    vuelve a crear el icono (escritorio y menu Inicio)
 """
 import base64
 import json
@@ -274,7 +275,7 @@ def nucleo_vivo(timeout: float = 1.5) -> bool:
         return False
 
 
-def asegurar_nucleo(espera: float = 40.0) -> bool:
+def asegurar_nucleo(espera: float = 60.0) -> bool:
     """Si JARVIS no está en marcha, lo arranca (oculto) y espera a que conteste."""
     if nucleo_vivo():
         return True
@@ -340,9 +341,162 @@ def crear_acceso_directo() -> bool:
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", codificado],
                        capture_output=True, timeout=60, creationflags=_sin_consola())
     ok = r.returncode == 0
+    if ok:
+        try:
+            with open(_marca_acceso(), "w", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M"))
+        except OSError:
+            pass
     print("Acceso directo «JARVIS» creado en el escritorio y en el menú Inicio."
           if ok else "No pude crear el acceso directo.")
     return ok
+
+
+def _marca_acceso() -> str:
+    return os.path.join(carpeta_datos(), "acceso_creado")
+
+
+def asegurar_acceso() -> bool:
+    """El icono, la primera vez que arranca JARVIS, sin abrir ninguna terminal.
+
+    Solo una vez: si el señor lo borra, no vuelve a aparecer solo (con
+    «escritorio.py --acceso» se rehace cuando quiera).
+    """
+    if os.name != "nt" or os.path.exists(_marca_acceso()):
+        return False
+    os.makedirs(carpeta_datos(), exist_ok=True)
+    return crear_acceso_directo()
+
+
+# ── al hacer doble clic ─────────────────────────────────────────────────────
+PUERTO_CANDADO = 47931
+
+
+def _candado():
+    """Un solo lanzador a la vez: un segundo doble clic mientras arranca no
+    levanta los servidores dos veces. El puerto se libera solo al salir."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", PUERTO_CANDADO))
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
+def _mensaje(texto: str):
+    """Un aviso de Windows (sin tkinter también se ve)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, texto, "J.A.R.V.I.S.", 0x30)
+            return
+        except Exception:
+            pass
+    print(texto)
+
+
+def _registro_nucleo() -> str:
+    try:
+        import reiniciar_todo
+        return reiniciar_todo.registro("JARVIS")
+    except Exception:
+        return os.path.join(RAIZ, "jarvis_log", "jarvis.log")
+
+
+class _Aviso:
+    """«JARVIS despertando…» mientras arranca el núcleo.
+
+    Sin esto el doble clic no daba señales durante los segundos que tarda en
+    arrancar, y lo natural era volver a pulsar. Sin tkinter se arranca igual.
+    """
+    FONDO, ORO, TENUE = "#030407", "#E8B26A", "#8A8578"
+
+    def __init__(self):
+        import tkinter as tk
+        if os.name == "nt":
+            try:
+                import ctypes
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except Exception:
+                pass
+        self.tk = tk
+        self.raiz = r = tk.Tk()
+        r.withdraw()
+        r.overrideredirect(True)
+        r.configure(bg=self.FONDO)
+        r.attributes("-topmost", True)
+        esc = max(1.0, r.winfo_fpixels("1i") / 96.0)
+        w, h = int(440 * esc), int(180 * esc)
+        r.geometry(f"{w}x{h}+{(r.winfo_screenwidth() - w) // 2}+{(r.winfo_screenheight() - h) // 2}")
+        tk.Label(r, text="J . A . R . V . I . S .", fg=self.ORO, bg=self.FONDO,
+                 font=("Consolas", 15)).pack(pady=(int(38 * esc), 6))
+        self.texto = tk.StringVar(value="despertando…")
+        tk.Label(r, textvariable=self.texto, fg=self.TENUE, bg=self.FONDO, justify="center",
+                 font=("Georgia", 11, "italic"), wraplength=w - int(60 * esc)).pack()
+        self.ancho = int(260 * esc)
+        self.lienzo = tk.Canvas(r, width=self.ancho, height=2, bg=self.FONDO, highlightthickness=0)
+        self.lienzo.pack(pady=int(20 * esc))
+        self.barra = self.lienzo.create_rectangle(0, 0, 0, 2, fill=self.ORO, width=0)
+        self.x = 0
+        self._anim = None
+        r.deiconify()
+        self._animar()
+
+    def _animar(self):
+        self.x = (self.x + 5) % (self.ancho + 70)
+        self.lienzo.coords(self.barra, self.x - 70, 0, self.x, 2)
+        self._anim = self.raiz.after(30, self._animar)
+
+    def error(self, texto: str, registro: str):
+        if self._anim:
+            self.raiz.after_cancel(self._anim)
+        self.lienzo.pack_forget()
+        self.texto.set(texto)
+        tk = self.tk
+        fila = tk.Frame(self.raiz, bg=self.FONDO)
+        fila.pack(pady=14)
+        estilo = dict(fg=self.ORO, bg=self.FONDO, activebackground=self.FONDO,
+                      activeforeground=self.ORO, relief="flat", bd=0, highlightthickness=0,
+                      font=("Consolas", 10), cursor="hand2")
+        if os.path.exists(registro):
+            tk.Button(fila, text="ver qué pasó", command=lambda: os.startfile(registro),
+                      **estilo).pack(side="left", padx=12)
+        tk.Button(fila, text="cerrar", command=self.raiz.destroy, **estilo).pack(side="left", padx=12)
+
+
+def arrancar_y_abrir(reemplazar: bool = False) -> bool:
+    """Arranca el núcleo con el aviso en pantalla y, cuando contesta, abre la ventana."""
+    fallo = ("No he podido arrancar, señor.\n"
+             "Lo que pasó está en jarvis_log\\jarvis.log.")
+    try:
+        aviso = _Aviso()
+    except Exception:
+        aviso = None
+    if aviso is None:
+        if asegurar_nucleo():
+            return abrir_ventana(reemplazar=reemplazar)
+        _mensaje(fallo)
+        return False
+
+    import threading
+    resultado = {}
+    hilo = threading.Thread(target=lambda: resultado.update(ok=asegurar_nucleo()), daemon=True)
+    hilo.start()
+
+    def mirar():
+        if hilo.is_alive():
+            aviso.raiz.after(200, mirar)
+        elif resultado.get("ok"):
+            aviso.texto.set("aquí estoy")
+            abrir_ventana(reemplazar=reemplazar)
+            aviso.raiz.after(1800, aviso.raiz.destroy)     # hasta que aparece la ventana
+        else:
+            aviso.error(fallo, _registro_nucleo())
+    aviso.raiz.after(200, mirar)
+    aviso.raiz.mainloop()
+    return bool(resultado.get("ok"))
 
 
 def main(argv=None) -> int:
@@ -354,9 +508,14 @@ def main(argv=None) -> int:
         pass
     if "--acceso" in argv:
         return 0 if crear_acceso_directo() else 1
-    asegurar_nucleo()
-    abrir_ventana(reemplazar="--reemplazar" in argv)
-    return 0
+    candado = _candado()
+    if candado is None:
+        return 0                        # ya hay otro lanzador en marcha: él abre la ventana
+    reemplazar = "--reemplazar" in argv
+    if nucleo_vivo():
+        abrir_ventana(reemplazar=reemplazar)
+        return 0
+    return 0 if arrancar_y_abrir(reemplazar) else 1
 
 
 if __name__ == "__main__":

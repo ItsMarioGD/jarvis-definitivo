@@ -2,13 +2,23 @@
 
 ## Uso diario
 
-**Doble clic en el icono «JARVIS»** del escritorio (o búscalo en Inicio). Si
-JARVIS no estaba en marcha, lo arranca sin consolas; si la ventana ya estaba
-abierta, la trae delante. El icono lo crea `JARVIS_START.bat` la primera vez, o:
+**Doble clic en el icono «JARVIS»** del escritorio (o búscalo en Inicio). Sin
+terminal: si JARVIS no estaba en marcha, sale «JARVIS despertando…» mientras lo
+arranca sin consolas y luego se abre su ventana; si ya estaba abierta, la trae
+delante. Un segundo doble clic mientras arranca no lanza nada dos veces. Para
+anclarlo a la barra de tareas, ancla este icono (clic derecho en Inicio →
+Anclar a la barra de tareas), no la ventana abierta: la ventana sola no
+arranca el núcleo.
+
+El icono lo crea JARVIS solo la primera vez que arranca. Si lo borras, no
+vuelve a aparecer solo; para recuperarlo:
 
 ```bash
 python escritorio.py --acceso
 ```
+
+Si algo no arranca, lo que dijo cada servidor está en `jarvis_log\` (`jarvis.log`,
+`ultron.log`, `calendar_mcp.log`...), que se empieza de cero en cada arranque.
 
 Para reiniciarlo todo (JARVIS, ULTRON y los servidores MCP que hagan falta):
 

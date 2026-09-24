@@ -1637,6 +1637,55 @@ def test_recursos_y_ventana():
          escritorio.navegador, escritorio.subprocess.Popen) = antes_esc
         webbrowser.open = antes_wb
 
+    # 5. Sin terminal: el icono lo crea JARVIS una vez, un segundo doble clic
+    #    no arranca nada dos veces y lo que pasa queda en jarvis_log/.
+    candado = escritorio._candado()
+    _check(candado is not None and escritorio._candado() is None,
+           "un segundo doble clic mientras arranca no lanza otro JARVIS")
+    if candado:
+        candado.close()
+
+    import tempfile
+    carpeta = tempfile.mkdtemp()
+    creados = []
+
+    class _Windows:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(os, attr)
+    antes_acc = (escritorio.os, escritorio.carpeta_datos, escritorio.crear_acceso_directo)
+    try:
+        escritorio.os = _Windows()
+        escritorio.carpeta_datos = lambda: carpeta
+
+        def _crear():
+            creados.append(1)
+            open(escritorio._marca_acceso(), "w").close()
+            return True
+        escritorio.crear_acceso_directo = _crear
+        escritorio.asegurar_acceso()
+        escritorio.asegurar_acceso()
+        _check(creados == [1], "el icono «JARVIS» se crea solo la primera vez que arranca",
+               f"-> {len(creados)} veces")
+    finally:
+        escritorio.os, escritorio.carpeta_datos, escritorio.crear_acceso_directo = antes_acc
+
+    with open(os.path.join(carpeta, "hola.py"), "w", encoding="utf-8") as f:
+        f.write("print('servidor de prueba listo')\n")
+    registro = reiniciar_todo.registro("Prueba registro")
+    reiniciar_todo.start_server("Prueba registro", carpeta, "hola.py")
+    for _ in range(40):
+        if os.path.exists(registro) and "listo" in open(registro, encoding="utf-8").read():
+            break
+        time.sleep(0.25)
+    _check(os.path.exists(registro) and "servidor de prueba listo" in open(registro, encoding="utf-8").read(),
+           "sin consola, lo que dice cada servidor queda en jarvis_log/")
+    try:
+        os.remove(registro)
+    except OSError:
+        pass
+
 
 def main():
     pruebas = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

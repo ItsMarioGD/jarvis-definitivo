@@ -2764,5 +2764,17 @@ if __name__ == '__main__':
     # ── ULTRON ya NO se auto-arranca aquí: reiniciar_todo.py es el único
     #    orquestador y evita procesos duplicados (doble voz / doble TTS). ──
 
+    # Una línea por petición (la telemetría pide cada 2,5 s) no dice nada y,
+    # sin consola, llenaba el registro: solo avisos y errores.
+    import logging as _logging
+    _logging.getLogger('werkzeug').setLevel(_logging.WARNING)
+
+    # El icono «JARVIS» del escritorio, la primera vez (sin abrir terminal).
+    try:
+        import escritorio as _escritorio
+        threading.Thread(target=_escritorio.asegurar_acceso, daemon=True).start()
+    except Exception as _e:
+        print(f"[ESCRITORIO] No pude preparar el acceso directo: {_e}")
+
     socketio.run(app, host='0.0.0.0', port=_port, debug=False,
                  use_reloader=False, allow_unsafe_werkzeug=True)

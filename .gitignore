@@ -62,6 +62,7 @@ Thumbs.db
 Descargas/
 storage/
 jarvis_log/
+.python_del_proyecto
 _vision/
 ultron_web.log
 flask_log.txt
