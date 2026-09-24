@@ -14,7 +14,7 @@ Desarrollar un asistente inteligente omnimodal y autónomo con capacidades de vo
 4. **Diccionario de Herramientas** - `prompt_funciones_arquitectura.md` - 6 herramientas MCP definidas (Android accessibility, Calendar, Kling, Mem0, Home Assistant, Self-Healing)
 5. **Vector de Desarrollo** - `prompt_ideas_por_implementar.md` - 3 ideas futuras (multi-agente, sandbox móvil, paralingüística)
 6. **Núcleo Lógico** - `jarvis_core.py` - Motor principal (Python) con STT, LLM, TTS, memoria persistente (SQLite) y listener UDP.
-7. **Interfaz HUD** - `interfaz_jarvis.py` - UI (Python) rediseñada a un estilo HUD futurista con telemetría en tiempo real.
+7. **Interfaz ORIGEN** - `web_interface/origen.html` - la única interfaz, en el navegador del PC y del móvil.
 8. **Módulo Hotkey (C++)** - `jarvis_hotkey.cpp` - Microservicio Win32 para despertar a Jarvis globalmente (Ctrl+Alt+J) vía UDP.
 9. **Módulo ADB (Java)** - `JarvisAdbBridge.java` - Puente para controlar dispositivos Android (preparación Sprint 6).
 10. **Variables de Entorno** - `.env` - Configuradas y limpias (sin comentarios inline)
@@ -35,7 +35,7 @@ Desarrollar un asistente inteligente omnimodal y autónomo con capacidades de vo
 | **TTS** | ✅ | ElevenLabs voz Spuds Oxley (eleven_multilingual_v2) |
 | **LLM** | ✅ | Qwen3:4b-instruct ejecutando localmente vía Ollama (puerto 11434) |
 | **Transporte** | ✅ | Llamadas directas REST (no WebRTC en Fase 1) |
-| **Interfaz** | ✅ | HUD Futurista estilo Iron Man: Arc Reactor animado (Canvas), 90 tick-marks, anillos giratorios, telemetría real, log de sistema. **Módulo de generación de imágenes añadido** - guarda en Descargas/JARVIS/Imagenes/YYYY-MM-DD/ |
+| **Interfaz** | ✅ | **ORIGEN** (`/`): partículas en WebGL2 que flotan dispersas y se reúnen en una mente de oro (un cerebro) cuando le hablas y cuando contesta; física en la GPU, voz, subtítulos, telemetría real y todos los módulos (ciencias, modelado 3D, cerebro, correo, demos web, llamadas, consejo…). Sin cinemática: saluda y a trabajar. El móvil usa la misma interfaz. Las interfaces antiguas se eliminaron. |
 | **Núcleo Lógico** | ✅ | `jarvis_core.py` (Python): Limpieza `<think>`, Contexto Dinámico, SQLite DB para memoria local persistente, y Listener UDP. |
 | **Hotkey Global** | ✅ | `jarvis_hotkey.cpp` (C++): Intercepta Ctrl+Alt+J a nivel SO y activa el micrófono de Jarvis remotamente. |
 | **Android Bridge** | ✅ | `JarvisAdbBridge.java` (Java): Wrapper ADB para controlar emuladores/dispositivos físicos. |

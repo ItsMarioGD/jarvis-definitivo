@@ -166,19 +166,17 @@ def _cargar(voice_id: str = DEFAULT_VOICE):
 
 
 def _reproducir(wav_path: str):
-    """Reproduce WAV usando pygame o fallback a reproductor del sistema."""
-    try:
-        import pygame
-        pygame.mixer.music.load(wav_path)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            time.sleep(0.05)
-        pygame.mixer.music.unload()
-    except Exception:
-        try:
-            os.startfile(wav_path)
-        except Exception:
-            raise
+    """Reproduce el WAV aqui dentro. Nunca abre el reproductor de Windows:
+    si no se puede, hablar() devuelve False y JARVIS sigue con otra voz."""
+    import audio_local
+    if not audio_local.reproducir(wav_path):
+        raise RuntimeError("no hay reproductor de audio en este proceso")
+
+
+def callar():
+    """Corta la frase que este sonando (lo usa JARVIS al interrumpirle)."""
+    import audio_local
+    audio_local.callar()
 
 
 def sintetizar_bytes(texto: str, voice_id: str = DEFAULT_VOICE, speed: float = 1.0):

@@ -1,5 +1,66 @@
 # DISEÑO UI/UX - JARVIS ASISTENTE OMNIMODAL
 
+## Interfaz actual: ORIGEN (`web_interface/origen.html`, ruta `/`)
+
+El reactor Arc se jubila y no hay figura. **En silencio, JARVIS es polvo de luz
+disperso**: una galaxia fría de tres brazos que gira despacio. **Cuando le hablas,
+y mientras piensa o te contesta, las partículas se reúnen y forman una mente de
+oro**: un cerebro con dos hemisferios, circunvoluciones, cisura de Silvio, lóbulos
+temporales, cerebelo y tronco, que pulsa, chispea (sinapsis) y late con su voz. Al
+terminar se queda unos segundos y vuelve a disolverse. La idea es que JARVIS no
+se sienta como un asistente que espera órdenes, sino como algo que está ahí.
+
+| Estado | Qué hacen las partículas |
+|--------|--------------------------|
+| **Reposo** | Dispersas en la galaxia; alguna destella. |
+| **Escribiendo** | Mientras tecleas, una tercera parte se agita y empieza a acercarse. |
+| **Escucha** | El 85 % se reúne; tiemblan con el nivel del micrófono. |
+| **Pensando** | La mente entera, que pulsa más rápido y chispea más; parte de ella orbita en dos anillos cruzados. |
+| **Hablando** | La mente late y ondula con el volumen real de la voz (`AnalyserNode`). |
+| **Descanso / Enfoque** | Dispersas y más tenues. |
+| **Apagado** | Se disuelven y casi se apagan. «Silencio. Sigo pensando, aunque no me veas.» |
+
+Cada partícula tiene su umbral, así que no llegan todas a la vez: el cerebro se va
+formando. Reunirse tarda un segundo; disolverse, unos tres y tras una pausa.
+
+**Arranque:** sin cinemática. Las partículas aparecen, JARVIS saluda (la mente se
+forma mientras lo dice) y a trabajar. Si el navegador bloquea el audio hasta el
+primer gesto, el saludo se repite en cuanto se toca algo. En la cabecera,
+«despierto hace N min».
+
+**Móvil:** la misma interfaz (`/mobile` sirve ORIGEN). El QR del PC trae el PIN;
+sin él, ORIGEN pide el PIN. Todas las peticiones llevan el PIN en la cabecera, así
+que un cambio de IP del teléfono no lo deja fuera. El PIN y el QR solo se ven
+desde el PC.
+
+**Módulos:** el botón de nodos abre un panel lateral con los módulos
+(`/modulos.js`), con un índice de tarjetas y lo más nuevo delante: Ciencias, Modelado 3D, Cerebro, Correo, Demos web, Llamadas y Consejo,
+y después Agenda, Sistema, Cámara, Pantalla, Archivos, etc.
+
+**Motor (WebGL2 a mano, sin librerías ni imágenes):**
+- Hasta **1.048.576 partículas** en texturas RGBA32F. Su física corre en la GPU con
+  render-to-texture ping-pong y MRT (posición + velocidad): cada partícula tiene su
+  sitio en la galaxia y su hueco en un cerebro paramétrico, y viaja entre los dos con
+  muelles, flujo ABC sin divergencia y un cursor que las aparta. El cerebro se
+  sombrea según hacia dónde mira cada partícula, para que se lea sólido.
+- Acumulación HDR de 16 bits con estela (más larga mientras viajan), haz de luz,
+  resplandor de la mente sobre la niebla, bloom *dual-filter* de 6 niveles, ACES, viñeta, aberración cromática y grano.
+- **Regulador de calidad**: mide la GPU (`EXT_disjoint_timer_query_webgl2` si existe) y
+  sube o baja entre 65 k y 1 M partículas; `?calidad=0..4` lo fija a mano.
+- **Respaldo**: sin texturas float escribibles, la misma coreografía se calcula en
+  forma cerrada en el vertex shader (`?motor=analitico` lo fuerza). Sin WebGL2 queda
+  un pulso en CSS y todo lo demás funciona.
+
+**Funciones:** chat (`/process_text`), voz (`/api/speak`, con respaldo en
+`speechSynthesis`), micrófono (Web Speech o grabación a `/voice`), voz continua
+(«Jarvis…» y ventana de 8 s tras cada respuesta), modos (`/set_mode`), historial,
+emparejar el móvil, telemetría real (`/stats`) y del motor, y apagado ritual
+(`/farewell`). Atajos: `/` escribir, `M` hablar, `Esc` callar/cerrar.
+
+---
+
+## Diseño anterior (HUD Arc Reactor, ya eliminado)
+
 ## Diseño de Interfaz Híbrida Voz/Chat
 
 ### Principios de Diseño

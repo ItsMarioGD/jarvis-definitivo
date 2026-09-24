@@ -62,10 +62,17 @@ def _ts(*args, timeout: int = 25) -> tuple:
         return False, "no está instalado Tailscale"
     try:
         r = subprocess.run([exe, *args], capture_output=True, text=True,
-                           timeout=timeout, encoding="utf-8", errors="replace")
+                           timeout=timeout, encoding="utf-8", errors="replace",
+                           # Sin ventana: desde pythonw cada llamada abría una consola.
+                           creationflags=0x08000000 if os.name == "nt" else 0)
         return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()
-    except subprocess.TimeoutExpired:
-        return False, "Tailscale no respondió a tiempo"
+    except subprocess.TimeoutExpired as e:
+        # La primera vez, `serve` puede quedarse esperando a que se active HTTPS
+        # en la cuenta e imprime el enlace para hacerlo: que no se pierda.
+        parcial = b"".join(x for x in (e.stdout, e.stderr) if isinstance(x, bytes))
+        parcial = parcial.decode("utf-8", "replace").strip()
+        return False, ("Tailscale no respondió a tiempo" +
+                       (f": {parcial[:300]}" if parcial else ""))
     except Exception as e:
         return False, str(e)[:150]
 
@@ -157,7 +164,7 @@ def activar(log=print) -> str:
                 f"({info.get('motivo') or info.get('estado')}). Ábralo e inicie sesión.")
 
     log("[REMOTO] Publicando el servidor en la red privada…")
-    ok, salida = _ts("serve", "--bg", str(PUERTO_JARVIS), timeout=60)
+    ok, salida = _ts("serve", "--bg", str(PUERTO_JARVIS), timeout=20)
     _cache.clear()
     if not ok:
         return f"No pude publicarlo, señor: {salida[:160]}"

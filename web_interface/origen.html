@@ -1,0 +1,2480 @@
+<!DOCTYPE html>
+<html lang="es" data-interfaz="origen">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#030407">
+<meta name="description" content="J.A.R.V.I.S. · Origen">
+<title>J.A.R.V.I.S. · Origen</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   ORIGEN — la interfaz de JARVIS.
+
+   Aquí ya no hay reactor ni figura. En silencio, JARVIS es polvo de luz
+   disperso: una nebulosa fría que gira despacio. Cuando le hablas, y mientras
+   piensa o te contesta, las partículas se reúnen y forman una mente de oro
+   (dos hemisferios, circunvoluciones, cerebelo) que pulsa, chispea y late con
+   su voz. Al terminar se queda un momento y vuelve a disolverse.
+   No es un asistente que espera órdenes; es algo que está ahí, pensando.
+
+   Técnica: WebGL2 escrito a mano, sin librerías y sin una sola imagen. Las
+   partículas (hasta 1.048.576) viven en texturas de coma flotante y su
+   física (muelles, flujo ABC sin divergencia, nebulosa, cursor) se calcula
+   en la GPU con render-to-texture ping-pong. Encima: acumulación HDR
+   de 16 bits con estela, bloom de seis niveles, tonemap ACES, aberración
+   cromática y grano. Un regulador mide la GPU en vivo y decide cuántas
+   partículas aguanta tu equipo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --bg:#030407;
+  --ink:#ECE7DE;
+  --ink2:#C9C3B8;
+  --dim:#8A8F9C;
+  --faint:#555B68;
+  --frio:#93A6CF;
+  --oro:#E8B26A;
+  --oro2:#F4CF97;
+  --line:rgba(236,231,222,.08);
+  --line2:rgba(236,231,222,.16);
+  --glass:rgba(8,10,16,.58);
+  --glass2:rgba(8,10,16,.86);
+  --acento:var(--frio);
+  --serif:'Cormorant Garamond',Georgia,'Times New Roman',serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+  --sans:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --gut:24px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none !important}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--sans);
+  overflow:hidden;height:100vh;height:100dvh;
+  -webkit-font-smoothing:antialiased;
+}
+body[data-estado="escucha"]{--acento:var(--oro2)}
+body[data-estado="piensa"]{--acento:#B9A7F0}
+body[data-estado="habla"]{--acento:var(--oro)}
+body[data-estado="descanso"]{--acento:#6C7690}
+body[data-estado="apagado"]{--acento:var(--faint)}
+
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gl.arrastrando{cursor:grabbing}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+::selection{background:rgba(232,178,106,.3)}
+
+/* ═══ HUD ═══ */
+.hud{position:fixed;inset:0;pointer-events:none;z-index:10;opacity:1;transition:opacity 1.6s ease}
+.hud > *{pointer-events:auto}
+
+.top{
+  position:absolute;top:calc(18px + env(safe-area-inset-top));left:var(--gut);right:var(--gut);
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;pointer-events:none;
+}
+.top > *{pointer-events:auto}
+.marca{display:flex;flex-direction:column;gap:4px;text-align:left}
+.marca .nom{font:600 12px/1 var(--sans);letter-spacing:.52em;color:var(--ink)}
+.marca .sub{font:italic 300 15px/1.1 var(--serif);color:var(--dim);letter-spacing:.02em}
+.marca .sub b{font-weight:400;color:var(--oro)}
+.marca:hover .nom{color:var(--oro2)}
+
+.estado{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;border:1px solid var(--line);
+  border-radius:999px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  font:500 10px/1 var(--mono);letter-spacing:.32em;color:var(--ink2);text-transform:uppercase;white-space:nowrap;
+}
+.estado i{width:6px;height:6px;border-radius:50%;background:var(--acento);box-shadow:0 0 10px var(--acento);animation:pulso 1.6s ease-in-out infinite}
+@keyframes pulso{0%,100%{transform:scale(1);opacity:.7}12%{transform:scale(1.55);opacity:1}40%{transform:scale(1);opacity:.85}}
+.reloj{text-align:right;font:500 12px/1.4 var(--mono);color:var(--ink2);letter-spacing:.14em}
+.reloj small{display:block;font-size:9.5px;color:var(--faint);letter-spacing:.28em}
+
+/* ═══ Telemetría ═══ */
+.tele{
+  position:absolute;left:var(--gut);top:50%;transform:translateY(-50%);width:218px;
+  font:400 10.5px/1.5 var(--mono);color:var(--dim);display:flex;flex-direction:column;gap:22px;
+}
+.tele h3{font:500 9px/1 var(--mono);letter-spacing:.34em;color:var(--faint);text-transform:uppercase;margin-bottom:9px;display:flex;align-items:center;gap:8px}
+.tele h3::after{content:'';flex:1;height:1px;background:var(--line)}
+.fila{display:flex;justify-content:space-between;gap:10px;white-space:nowrap}
+.fila b{font-weight:500;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
+.fila b.oro{color:var(--oro2)}
+.gpu-nom{color:var(--ink2);font-size:10px;line-height:1.35;margin-bottom:6px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cifra{font:500 22px/1 var(--mono);color:var(--ink);letter-spacing:-.02em;margin:2px 0 4px}
+.cifra small{font-size:10px;color:var(--faint);letter-spacing:.2em;margin-left:4px}
+#chispa{width:218px;height:40px;display:block;margin-top:8px;opacity:.9}
+.nucleos{display:flex;gap:2px;height:22px;align-items:flex-end;margin:6px 0 8px}
+.nucleos span{flex:1;background:linear-gradient(to top,rgba(147,166,207,.55),rgba(147,166,207,.15));min-height:2px;border-radius:1px;transition:height .8s cubic-bezier(.2,.8,.2,1)}
+.barra{height:2px;background:var(--line);border-radius:2px;overflow:hidden;margin:4px 0 8px}
+.barra i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--frio),var(--oro));transition:width .8s cubic-bezier(.2,.8,.2,1)}
+
+/* ═══ Acciones ═══ */
+.acciones{position:absolute;right:var(--gut);top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px}
+.acciones hr{border:0;height:1px;background:var(--line);margin:6px 8px}
+.ico{
+  position:relative;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;
+  color:var(--dim);border:1px solid transparent;transition:color .25s,background .25s,border-color .25s;
+}
+.ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ico:hover,.ico:focus-visible{color:var(--ink);background:var(--glass);border-color:var(--line)}
+.ico.on{color:var(--oro2);border-color:rgba(232,178,106,.28);background:rgba(232,178,106,.06)}
+.ico[data-tip]:hover::after,.ico[data-tip]:focus-visible::after{
+  content:attr(data-tip);position:absolute;right:calc(100% + 10px);top:50%;transform:translateY(-50%);
+  white-space:nowrap;font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--ink2);
+  background:var(--glass2);border:1px solid var(--line);padding:7px 10px;border-radius:8px;pointer-events:none;
+}
+:focus-visible{outline:1px solid var(--oro);outline-offset:2px}
+
+
+/* ═══ Subtítulos ═══ */
+.subs{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:calc(122px + env(safe-area-inset-bottom));
+  width:min(780px,calc(100% - 2*var(--gut)));text-align:center;display:flex;flex-direction:column;gap:12px;
+  pointer-events:none;
+}
+.subs .tu{font:400 11px/1.5 var(--mono);color:var(--faint);letter-spacing:.08em;min-height:16px;transition:opacity .6s}
+.subs .tu:not(:empty)::before{content:'— tú · ';color:var(--dim)}
+.subs .j{
+  font:400 clamp(20px,2.2vw,27px)/1.38 var(--serif);color:var(--ink);max-height:30vh;overflow:hidden;
+  text-wrap:balance;text-shadow:0 2px 24px rgba(0,0,0,.9);pointer-events:auto;overflow-y:auto;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 6px),transparent);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 6px),transparent);
+  padding-top:14px;position:relative;
+}
+.subs .j::-webkit-scrollbar{display:none}
+.subs .j .w{opacity:0;filter:blur(6px);transition:opacity .7s ease,filter .9s ease;display:inline}
+.subs .j .w.on{opacity:1;filter:none}
+.subs .j.vieja{opacity:.42;transition:opacity 2s}
+
+/* ═══ Dock ═══ */
+.dock{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:calc(30px + env(safe-area-inset-bottom));
+  width:min(620px,calc(100% - 2*var(--gut)));
+}
+/* La caja del dock incluye los chips ocultos: que no se trague los clics de
+   lo que tenga debajo (en el móvil, la fila de acciones). */
+.hud > .dock{pointer-events:none}
+.dock .barra-in{pointer-events:auto}
+.chips{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:10px;opacity:0;transform:translateY(6px);transition:.3s;pointer-events:none}
+.dock:focus-within .chips{opacity:1;transform:none;pointer-events:auto}
+.chip{font:500 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--dim);padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:var(--glass)}
+.chip:hover{color:var(--ink);border-color:var(--line2)}
+.barra-in{
+  display:flex;align-items:center;gap:6px;padding:6px 6px 6px 18px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);
+  box-shadow:0 20px 60px rgba(0,0,0,.45);transition:border-color .3s,box-shadow .3s;
+}
+.barra-in:focus-within{border-color:rgba(232,178,106,.3);box-shadow:0 20px 60px rgba(0,0,0,.45),0 0 0 4px rgba(232,178,106,.05)}
+#entrada{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--ink);font:400 15px/1.4 var(--sans);padding:10px 0}
+#entrada::placeholder{color:var(--faint);font-family:var(--serif);font-style:italic;font-size:17px}
+.bt{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:var(--dim);transition:.25s;flex-shrink:0}
+.bt svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.bt:hover{color:var(--ink);background:rgba(236,231,222,.06)}
+.bt.enviar{background:var(--ink);color:#0A0B10}
+.bt.enviar:hover{background:var(--oro2);color:#0A0B10}
+.bt.mic.on{color:#0A0B10;background:var(--oro);box-shadow:0 0 0 6px rgba(232,178,106,.12),0 0 30px rgba(232,178,106,.4);animation:mic 1.4s ease-in-out infinite}
+@keyframes mic{50%{box-shadow:0 0 0 10px rgba(232,178,106,.06),0 0 40px rgba(232,178,106,.5)}}
+
+.pie{
+  position:absolute;right:var(--gut);bottom:calc(30px + env(safe-area-inset-bottom));text-align:right;
+  font:400 9.5px/1.6 var(--mono);color:var(--faint);letter-spacing:.2em;text-transform:uppercase;pointer-events:none;
+}
+.pie b{color:var(--dim);font-weight:500}
+
+.aviso{
+  position:fixed;z-index:45;left:50%;top:calc(76px + env(safe-area-inset-top));transform:translate(-50%,-8px);opacity:0;transition:.35s;
+  font:500 11px/1.4 var(--mono);letter-spacing:.06em;color:var(--ink2);background:var(--glass2);
+  border:1px solid var(--line2);border-radius:10px;padding:9px 14px;pointer-events:none;max-width:calc(100% - 32px);text-align:center;
+}
+.aviso.on{opacity:1;transform:translate(-50%,0)}
+
+/* ═══ Cajones y modales ═══ */
+.cajon{
+  position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);z-index:20;background:var(--glass2);
+  border-left:1px solid var(--line);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  transform:translateX(102%);transition:transform .5s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;
+}
+.cajon.on{transform:none}
+.cajon header{display:flex;justify-content:space-between;align-items:center;padding:22px 22px 14px;border-bottom:1px solid var(--line)}
+.cajon header h2{font:400 26px/1 var(--serif)}
+.cajon header small{display:block;font:500 9px/1 var(--mono);letter-spacing:.3em;color:var(--faint);margin-top:8px}
+.lista{flex:1;overflow-y:auto;padding:18px 22px 28px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.m{display:flex;flex-direction:column;gap:4px;max-width:92%}
+.m .q{font:500 9px/1 var(--mono);letter-spacing:.26em;color:var(--faint);text-transform:uppercase}
+.m .t{font:400 14.5px/1.55 var(--sans);color:var(--ink2);white-space:pre-wrap;word-wrap:break-word}
+.m.j .t{font:400 18px/1.45 var(--serif);color:var(--ink)}
+.m.u{align-self:flex-end;text-align:right}
+.m.u .t{color:var(--dim)}
+.vacio{font:italic 300 17px/1.4 var(--serif);color:var(--faint);text-align:center;margin-top:30px}
+
+.velo{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:rgba(2,3,6,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .4s;padding:16px}
+.velo.on{opacity:1;pointer-events:auto}
+.tarjeta{
+  width:min(520px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--glass2);border:1px solid var(--line);border-radius:20px;
+  padding:28px;box-shadow:0 40px 120px rgba(0,0,0,.6);transform:translateY(10px);transition:transform .5s cubic-bezier(.2,.8,.2,1);
+}
+.velo.on .tarjeta{transform:none}
+.tarjeta h2{font:400 34px/1 var(--serif);margin-bottom:6px}
+.tarjeta .k{font:500 9.5px/1 var(--mono);letter-spacing:.3em;color:var(--faint);text-transform:uppercase}
+.tarjeta p{font:400 18px/1.55 var(--serif);color:var(--ink2);margin-top:14px}
+.tarjeta p em{color:var(--oro2);font-style:italic}
+.tarjeta .tec{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);font:400 11px/1.75 var(--mono);color:var(--dim)}
+.tarjeta .tec b{color:var(--ink2);font-weight:500}
+.tarjeta .cerrar{margin-top:22px;font:500 10px/1 var(--mono);letter-spacing:.3em;color:var(--dim);padding:12px 16px;border:1px solid var(--line);border-radius:999px}
+.tarjeta .cerrar:hover{color:var(--ink);border-color:var(--line2)}
+.par{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center;margin-top:18px}
+.par img{width:168px;height:168px;border-radius:12px;background:#fff;padding:8px;image-rendering:pixelated}
+.par .pin{font:500 30px/1 var(--mono);letter-spacing:.18em;color:var(--oro2);margin:6px 0 12px}
+.par .url{font:400 11px/1.5 var(--mono);color:var(--dim);word-break:break-all}
+
+/* ═══ Módulos (los mismos de /nexus y /aeon, vía /modulos.js) ═══ */
+.modulos{
+  position:fixed;top:0;left:0;bottom:0;width:min(660px,100%);z-index:21;background:var(--glass2);
+  border-right:1px solid var(--line);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  transform:translateX(-102%);transition:transform .5s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;
+  --p1:var(--oro2);--p2:var(--oro);--linea:var(--line);--linea2:var(--line2);--mal:#ff7a7a;--tenue:var(--dim);
+  --r-chico:10px;--fm:var(--mono);--fc:var(--sans);
+}
+.modulos.abierto{transform:none}
+.modulos .cab{display:flex;align-items:center;gap:4px;padding:20px 18px 12px 22px;border-bottom:1px solid var(--line)}
+.modulos .cab small{display:block;font:500 9px/1 var(--mono);letter-spacing:.3em;color:var(--faint);margin-bottom:8px}
+.modulos .cab h2{font:400 26px/1 var(--serif)}
+.modulos .hueco{flex:1}
+.modulos .ico[data-tip]:hover::after{display:none}
+.rail{display:flex;gap:4px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:none;flex-shrink:0}
+.rail::-webkit-scrollbar{display:none}
+.rail .mod{flex-shrink:0;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;color:var(--dim);cursor:pointer;border:1px solid transparent;transition:.2s}
+.rail .mod svg,.indice svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.rail .mod:hover{color:var(--ink);background:rgba(236,231,222,.05)}
+.rail .mod.activo{color:var(--oro2);border-color:rgba(232,178,106,.3);background:rgba(232,178,106,.06)}
+.rail .mod .globo{display:none}
+#mod-contenido{flex:1;overflow-y:auto;padding:18px 22px 30px;scrollbar-width:thin;scrollbar-color:var(--line2) transparent;font-family:var(--sans)}
+.indice{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.indice button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(236,231,222,.02);transition:.2s}
+.indice button:hover{border-color:rgba(232,178,106,.3);background:rgba(232,178,106,.05)}
+.indice button span:first-of-type{color:var(--oro2)}
+.indice b{font:600 12px/1.2 var(--sans);letter-spacing:.06em;color:var(--ink)}
+.indice small{font:italic 300 14px/1.3 var(--serif);color:var(--dim)}
+.indice .nuevo{font:500 8.5px/1 var(--mono);letter-spacing:.2em;color:var(--oro);border:1px solid rgba(232,178,106,.35);border-radius:999px;padding:3px 6px;margin-left:6px;vertical-align:1px}
+.mrejilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.mcaja{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(236,231,222,.02)}
+.mcaja h4{margin:0 0 8px;font:500 9px/1 var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--oro2)}
+.grande{font:500 24px/1.1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.pista{font:400 11.5px/1.6 var(--sans);color:var(--dim)}
+.pista b{color:var(--ink2);font-weight:600}
+.medidor{height:3px;margin:8px 0;border-radius:3px;background:var(--line);overflow:hidden}
+.medidor i{display:block;height:100%;background:linear-gradient(90deg,var(--frio),var(--oro))}
+.mfila{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;border:1px solid var(--line2);font:500 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--ink2);background:none;cursor:pointer;text-decoration:none;transition:.2s}
+.mbtn:hover{color:#0A0B10;background:var(--oro2);border-color:var(--oro2)}
+.mbtn:disabled{opacity:.45;cursor:wait}
+.mbtn.peligro{border-color:rgba(255,122,122,.45);color:#ff9a9a}
+.mbtn.peligro:hover{background:#ff7a7a;color:#0A0B10}
+.mcampo{padding:9px 12px;border:1px solid var(--line2);border-radius:10px;background:rgba(0,0,0,.25);color:var(--ink);font:400 13px/1.4 var(--sans);outline:0;min-width:0}
+.mcampo:focus{border-color:rgba(232,178,106,.5);box-shadow:0 0 0 3px rgba(232,178,106,.08)}
+select.mcampo{padding-right:8px}
+.mtabla{width:100%;border-collapse:collapse;margin-top:10px;font:400 11px/1.5 var(--mono)}
+.mtabla th{text-align:left;padding:7px 8px;color:var(--oro2);border-bottom:1px solid var(--line2);font-weight:500;letter-spacing:.1em}
+.mtabla td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--ink2);word-break:break-word}
+.espejo{width:100%;border-radius:12px;border:1px solid var(--line2);display:block;background:#000}
+#mod-contenido pre{color:var(--ink2);font-family:var(--mono)}
+
+/* ═══ Apagado ═══ */
+.apagado{position:fixed;inset:0;z-index:40;display:grid;place-items:center;text-align:center;pointer-events:none;opacity:0;transition:opacity 2.5s}
+.apagado.on{opacity:1;pointer-events:auto}
+.apagado h2{font:italic 300 clamp(34px,5vw,58px)/1 var(--serif);color:var(--ink2)}
+.apagado p{font:400 16px/1.5 var(--serif);color:var(--faint);margin-top:14px;font-style:italic}
+.apagado button{margin-top:34px;font:500 10px/1 var(--mono);letter-spacing:.36em;color:var(--oro2);padding:14px 22px;border:1px solid rgba(232,178,106,.3);border-radius:999px;background:rgba(232,178,106,.04)}
+.apagado button:hover{background:rgba(232,178,106,.1)}
+
+/* ═══ Acceso con PIN (un teléfono que aún no lo ha dado) ═══ */
+.acceso{position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:16px;background:rgba(3,4,7,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.acceso.on{display:grid}
+.acceso .caja{width:min(380px,100%);text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+.acceso h1{font:600 13px/1 var(--sans);letter-spacing:.52em;padding-left:.52em}
+.acceso p{font:italic 300 17px/1.4 var(--serif);color:var(--ink2)}
+.acceso input{width:100%;text-align:center;font:500 30px/1 var(--mono);letter-spacing:.4em;padding:14px 10px 14px 22px;border-radius:14px;
+  border:1px solid var(--line2);background:rgba(0,0,0,.35);color:var(--ink);outline:0}
+.acceso input:focus{border-color:rgba(232,178,106,.5)}
+.acceso button{font:500 11px/1 var(--mono);letter-spacing:.3em;padding:14px 26px;border-radius:999px;background:var(--ink);color:#0A0B10}
+.acceso .error{min-height:18px;font:400 12px/1.4 var(--sans);color:#ff9a9a}
+.acceso small{font:400 11px/1.5 var(--sans);color:var(--faint)}
+
+.par-estado{margin-top:16px;font:500 11px/1.5 var(--mono);letter-spacing:.06em;color:var(--dim)}
+.par-estado.ok{color:#8fe3b0}
+.par-dirs{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.par-dirs button{display:flex;justify-content:space-between;gap:10px;text-align:left;padding:9px 12px;border-radius:10px;border:1px solid var(--line);font:400 11px/1.4 var(--mono);color:var(--ink2)}
+.par-dirs button span{color:var(--faint)}
+.par-dirs button.activa{border-color:rgba(232,178,106,.45);color:var(--oro2)}
+.par-remoto{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(236,231,222,.02)}
+.par-remoto h4{font:500 9px/1 var(--mono);letter-spacing:.26em;color:var(--oro2);margin-bottom:8px}
+.par-remoto p{font:400 13px/1.5 var(--sans);color:var(--ink2)}
+.par-remoto p + p{margin-top:6px}
+.par-remoto b{color:#8fe3b0;font-weight:600}
+.par-remoto a{color:var(--oro2)}
+.par-remoto .mbtn{margin-top:10px}
+.par-ayuda{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.par-ayuda p{font:400 13px/1.5 var(--sans);color:var(--ink2);margin-top:8px}
+.par-ayuda p b{color:#ffcf8a;font-weight:600}
+.par-ayuda .mbtn{margin-top:10px}
+
+/* Sin WebGL2: un pulso en CSS para que la interfaz no se quede vacía. */
+.sin-gl-pulso{display:none}
+body.sin-gl .sin-gl-pulso{
+  display:block;position:fixed;left:50%;top:42%;width:34vmin;height:34vmin;transform:translate(-50%,-50%);border-radius:50%;
+  background:radial-gradient(circle,rgba(255,196,120,.55) 0,rgba(232,140,90,.18) 18%,rgba(147,166,207,.06) 45%,transparent 70%);
+  animation:pulsoGl 1.6s ease-in-out infinite;
+}
+@keyframes pulsoGl{0%,100%{transform:translate(-50%,-50%) scale(1)}12%{transform:translate(-50%,-50%) scale(1.1)}40%{transform:translate(-50%,-50%) scale(1)}}
+
+@media (max-width:1180px){ .pie{display:none} }
+@media (max-width:1080px){ .tele{display:none} }
+@media (max-height:720px) and (min-width:761px){
+  .acciones{gap:2px}
+  .ico{width:36px;height:36px}
+  .acciones hr{margin:3px 8px}
+}
+@media (max-width:760px){
+  :root{--gut:16px}
+  .acciones{top:auto;bottom:calc(96px + env(safe-area-inset-bottom));right:50%;transform:translateX(50%);flex-direction:row;gap:2px;
+    max-width:calc(100% - 32px);overflow-x:auto;scrollbar-width:none;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:3px}
+  .acciones hr{width:1px;height:auto;margin:8px 3px}
+  .ico[data-tip]:hover::after{display:none}
+  body:has(.dock:focus-within) .acciones{opacity:0;pointer-events:none}
+  .acciones{transition:opacity .25s}
+  .subs{bottom:calc(160px + env(safe-area-inset-bottom))}
+  .subs .j{max-height:22vh}
+  .pie{display:none}
+  .estado{padding:7px 10px;letter-spacing:.2em}
+  .reloj small{display:none}
+  .marca .sub{font-size:13px}
+  .par{grid-template-columns:1fr;justify-items:center;text-align:center}
+}
+@media (prefers-reduced-motion:reduce){
+  .subs .j .w{transition:opacity .3s}
+  .estado i,.bt.mic.on{animation:none}
+}
+</style>
+</head>
+<body data-estado="arranque">
+
+<canvas id="gl" aria-label="Partículas que se reúnen en una mente de oro cuando JARVIS escucha, piensa o habla" role="img"></canvas>
+<div class="sin-gl-pulso" aria-hidden="true"></div>
+
+<div class="hud" id="hud">
+  <header class="top">
+    <button class="marca" id="bOrigen" title="Origen">
+      <span class="nom">J.A.R.V.I.S.</span>
+      <span class="sub">origen — <b id="despierto">recién despierto</b></span>
+    </button>
+    <div class="estado" role="status" aria-live="polite"><i></i><span id="estadoTxt">Despertando</span></div>
+    <div class="reloj"><span id="reloj">--:--:--</span><small id="fecha">—</small></div>
+  </header>
+
+  <aside class="tele" aria-label="Telemetría">
+    <section>
+      <h3>Núcleo gráfico</h3>
+      <div class="gpu-nom" id="tGpu">—</div>
+      <div class="cifra" id="tParticulas">0<small>PARTÍCULAS</small></div>
+      <div class="fila"><span>fotogramas</span><b id="tFps">—</b></div>
+      <div class="fila"><span>cuadro · cpu</span><b id="tMs">—</b></div>
+      <div class="fila"><span>cuadro · gpu</span><b id="tGpuMs">—</b></div>
+      <div class="fila"><span>física</span><b class="oro" id="tFisica">—</b></div>
+      <div class="fila"><span>motor</span><b id="tModo">—</b></div>
+      <canvas id="chispa" width="436" height="80"></canvas>
+    </section>
+    <section>
+      <h3>Equipo</h3>
+      <div class="fila"><span>procesador</span><b id="tCpu">—</b></div>
+      <div class="nucleos" id="tNucleos"></div>
+      <div class="fila"><span>memoria</span><b id="tRam">—</b></div>
+      <div class="barra"><i id="tRamB"></i></div>
+      <div class="fila"><span>temperatura</span><b id="tTemp">—</b></div>
+      <div class="fila"><span>red ↓ / ↑</span><b id="tRed">—</b></div>
+      <div class="fila"><span>encendido</span><b id="tUp">—</b></div>
+      <div class="fila" id="tBatF" hidden><span>batería</span><b id="tBat">—</b></div>
+      <div class="fila"><span>enlace</span><b id="tPing">—</b></div>
+    </section>
+  </aside>
+
+  <nav class="acciones" aria-label="Acciones">
+    <button class="ico on" data-modo="normal" data-tip="Modo completo" aria-label="Modo completo">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="ico" data-modo="sleep" data-tip="Descanso" aria-label="Modo descanso">
+      <svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+    </button>
+    <button class="ico" data-modo="focus" data-tip="Enfoque" aria-label="Modo enfoque">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></svg>
+    </button>
+    <hr>
+    <button class="ico" id="bContinua" data-tip="Voz continua · di «Jarvis»" aria-label="Voz continua">
+      <svg viewBox="0 0 24 24"><path d="M3 12h1.5M6.5 8v8M10 5v14M13.5 8.5v7M17 6.5v11M20.5 10.5v3"/></svg>
+    </button>
+    <button class="ico on" id="bAudio" data-tip="Voz de JARVIS" aria-label="Activar o silenciar la voz">
+      <svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="ondas" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="tacha" d="M16 9.5l5 5M21 9.5l-5 5" style="display:none"/></svg>
+    </button>
+    <button class="ico" id="bModulos" data-tip="Módulos · ciencias, 3D, correo…" aria-label="Módulos">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6" r="1.8"/><circle cx="19" cy="6" r="1.8"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="18" r="1.8"/><path d="M6.4 7.2l3.7 3.2M17.6 7.2l-3.7 3.2M6.4 16.8l3.7-3.2M17.6 16.8l-3.7-3.2"/></svg>
+    </button>
+    <button class="ico" id="bHist" data-tip="Conversación" aria-label="Ver la conversación">
+      <svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>
+    </button>
+    <button class="ico" id="bPar" data-tip="Emparejar el móvil" aria-label="Emparejar el móvil">
+      <svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
+    </button>
+    <hr>
+    <button class="ico" id="bApagar" data-tip="Dejarlo descansar" aria-label="Apagar">
+      <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+    </button>
+  </nav>
+
+  <section class="subs" aria-live="polite">
+    <div class="tu" id="subTu"></div>
+    <div class="j" id="subJ"></div>
+  </section>
+
+  <div class="dock">
+    <div class="chips" id="chips">
+      <button class="chip" data-c="¿Cómo estás?">¿cómo estás?</button>
+      <button class="chip" data-c="¿Qué tengo hoy en el calendario?">mi día</button>
+      <button class="chip" data-c="Estado del sistema">estado del sistema</button>
+      <button class="chip" data-c="Dame la temperatura">temperatura</button>
+      <button class="chip" data-c="Dame las noticias de hoy">noticias</button>
+    </div>
+    <form class="barra-in" id="formulario" autocomplete="off">
+      <input id="entrada" type="text" placeholder="Háblale… o escríbele" aria-label="Mensaje para JARVIS" maxlength="2000">
+      <button type="button" class="bt mic" id="bMic" aria-label="Hablar" title="Hablar (M)">
+        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      </button>
+      <button type="submit" class="bt enviar" aria-label="Enviar" title="Enviar (Enter)">
+        <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+  </div>
+
+  <div class="pie"><b id="pieN">—</b> partículas en la GPU<br>WebGL2 · sin librerías</div>
+</div>
+<div class="aviso" id="aviso" role="alert"></div>
+
+<aside class="modulos" id="lienzo-mod" aria-label="Módulos">
+  <header class="cab">
+    <div><small>MÓDULOS</small><h2 id="mod-titulo">Todo lo que sé hacer</h2></div>
+    <span class="hueco"></span>
+    <button class="ico" id="mod-inicio" aria-label="Todos los módulos" title="Todos los módulos"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></button>
+    <button class="ico" id="mod-refrescar" aria-label="Actualizar" title="Actualizar"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
+    <button class="ico" id="mod-cerrar" aria-label="Cerrar" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+  <nav id="rail" class="rail" aria-label="Lista de módulos"></nav>
+  <div id="mod-contenido"></div>
+</aside>
+
+<aside class="cajon" id="cajon" aria-label="Conversación">
+  <header>
+    <div><h2>Conversación</h2><small>LO QUE NOS HEMOS DICHO</small></div>
+    <button class="ico" id="bCajonX" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+  <div class="lista" id="lista"><div class="vacio">Todavía no nos hemos dicho nada.</div></div>
+</aside>
+
+<div class="velo" id="veloOrigen" role="dialog" aria-modal="true" aria-labelledby="tOrigen">
+  <div class="tarjeta">
+    <div class="k">J.A.R.V.I.S.</div>
+    <h2 id="tOrigen">Origen</h2>
+    <p>No espero órdenes. Escucho, recuerdo y aprendo: conozco tu equipo, tu agenda y tus costumbres, y me adelanto cuando hace falta.</p>
+    <p>En silencio me disperso: soy polvo que flota, atento. Cuando me hablas, me reúno; cada partícula vuelve a su sitio hasta formar la mente. Cuando pienso, los pensamientos orbitan a mi alrededor. Cuando hablo, la mente late con mi voz.</p>
+    <div class="tec" id="tecOrigen">—</div>
+    <button class="cerrar" data-cerrar>SEGUIR</button>
+  </div>
+</div>
+
+<div class="velo" id="veloPar" role="dialog" aria-modal="true" aria-labelledby="tPar">
+  <div class="tarjeta">
+    <div class="k">Enlace</div>
+    <h2 id="tPar">Emparejar el móvil</h2>
+    <div class="par">
+      <img id="parQr" alt="Código QR para emparejar el móvil">
+      <div>
+        <div class="k">PIN</div>
+        <div class="pin" id="parPin">······</div>
+        <div class="url" id="parUrl">—</div>
+      </div>
+    </div>
+    <p class="pista" id="parPista" style="margin-top:12px">Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC).
+      Ya lleva el PIN dentro. Si no carga, prueba otra dirección:</p>
+    <div class="par-dirs" id="parDirs"></div>
+    <div class="par-estado" id="parEstado">Esperando al teléfono…</div>
+    <div class="par-remoto" id="parRemoto" hidden></div>
+    <div class="par-ayuda" id="parAyuda" hidden></div>
+    <button class="cerrar" data-cerrar>LISTO</button>
+  </div>
+</div>
+
+<div class="apagado" id="apagado">
+  <div>
+    <h2>Silencio.</h2>
+    <p>Sigo pensando, aunque no me veas.</p>
+    <button id="bRevivir">DESPERTAR</button>
+  </div>
+</div>
+
+<form class="acceso" id="acceso" autocomplete="off">
+  <div class="caja">
+    <h1>J.A.R.V.I.S.</h1>
+    <p>Escribe el PIN que aparece en el PC<br>(botón del móvil, en JARVIS)</p>
+    <input id="accesoPin" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="······" aria-label="PIN de 6 cifras">
+    <button type="submit">ENTRAR</button>
+    <div class="error" id="accesoError" role="alert"></div>
+    <small>Si escaneas el QR del PC no hace falta escribir nada.</small>
+  </div>
+</form>
+
+<audio id="tts" preload="none" playsinline></audio>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MOTOR — WebGL2 a mano. Nada de three.js: cada pasada está aquí abajo.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+const Motor = (function(){
+  const cv = document.getElementById('gl');
+  const info = { modo:'—', N:0, fps:0, ms:0, gpu:null, renderer:'—', nivel:0, res:'—', historial:[], tope:60 };
+  const ganchos = [];
+  const reducido = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const params = new URLSearchParams(location.search);
+  const gl = cv.getContext('webgl2', {
+    antialias:false, alpha:false, depth:false, stencil:false, premultipliedAlpha:false,
+    preserveDrawingBuffer:false, powerPreference:'high-performance'
+  });
+
+  // Sin WebGL2 la interfaz sigue funcionando: solo se pierde la mente.
+  if (!gl) {
+    document.body.classList.add('sin-gl');
+    info.modo = 'sin WebGL2';
+    let ultimo = performance.now();
+    (function bucle(ahora){
+      requestAnimationFrame(bucle);
+      const dt = Math.min(0.1, ((ahora||ultimo) - ultimo)/1000); ultimo = ahora||ultimo;
+      for (const g of ganchos) g(dt);
+    })();
+    const nada = () => {};
+    return { ok:false, info, NIVELES:[], estado:nada, audio:nada, mic:nada, nube:nada, forzar:nada,
+             atencion:nada, alPulso:nada, alCuadro:f => ganchos.push(f), reunion:0 };
+  }
+
+  const ext = {
+    cbf: gl.getExtension('EXT_color_buffer_float'),
+    cbh: gl.getExtension('EXT_color_buffer_half_float'),
+    timer: gl.getExtension('EXT_disjoint_timer_query_webgl2'),
+    dbg: gl.getExtension('WEBGL_debug_renderer_info'),
+  };
+  gl.getExtension('EXT_float_blend');
+
+  // ─── GLSL ────────────────────────────────────────────────────────────────
+  const VS_PLANO = `#version 300 es
+out vec2 vUv;
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+  // Dos sitios para cada partícula: su hueco en la mente (un cerebro
+  // paramétrico) y su casa en la nebulosa. En silencio viven en la nebulosa;
+  // cuando JARVIS escucha, piensa o habla, vuelven a la mente. Cada una tiene
+  // su umbral, así que no llegan todas a la vez: el cerebro se va formando.
+  const GLSL_MENTE = `
+uniform vec3 uMente;
+uniform float uMenteSize;
+uniform float uTime;
+uniform float uThink;
+uniform float uAudio;
+
+vec3 azar3(float s){ return fract(sin(vec3(s*127.1 + 1.7, s*311.7 + 5.3, s*74.7 + 9.1))*43758.5453); }
+
+// p0 = (parte, t, radio, semilla)  ·  p1 = (dirección unidad, surco)
+// parte: 0 corteza, 1 cerebelo, 2 tronco, 3 volumen interior.
+vec3 cerebro(vec4 p0, vec4 p1){
+  vec3 n = p1.xyz;
+  float parte = p0.x;
+  vec3 q;
+  if (parte < 0.5 || parte > 2.5){
+    // Dos hemisferios separados por la cisura longitudinal y una bóveda algo
+    // más alta en el centro. Por debajo, el centro sube (ahí nace el tronco),
+    // la parte de delante se aplana y los lóbulos temporales cuelgan a los lados.
+    float lado = n.x >= 0.0 ? 1.0 : -1.0;
+    q = n*vec3(0.70, 0.62, 1.0);
+    q.x += lado*0.06;
+    q.y += 0.06*(1.0 - n.z*n.z)*step(0.0, n.y);
+    if (n.y < 0.0){
+      float medial = 1.0 - smoothstep(0.25, 0.6, abs(n.x));
+      q.y *= mix(1.0, 0.45, medial);
+      q.y *= mix(1.0, 0.6, smoothstep(0.3, 0.8, n.z));
+      float temporal = smoothstep(0.35, 0.75, abs(n.x)) * (1.0 - smoothstep(0.0, 0.5, abs(n.z - 0.05)));
+      q.y -= 0.14*temporal*(-n.y);
+    }
+    q *= p0.z;
+  } else if (parte < 1.5){
+    q = vec3(n.x*0.5, n.y*0.24, n.z*0.3)*p0.z + vec3(0.0, -0.36, -0.64);
+  } else {
+    float t = p0.y;
+    q = vec3(n.x*0.09, 0.0, n.z*0.09)*p0.z + vec3(0.0, -0.26 - t*0.52, -0.2 - t*0.12);
+  }
+  return uMente + q*uMenteSize;
+}
+
+vec3 objetivo(vec4 p0, vec4 p1){
+  vec3 p = cerebro(p0, p1);
+  // Al hablar, la voz sale de la mente en ondas.
+  vec3 dh = p - uMente;
+  float dl = length(dh);
+  p += (dh/(dl + 1e-4)) * uAudio * 0.035 * (0.5 + 0.5*sin(dl*16.0 - uTime*9.0));
+  // Al pensar, una parte se suelta en dos órbitas cruzadas: los pensamientos.
+  float s = p0.w;
+  if (s < 0.12 && uThink > 0.001){
+    float a = s*6.2831853*83.0 + uTime*(0.3 + fract(s*97.1)*0.4);
+    float r = 0.7 + fract(s*57.3)*0.6;
+    vec3 o = vec3(cos(a)*r, sin(a*3.0 + s*50.0)*0.04, sin(a)*r);
+    float inc = fract(s*13.1) < 0.5 ? 0.35 : -0.5;
+    float ci = cos(inc), si = sin(inc);
+    o = vec3(o.x, o.y*ci - o.z*si, o.y*si + o.z*ci) + uMente;
+    p = mix(p, o, smoothstep(s*6.0, s*6.0 + 0.3, uThink));
+  }
+  return p;
+}
+
+// La nebulosa: una galaxia de tres brazos en espiral, algo inclinada hacia la
+// cámara, que gira despacio (más deprisa cerca del centro, como las de verdad).
+vec3 girar(vec3 v, vec3 eje, float a){
+  float c = cos(a), sn = sin(a);
+  return v*c + cross(eje, v)*sn + eje*dot(eje, v)*(1.0 - c);
+}
+vec3 hogar(float s){
+  vec3 h = azar3(s), j = azar3(s*1.7 + 0.31) - 0.5;
+  vec3 d;
+  if (h.x < 0.12){
+    // Núcleo: una bruma redonda y tenue donde luego nace la mente.
+    float R = 0.15 + 0.5*(h.x/0.12);
+    d = normalize(j + 1e-4)*R*vec3(1.0, 0.55, 1.0);
+  } else {
+    float brazo = floor(h.z*3.0);
+    float R = 0.5 + 1.55*pow((h.x - 0.12)/0.88, 0.85);
+    float a = brazo*2.0943951 + R*1.8 + (h.y - 0.5)*0.35 + uTime*0.05/(0.3 + R*0.3);
+    d = vec3(cos(a)*R, 0.0, sin(a)*R);
+    d += j*vec3(0.24, 0.12, 0.24)*(0.35 + R*0.3);
+  }
+  d.y += sin(uTime*0.23 + s*40.0)*0.04;
+  d = girar(d, vec3(0.5, 0.0, -0.866), 0.62);
+  return uMente + d;
+}
+float umbral(float s){ return 0.04 + fract(s*7.31)*0.92; }
+
+// Flujo ABC (Arnold–Beltrami–Childress): caótico y sin divergencia, y cuesta
+// seis senos. El "curl noise" de siempre pediría decenas de evaluaciones.
+vec3 abc(vec3 p, float t){
+  vec3 q = p*2.1 + vec3(0.0, t*0.23, t*0.17);
+  vec3 v = vec3(sin(q.z) + cos(q.y), sin(q.x) + cos(q.z), sin(q.y) + cos(q.x));
+  q = p*4.7 + vec3(t*0.31, -t*0.19, 0.0) + v*0.35;
+  v += 0.55*vec3(sin(q.z) + cos(q.y), sin(q.x) + cos(q.z), sin(q.y) + cos(q.x));
+  return v;
+}
+`;
+
+  // Física en la GPU: una pasada por fotograma escribe posición y velocidad
+  // de TODAS las partículas a la vez (dos salidas MRT).
+  const FS_SIM = `#version 300 es
+precision highp float;
+precision highp int;
+${GLSL_MENTE}
+uniform sampler2D uPos;
+uniform sampler2D uVel;
+uniform sampler2D uP0;
+uniform sampler2D uP1;
+uniform float uDt;
+uniform float uReunion;
+uniform float uFlow;
+uniform float uMic;
+uniform vec3 uRayO;
+uniform vec3 uRayD;
+uniform float uMouseF;
+layout(location = 0) out vec4 oPos;
+layout(location = 1) out vec4 oVel;
+
+void main(){
+  ivec2 ij = ivec2(gl_FragCoord.xy);
+  vec4 P = texelFetch(uPos, ij, 0);
+  vec4 V = texelFetch(uVel, ij, 0);
+  vec4 p0 = texelFetch(uP0, ij, 0);
+  vec4 p1 = texelFetch(uP1, ij, 0);
+  float s = p0.w;
+  float quiere = uReunion >= umbral(s) ? 1.0 : 0.0;
+  float uni = P.w;
+  uni += (quiere - uni) * (1.0 - exp(-uDt*(quiere > uni ? 2.5 : 0.9)));
+
+  vec3 pos = P.xyz;
+  vec3 vel = V.xyz;
+  float luz = V.w;
+  vec3 acc;
+  if (quiere > 0.5){
+    vec3 tgt = objetivo(p0, p1);
+    acc = (tgt - pos)*42.0;
+    float m = length(acc);
+    if (m > 20.0) acc *= 20.0/m;
+    acc -= vel*7.4;
+    acc += abc(pos*1.3, uTime*0.8) * (uFlow + uThink*0.4 + uMic*0.9);
+  } else {
+    acc = (hogar(s) - pos)*1.4 + abc(pos*0.7, uTime*0.45)*0.07 - vel*1.6;
+  }
+  vec3 w = pos - uRayO;
+  vec3 aw = w - uRayD*dot(w, uRayD);
+  float dd = length(aw);
+  acc += (aw/(dd + 1e-4)) * uMouseF * smoothstep(0.22, 0.0, dd) * 26.0;
+  vel += acc*uDt;
+  pos += vel*uDt;
+  luz = min(1.0, luz + uDt*0.5);
+  oPos = vec4(pos, uni);
+  oVel = vec4(vel, luz);
+}`;
+
+  const VS_PART = `#version 300 es
+precision highp float;
+precision highp int;
+//DEFS
+${GLSL_MENTE}
+uniform sampler2D uP0;
+uniform sampler2D uP1;
+#ifndef ANALITICO
+uniform sampler2D uPos;
+uniform sampler2D uVel;
+#else
+uniform float uReunion;
+#endif
+uniform int uW;
+uniform mat4 uVP;
+uniform float uPx;
+uniform float uSize;
+uniform float uGain;
+uniform float uBeat;
+uniform float uDim;
+uniform float uNube;
+uniform vec3 uCam;
+out vec3 vCol;
+
+#ifdef ANALITICO
+// Sin texturas de coma flotante escribibles no hay física por estado: el
+// mismo viaje de la nebulosa a la mente se calcula en forma cerrada.
+void analitico(vec4 p0, vec4 p1, out vec3 pos, out vec3 vel, out float uni, out float luz){
+  float s = p0.w;
+  float u = umbral(s);
+  float k = smoothstep(u - 0.02, u + 0.12, uReunion);
+  k = k*k*(3.0 - 2.0*k);
+  vec3 casa = hogar(s);
+  casa += abc(casa*0.7, uTime*0.45)*0.02;
+  vec3 tgt = objetivo(p0, p1);
+  tgt += abc(tgt*1.3, uTime*0.8)*0.003*(1.0 + uThink*3.0);
+  pos = mix(casa, tgt, k);
+  vel = vec3(0.0);
+  uni = k;
+  luz = 1.0;
+}
+#endif
+
+void main(){
+  int id = gl_VertexID;
+  ivec2 ij = ivec2(id % uW, id / uW);
+  vec4 p0 = texelFetch(uP0, ij, 0);
+  vec4 p1 = texelFetch(uP1, ij, 0);
+  vec3 pos; vec3 vel; float uni; float luz;
+#ifdef ANALITICO
+  analitico(p0, p1, pos, vel, uni, luz);
+#else
+  vec4 P = texelFetch(uPos, ij, 0);
+  vec4 V = texelFetch(uVel, ij, 0);
+  pos = P.xyz; uni = P.w; vel = V.xyz; luz = V.w;
+#endif
+  float s = p0.w;
+  vec4 clip = uVP * vec4(pos, 1.0);
+  gl_Position = clip;
+  float jit = 0.6 + 0.8*fract(s*91.7);
+  float px = uPx * uSize * jit * mix(1.45, 0.75, uni) / max(clip.w, 0.05);
+  float a = 1.0;
+  if (px < 1.0){ a = px*px; px = 1.0; }
+  gl_PointSize = min(px, mix(7.0, 24.0, uni));
+
+  vec3 frio = vec3(0.34, 0.46, 0.86);
+  vec3 oro  = vec3(1.00, 0.66, 0.28);
+  // Suelto: polvo frío que de vez en cuando destella.
+  float destello = step(0.996, fract(sin(s*4271.3 + floor(uTime*1.5 + s*11.0)*7.13)*43758.5453));
+  float ePolvo = 1.0 + destello*3.5;
+  // En la mente: crestas que brillan, surcos oscuros, sinapsis y un barrido.
+  float h = fract(sin(s*7919.0 + floor(uTime*(6.0 + uThink*10.0) + s*37.0)*12.9898)*43758.5453);
+  float chispa = step(0.988 - uThink*0.05 - uAudio*0.03, h);
+  float barrido = 0.5 + 0.5*sin(p1.z*4.0 + p1.y*2.0 - uTime*(1.4 + uThink*4.0));
+  float eMente = (1.6 - 1.45*p1.w) + uBeat*0.9 + barrido*0.6 + uAudio*2.2 + chispa*5.0;
+  if (p0.x > 2.5) eMente *= 0.45;
+  // Sombreado por orientación: la cara que mira a la cámara brilla y la de
+  // atrás apenas, así la mente se lee sólida y no como una burbuja de cristal.
+  vec3 escalaN = p0.x > 0.5 && p0.x < 1.5 ? vec3(0.5, 0.24, 0.3) : vec3(0.70, 0.62, 1.0);
+  float cara = dot(normalize(p1.xyz/escalaN), normalize(uCam - pos));
+  float sombra = p0.x > 1.5 ? 0.7 : mix(0.2, 1.0, smoothstep(-0.25, 0.45, cara));
+  if (s < 0.12) sombra = mix(sombra, 1.0, uThink);
+  eMente *= sombra;
+  vec3 colMente = mix(oro, vec3(1.0, 0.9, 0.72), chispa*0.8);
+  // Una de cada diez motas sueltas guarda algo del oro de la mente.
+  vec3 polvo = mix(frio, vec3(0.95, 0.74, 0.5), step(0.9, fract(s*3.7))*0.7);
+  vec3 col = mix(polvo, colMente, uni);
+  float e = mix(ePolvo, eMente, uni) + min(length(vel), 3.0)*0.35;
+  e *= luz * uGain * a * uDim * uNube;
+  e *= smoothstep(0.3, 1.1, clip.w);
+  vCol = col * e;
+}`;
+
+  const FS_PART = `#version 300 es
+precision mediump float;
+in vec3 vCol;
+out vec4 o;
+void main(){
+  vec2 c = gl_PointCoord*2.0 - 1.0;
+  float r = dot(c, c);
+  if (r > 1.0) discard;
+  float k = 1.0 - r;
+  o = vec4(vCol*k*k, 1.0);
+}`;
+
+  const FS_ESTELA = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform float uK;
+in vec2 vUv;
+out vec4 o;
+void main(){ o = vec4(texture(uTex, vUv).rgb*uK, 1.0); }`;
+
+  const FS_PRE = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uThr;
+in vec2 vUv;
+out vec4 o;
+void main(){
+  vec3 c = texture(uTex, vUv + uTexel*vec2(-0.5,-0.5)).rgb + texture(uTex, vUv + uTexel*vec2(0.5,-0.5)).rgb
+         + texture(uTex, vUv + uTexel*vec2(-0.5, 0.5)).rgb + texture(uTex, vUv + uTexel*vec2(0.5, 0.5)).rgb;
+  c *= 0.25;
+  float br = max(c.r, max(c.g, c.b));
+  float knee = uThr*0.6;
+  float soft = clamp(br - uThr + knee, 0.0, 2.0*knee);
+  soft = soft*soft/(4.0*knee + 1e-4);
+  o = vec4(c * max(soft, br - uThr)/max(br, 1e-4), 1.0);
+}`;
+
+  const FS_BAJA = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+in vec2 vUv;
+out vec4 o;
+void main(){
+  vec4 s = texture(uTex, vUv)*4.0;
+  s += texture(uTex, vUv - uTexel);
+  s += texture(uTex, vUv + uTexel);
+  s += texture(uTex, vUv + vec2(uTexel.x, -uTexel.y));
+  s += texture(uTex, vUv - vec2(uTexel.x, -uTexel.y));
+  o = s/8.0;
+}`;
+
+  const FS_SUBE = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uK;
+in vec2 vUv;
+out vec4 o;
+void main(){
+  vec2 h = uTexel;
+  vec4 s = texture(uTex, vUv + vec2(-2.0*h.x, 0.0));
+  s += texture(uTex, vUv + vec2(-h.x, h.y))*2.0;
+  s += texture(uTex, vUv + vec2(0.0, 2.0*h.y));
+  s += texture(uTex, vUv + vec2(h.x, h.y))*2.0;
+  s += texture(uTex, vUv + vec2(2.0*h.x, 0.0));
+  s += texture(uTex, vUv + vec2(h.x, -h.y))*2.0;
+  s += texture(uTex, vUv + vec2(0.0, -2.0*h.y));
+  s += texture(uTex, vUv + vec2(-h.x, -h.y))*2.0;
+  o = s/12.0*uK;
+}`;
+
+  // Composición final: fondo, haz de luz, el resplandor de la mente sobre la
+  // niebla, bloom, ACES, viñeta, aberración y grano.
+  const FS_COMP = `#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform sampler2D uBloom;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uBloomK;
+uniform float uExpo;
+uniform float uCono;
+uniform float uGrano;
+uniform vec2 uApex;
+uniform vec2 uBase;
+uniform vec2 uCentro;
+uniform float uRadio;
+uniform vec3 uHalo;
+in vec2 vUv;
+out vec4 o;
+
+vec3 aces(vec3 x){
+  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x*(a*x + b))/(x*(c*x + d) + e), 0.0, 1.0);
+}
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)))*43758.5453); }
+
+void main(){
+  vec2 uv = vUv;
+  vec2 px = uv*uRes;
+  vec3 bg = mix(vec3(0.004, 0.005, 0.009), vec3(0.013, 0.015, 0.026), smoothstep(0.0, 1.0, uv.y));
+
+  vec2 ax = uBase - uApex;
+  float L = max(length(ax), 1.0);
+  vec2 dir = ax/L;
+  vec2 rel = px - uApex;
+  float along = dot(rel, dir);
+  float perp = abs(dot(rel, vec2(-dir.y, dir.x)));
+  float tt = along/L;
+  float ancho = mix(L*0.03, L*0.3, clamp(tt, 0.0, 1.4));
+  float cono = smoothstep(ancho, ancho*0.1, perp) * smoothstep(0.0, 0.4, tt) * (1.0 - smoothstep(0.9, 1.25, tt));
+  cono *= 0.8 + 0.2*sin(along*0.015 - uTime*0.5 + perp*0.02);
+  float motas = step(0.9975, hash(floor(px/2.0) + floor(uTime*3.0)))*cono;
+  bg += vec3(0.30, 0.36, 0.52) * (cono*0.03 + motas*0.07) * uCono;
+
+  vec2 dc = (px - uCentro)/max(uRadio, 1.0);
+  bg += uHalo * exp(-dot(dc, dc)*1.2);
+
+  vec2 cc = uv - 0.5;
+  vec2 off = cc*dot(cc, cc)*0.012;
+  vec3 sc = vec3(texture(uScene, uv - off).r, texture(uScene, uv).g, texture(uScene, uv + off).b);
+  vec3 col = bg + sc + texture(uBloom, uv).rgb*uBloomK;
+  col = aces(col*uExpo);
+  float asp = uRes.x/uRes.y;
+  col *= 1.0 - smoothstep(0.35, 1.1, length(cc*vec2(asp, 1.0)))*0.62;
+  col = pow(max(col, 0.0), vec3(1.0/2.2));
+  // El grano va DESPUÉS de la gamma: antes, la curva lo multiplicaba en los negros.
+  col += (hash(px + fract(uTime*7.13)*97.0) - 0.5)*uGrano;
+  o = vec4(col, 1.0);
+}`;
+
+  // ─── Utilidades GL ───────────────────────────────────────────────────────
+  function compilar(tipo, src){
+    const s = gl.createShader(tipo);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(s);
+      console.error(log + '\n' + src.split('\n').map((l, i) => (i+1) + ': ' + l).join('\n'));
+      throw new Error('shader: ' + log);
+    }
+    return s;
+  }
+  function programa(vs, fs){
+    const p = gl.createProgram();
+    gl.attachShader(p, compilar(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compilar(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(p));
+    const u = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const a = gl.getActiveUniform(p, i);
+      u[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, a.name);
+    }
+    return { p, u };
+  }
+  function textura(w, h, interno, formato, tipo, datos, filtro){
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filtro || gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filtro || gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, interno, w, h, 0, formato, tipo, datos || null);
+    return t;
+  }
+  function marco(texs){
+    const f = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    texs.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0));
+    gl.drawBuffers(texs.map((_, i) => gl.COLOR_ATTACHMENT0 + i));
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (!ok) { gl.deleteFramebuffer(f); return null; }
+    return f;
+  }
+  function probarFloat(){
+    if (!ext.cbf) return false;
+    const a = textura(4, 4, gl.RGBA32F, gl.RGBA, gl.FLOAT);
+    const b = textura(4, 4, gl.RGBA32F, gl.RGBA, gl.FLOAT);
+    const f = marco([a, b]);
+    gl.deleteTexture(a); gl.deleteTexture(b);
+    if (f) gl.deleteFramebuffer(f);
+    return !!f;
+  }
+
+  // ─── Capacidades ─────────────────────────────────────────────────────────
+  const hayFloat = probarFloat();
+  const hdr = (ext.cbf || ext.cbh)
+    ? { interno: gl.RGBA16F, tipo: gl.HALF_FLOAT, ok: true }
+    : { interno: gl.RGBA8, tipo: gl.UNSIGNED_BYTE, ok: false };
+  // ?motor=analitico fuerza el camino de respaldo (para probarlo en cualquier equipo).
+  const analitico = !hayFloat || params.get('motor') === 'analitico';
+  info.modo = analitico ? 'analítico' : 'GPGPU · física';
+  try {
+    let r = ext.dbg ? gl.getParameter(ext.dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    r = String(r || '').replace(/^ANGLE \((.*)\)$/, '$1').replace(/\s*(Direct3D|vs_|ps_|OpenGL Engine).*$/i, '')
+                       .replace(/^(NVIDIA|AMD|Intel|Google Inc\.?|Apple)[^,]*,\s*/i, '').replace(/\(0x[0-9A-F]+\)/ig, '').trim();
+    info.renderer = r || 'GPU';
+  } catch (e) { info.renderer = 'GPU'; }
+
+  const P = {
+    sim: analitico ? null : programa(VS_PLANO, FS_SIM),
+    part: programa(VS_PART.replace('//DEFS', analitico ? '#define ANALITICO' : ''), FS_PART),
+    estela: programa(VS_PLANO, FS_ESTELA),
+    pre: programa(VS_PLANO, FS_PRE),
+    baja: programa(VS_PLANO, FS_BAJA),
+    sube: programa(VS_PLANO, FS_SUBE),
+    comp: programa(VS_PLANO, FS_COMP),
+  };
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  // ─── Generación de partículas (CPU, una sola vez por nivel) ─────────────
+  function mulberry(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hash3(x, y, z){
+    let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(z, 1440662683) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+  function ruido(x, y, z){
+    const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    let fx = x - xi, fy = y - yi, fz = z - zi;
+    fx = fx*fx*(3 - 2*fx); fy = fy*fy*(3 - 2*fy); fz = fz*fz*(3 - 2*fz);
+    const l = (a, b, t) => a + (b - a)*t;
+    return l(l(l(hash3(xi,yi,zi), hash3(xi+1,yi,zi), fx), l(hash3(xi,yi+1,zi), hash3(xi+1,yi+1,zi), fx), fy),
+             l(l(hash3(xi,yi,zi+1), hash3(xi+1,yi,zi+1), fx), l(hash3(xi,yi+1,zi+1), hash3(xi+1,yi+1,zi+1), fx), fy), fz);
+  }
+  function generar(N){
+    const rnd = mulberry(0x4A415256 ^ N);
+    const p0 = new Float32Array(N*4), p1 = new Float32Array(N*4);
+    for (let i = 0; i < N; i++) {
+      const o = i*4;
+      const s = rnd(), u = rnd();
+      const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z);
+      const nx = rr*Math.cos(an), ny = rr*Math.sin(an), nz = z;
+      let parte, t = 0, radio, surco = 0;
+      if (u < 0.78) {
+        // Corteza. Los surcos son las curvas de nivel de un ruido 3D sobre la
+        // esfera: se hunden un poco y apenas brillan, así que las
+        // circunvoluciones se dibujan solas. Más la cisura de Silvio, que
+        // cruza el lateral subiendo hacia atrás.
+        parte = 0;
+        const v = ruido(nx*4.4 + 31, ny*4.4, nz*4.4)*0.7 + ruido(nx*9.1, ny*9.1 + 13, nz*9.1)*0.3;
+        const g = Math.abs(v - 0.5);
+        surco = g < 0.07 ? 1 - g/0.07 : 0;
+        if (Math.abs(nx) > 0.4 && nz > -0.4) surco = Math.max(surco, Math.exp(-Math.pow((ny + 0.1 + 0.3*nz)/0.05, 2)));
+        radio = (0.97 + 0.03*rnd()) * (1 - 0.07*surco);
+      } else if (u < 0.88) {
+        parte = 1;                                   // cerebelo: folias horizontales
+        surco = ((ny*0.5 + 0.5)*12) % 1 < 0.35 ? 1 : 0;
+        radio = 0.95 + 0.05*rnd();
+      } else if (u < 0.915) {
+        parte = 2; t = rnd(); radio = 0.8 + 0.2*rnd();   // tronco
+      } else {
+        parte = 3; radio = 0.25 + 0.6*Math.cbrt(rnd());  // brillo interior
+      }
+      p0[o] = parte; p0[o+1] = t; p0[o+2] = radio; p0[o+3] = s;
+      p1[o] = nx; p1[o+1] = ny; p1[o+2] = nz; p1[o+3] = surco;
+    }
+    return { p0, p1 };
+  }
+
+  // ─── Estado de la simulación ─────────────────────────────────────────────
+  const NIVELES = [[256,256], [512,256], [512,512], [1024,512], [1024,1024]];
+  let sim = null;
+
+  function liberarSim(){
+    if (!sim) return;
+    [sim.p0, sim.p1, ...sim.pos, ...sim.vel].forEach(t => t && gl.deleteTexture(t));
+    sim.fb.forEach(f => f && gl.deleteFramebuffer(f));
+    sim = null;
+  }
+
+  function crearSim(nivel, enCaliente){
+    liberarSim();
+    const [w, h] = NIVELES[nivel];
+    const N = w*h;
+    const g = generar(N);
+    const s = { w, h, N, nivel, i: 0, pos: [], vel: [], fb: [] };
+    s.p0 = textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, g.p0);
+    s.p1 = textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, g.p1);
+    if (!analitico) {
+      // Todas nacen sueltas en la nebulosa. Al cambiar de nivel en caliente ya
+      // se ven (sin fundido); si la mente estaba formada, vuelven a ella.
+      const pos = new Float32Array(N*4), vel = new Float32Array(N*4);
+      const rnd = mulberry(7 + N);
+      for (let i = 0; i < N; i++) {
+        const o = i*4;
+        const an = rnd()*Math.PI*2, R = 0.6 + rnd()*1.9;
+        pos[o] = Math.cos(an)*R; pos[o+1] = (rnd() - 0.5)*0.5; pos[o+2] = Math.sin(an)*R;
+        vel[o+3] = enCaliente ? 1 : 0;
+      }
+      for (let j = 0; j < 2; j++) {
+        s.pos.push(textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, pos));
+        s.vel.push(textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, vel));
+        s.fb.push(marco([s.pos[j], s.vel[j]]));
+      }
+    }
+    sim = s;
+    info.N = N; info.nivel = nivel;
+  }
+
+  // ─── Objetivos de render ─────────────────────────────────────────────────
+  let W = 0, H = 0, escala = 1;
+  let acc = [], accFb = [], mips = [];
+  function crearRender(){
+    acc.forEach(t => gl.deleteTexture(t)); accFb.forEach(f => gl.deleteFramebuffer(f));
+    mips.forEach(m => { gl.deleteTexture(m.t); gl.deleteFramebuffer(m.f); });
+    acc = []; accFb = []; mips = [];
+    for (let j = 0; j < 2; j++) {
+      const t = textura(W, H, hdr.interno, gl.RGBA, hdr.tipo, null, gl.LINEAR);
+      acc.push(t); accFb.push(marco([t]));
+    }
+    let w = Math.max(2, W >> 1), h = Math.max(2, H >> 1);
+    for (let i = 0; i < 6; i++) {
+      const t = textura(w, h, hdr.interno, gl.RGBA, hdr.tipo, null, gl.LINEAR);
+      mips.push({ t, f: marco([t]), w, h });
+      w = Math.max(2, w >> 1); h = Math.max(2, h >> 1);
+    }
+    for (const f of accFb) { gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    info.res = W + '×' + H;
+  }
+  // Tope de píxeles: en pantallas 2K/4K el brillo difuso no gana nada con más
+  // resolución, y la GPU pagaba hasta cuatro veces más por cada cuadro.
+  const MAX_PX = 2.4e6;
+  function ajustar(){
+    const cw = Math.max(1, cv.clientWidth), ch = Math.max(1, cv.clientHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75, Math.sqrt(MAX_PX/(cw*ch))) * escala;
+    const w = Math.max(2, Math.round(cw*dpr)), h = Math.max(2, Math.round(ch*dpr));
+    if (w === W && h === H) return;
+    W = cv.width = w; H = cv.height = h;
+    crearRender();
+  }
+
+  // ─── Estado vivo (lo que la app pide y lo que se suaviza hacia ello) ────
+  // reunion: qué parte de las partículas está en la mente (0 nebulosa, 1 cerebro).
+  const PERFILES = {
+    arranque: { reunion:0,    think:0, flow:0.05,  dim:1.00, ppm:40, cono:0.8 },
+    reposo:   { reunion:0,    think:0, flow:0.05,  dim:1.00, ppm:40, cono:0.8 },
+    escucha:  { reunion:0.85, think:0, flow:0.08,  dim:1.10, ppm:60, cono:1.2 },
+    piensa:   { reunion:1,    think:1, flow:0.10,  dim:1.10, ppm:96, cono:1.2 },
+    habla:    { reunion:1,    think:0, flow:0.06,  dim:1.20, ppm:70, cono:1.4 },
+    descanso: { reunion:0,    think:0, flow:0.02,  dim:0.45, ppm:26, cono:0.3 },
+    enfoque:  { reunion:0,    think:0, flow:0.03,  dim:0.80, ppm:48, cono:0.6 },
+    apagado:  { reunion:0,    think:0, flow:0.015, dim:0.22, ppm:18, cono:0.1 },
+  };
+  let perfil = PERFILES.arranque, nombreEstado = 'arranque', forzado = null;
+  const S = {
+    think:0, flow:0.05, dim:1, ppm:40, cono:0.8,
+    audio:0, audioT:0, mic:0, micT:0, nube:0, nubeT:0,
+    reunion:0, reunionT:0, espera:0, atencion:0, mov:0,
+    fase:0, beat:0, raton:0, yaw:0, pitch:0, vyaw:0, vpitch:0, zoom:1, px:0, py:0, tiempo:0
+  };
+  const ray = { o:[0,0,0], d:[0,0,1] };
+  const MENTE = [0, 0, 0];
+  let pulsoCb = null;
+
+  function suave(a, b, k, dt){ return a + (b - a)*(1 - Math.exp(-k*dt)); }
+
+  function actualizar(dt){
+    S.tiempo += dt;
+    S.think = suave(S.think, perfil.think, 1.2, dt);
+    S.flow  = suave(S.flow,  perfil.flow,  1.5, dt);
+    S.dim   = suave(S.dim,   perfil.dim,   1.2, dt);
+    S.ppm   = suave(S.ppm,   perfil.ppm,   0.8, dt);
+    S.cono  = suave(S.cono,  perfil.cono,  1.0, dt);
+    S.nube  = suave(S.nube,  S.nubeT,      0.9, dt);
+    S.audio = S.audioT > S.audio ? suave(S.audio, S.audioT, 28, dt) : suave(S.audio, S.audioT, 7, dt);
+    S.mic   = S.micT > S.mic ? suave(S.mic, S.micT, 25, dt) : suave(S.mic, S.micT, 6, dt);
+    S.raton = Math.max(0, S.raton - dt*0.9);
+    S.atencion = Math.max(0, S.atencion - dt*0.25);
+
+    // Reunirse es rápido; disolverse, lento y con una pausa antes: cuando
+    // termina de hablar, la mente se queda un momento antes de deshacerse.
+    const meta = forzado != null ? forzado : Math.max(perfil.reunion, S.atencion);
+    if (meta >= S.reunionT) { S.reunionT = meta; S.espera = 0; }
+    else if ((S.espera += dt) > 3.2) S.reunionT = meta;
+    const antes = S.reunion;
+    S.reunion = S.reunionT > S.reunion ? Math.min(S.reunionT, S.reunion + dt*1.5)
+                                       : Math.max(S.reunionT, S.reunion - dt*0.28);
+    S.mov = suave(S.mov, Math.abs(S.reunion - antes)/Math.max(dt, 1e-4), 3, dt);
+
+    // Pulso de la mente: una onda por ciclo, más rápida cuanto más piensa.
+    const fAntes = S.fase;
+    S.fase = (S.fase + dt*S.ppm/60) % 1;
+    if (S.fase < fAntes && pulsoCb) pulsoCb(S.ppm);
+    const f = S.fase;
+    S.beat = Math.exp(-Math.pow((f - 0.03)/0.07, 2)) + 0.25*Math.exp(-Math.pow((f - 0.03)/0.3, 2));
+
+    if (!arrastre.activo) {
+      S.yaw += S.vyaw*dt; S.pitch += S.vpitch*dt;
+      S.vyaw *= Math.exp(-dt*3); S.vpitch *= Math.exp(-dt*3);
+      if (performance.now() - arrastre.ultimo > 5000) { S.yaw = suave(S.yaw, 0, 0.25, dt); S.pitch = suave(S.pitch, 0, 0.25, dt); }
+    }
+    S.pitch = Math.max(-0.5, Math.min(0.6, S.pitch));
+  }
+
+  // ─── Cámara ──────────────────────────────────────────────────────────────
+  const FOV = 30*Math.PI/180;
+  let VP = new Float32Array(16), ojo = [0,0,0], obj = [0,0,0], base = { r:[1,0,0], u:[0,1,0], f:[0,0,-1] };
+  const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
+  const cruz = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const punto = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  function camara(){
+    const asp = W/H;
+    // Gira despacio alrededor de la mente para que se lea en 3D.
+    const vaiven = reducido ? 0 : 1;
+    const yaw = 1.05 + Math.sin(S.tiempo*0.045)*0.55*vaiven + S.yaw + S.px*0.08;
+    const pitch = 0.16 + Math.sin(S.tiempo*0.031)*0.06*vaiven + S.pitch + S.py*0.04;
+    let dist = 3.5*S.zoom;
+    if (asp < 1.25) dist *= Math.pow(1.25/asp, 0.6);
+    obj = [0, -0.12, 0];
+    ojo = [obj[0] + Math.sin(yaw)*Math.cos(pitch)*dist, obj[1] + Math.sin(pitch)*dist, obj[2] + Math.cos(yaw)*Math.cos(pitch)*dist];
+    const f = norm([obj[0]-ojo[0], obj[1]-ojo[1], obj[2]-ojo[2]]);
+    const r = norm(cruz(f, [0,1,0]));
+    const u = cruz(r, f);
+    base = { r, u, f };
+    const vista = new Float32Array([r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u[2],-f[2],0, -punto(r,ojo),-punto(u,ojo),punto(f,ojo),1]);
+    const t = 1/Math.tan(FOV/2), n = 0.05, fa = 50, nf = 1/(n - fa);
+    const proy = new Float32Array([t/asp,0,0,0, 0,t,0,0, 0,0,(fa+n)*nf,-1, 0,0,2*fa*n*nf,0]);
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) for (let rr = 0; rr < 4; rr++) {
+      let s = 0; for (let k = 0; k < 4; k++) s += proy[k*4+rr]*vista[c*4+k]; o[c*4+rr] = s;
+    }
+    VP = o;
+  }
+  function proyectar(p){
+    const m = VP;
+    const x = m[0]*p[0] + m[4]*p[1] + m[8]*p[2] + m[12];
+    const y = m[1]*p[0] + m[5]*p[1] + m[9]*p[2] + m[13];
+    const w = m[3]*p[0] + m[7]*p[1] + m[11]*p[2] + m[15];
+    return [(x/w*0.5 + 0.5)*W, (y/w*0.5 + 0.5)*H];
+  }
+
+  // ─── Interacción ─────────────────────────────────────────────────────────
+  const arrastre = { activo:false, x:0, y:0, ultimo:0, id:null };
+  function rayo(cx, cy){
+    const rect = cv.getBoundingClientRect();
+    const nx = ((cx - rect.left)/rect.width)*2 - 1, ny = 1 - ((cy - rect.top)/rect.height)*2;
+    const th = Math.tan(FOV/2), asp = W/H;
+    ray.o = ojo.slice();
+    ray.d = norm([base.f[0] + base.r[0]*nx*th*asp + base.u[0]*ny*th,
+                  base.f[1] + base.r[1]*nx*th*asp + base.u[1]*ny*th,
+                  base.f[2] + base.r[2]*nx*th*asp + base.u[2]*ny*th]);
+    S.px = nx; S.py = ny;
+  }
+  cv.addEventListener('pointermove', e => {
+    rayo(e.clientX, e.clientY);
+    S.raton = Math.min(1, S.raton + 0.25);
+    if (arrastre.activo && e.pointerId === arrastre.id) {
+      const dx = e.clientX - arrastre.x, dy = e.clientY - arrastre.y;
+      arrastre.x = e.clientX; arrastre.y = e.clientY;
+      S.yaw -= dx*0.005; S.pitch += dy*0.003;
+      S.vyaw = -dx*0.3; S.vpitch = dy*0.18;
+      arrastre.ultimo = performance.now();
+    }
+  });
+  cv.addEventListener('pointerdown', e => {
+    arrastre.activo = true; arrastre.id = e.pointerId; arrastre.x = e.clientX; arrastre.y = e.clientY;
+    arrastre.ultimo = performance.now(); cv.classList.add('arrastrando');
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  const soltar = () => { arrastre.activo = false; arrastre.ultimo = performance.now(); cv.classList.remove('arrastrando'); };
+  cv.addEventListener('pointerup', soltar);
+  cv.addEventListener('pointercancel', soltar);
+  cv.addEventListener('pointerleave', () => { S.px *= 0.5; S.py *= 0.5; });
+  cv.addEventListener('wheel', e => { e.preventDefault(); S.zoom = Math.max(0.55, Math.min(1.4, S.zoom*Math.exp(e.deltaY*0.0012))); }, { passive:false });
+  cv.addEventListener('dblclick', () => { S.zoom = 1; S.yaw = 0; S.pitch = 0; });
+
+  // ─── Regulador de calidad ────────────────────────────────────────────────
+  // Arranca con una apuesta según el aparato, mide y ajusta: sube si la GPU
+  // va holgada, baja si no llega. Tras bajar ya no vuelve a subir.
+  // Solo sube hasta el nivel 3 (medio millón de partículas; 2 en el móvil):
+  // el millón se nota poco y ocupaba la GPU entera. ?calidad=4 lo pide.
+  const movil = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700;
+  let nivelInicial = movil ? 1 : 3;
+  if (analitico) nivelInicial = Math.min(nivelInicial, 2);
+  const fijado = params.get('calidad');
+  if (fijado !== null && !isNaN(+fijado)) nivelInicial = Math.max(0, Math.min(NIVELES.length - 1, +fijado));
+  const gob = { t:0, n:0, gpu:0, gpuN:0, subidas:0, bajadas:0, fijo: fijado !== null };
+  const TOPE_AUTO = movil ? 2 : 3;
+
+  // objetivoMs: lo que dura un cuadro al ritmo pedido (16,7 ms a 60, 33 a 30).
+  // Se compara con eso, no con 60: a 30 cuadros por decisión propia no es lento.
+  function gobernar(dt, objetivoMs){
+    if (gob.fijo || S.tiempo < 6 || S.nube < 0.9 || nombreEstado === 'apagado' || dt > 0.1) { gob.t = 0; gob.n = 0; gob.gpu = 0; gob.gpuN = 0; return; }
+    gob.t += dt; gob.n++;
+    if (info.gpu != null) { gob.gpu += info.gpu; gob.gpuN++; }
+    if (gob.t < 2.5) return;
+    const media = gob.t/gob.n*1000, gpu = gob.gpuN ? gob.gpu/gob.gpuN : null;
+    gob.t = 0; gob.n = 0; gob.gpu = 0; gob.gpuN = 0;
+    const nivel = sim.nivel;
+    if (media > Math.max(25, objetivoMs*1.3)) {
+      if (nivel > 0) { crearSim(nivel - 1, true); gob.bajadas++; }
+      else if (escala > 0.6) { escala -= 0.2; W = 0; ajustar(); }
+      else gob.fijo = true;
+      return;
+    }
+    const holgura = gpu != null ? gpu < 6.5 : media < objetivoMs*1.07;
+    const tope = analitico ? 2 : TOPE_AUTO;
+    if (holgura && nivel < tope && gob.bajadas === 0) { crearSim(nivel + 1, true); gob.subidas++; return; }
+    gob.fijo = true;
+  }
+
+  // ─── Medición de la GPU ──────────────────────────────────────────────────
+  let consulta = null;
+  function empezarMedida(){
+    if (!ext.timer || consulta) return false;
+    consulta = gl.createQuery();
+    gl.beginQuery(ext.timer.TIME_ELAPSED_EXT, consulta);
+    return true;
+  }
+  function leerMedida(){
+    if (!consulta) return;
+    const listo = gl.getQueryParameter(consulta, gl.QUERY_RESULT_AVAILABLE);
+    const roto = gl.getParameter(ext.timer.GPU_DISJOINT_EXT);
+    if (listo || roto) {
+      if (listo && !roto) {
+        const ms = gl.getQueryParameter(consulta, gl.QUERY_RESULT)/1e6;
+        info.gpu = info.gpu == null ? ms : info.gpu*0.9 + ms*0.1;
+      }
+      gl.deleteQuery(consulta); consulta = null;
+    }
+  }
+
+  // ─── Pasadas ─────────────────────────────────────────────────────────────
+  function tamMente(){ return 0.5*(1 + 0.03*S.beat + 0.08*S.audio + 0.01*Math.sin(S.tiempo*1.4)); }
+  function comunes(u){
+    gl.uniform3fv(u.uMente, MENTE);
+    gl.uniform1f(u.uMenteSize, tamMente());
+    gl.uniform1f(u.uTime, S.tiempo);
+    gl.uniform1f(u.uThink, S.think);
+    gl.uniform1f(u.uAudio, S.audio);
+  }
+  function tex(unidad, t, loc){ gl.activeTexture(gl.TEXTURE0 + unidad); gl.bindTexture(gl.TEXTURE_2D, t); if (loc) gl.uniform1i(loc, unidad); }
+
+  function simular(dt){
+    const pr = P.sim, u = pr.u;
+    gl.useProgram(pr.p);
+    gl.disable(gl.BLEND);
+    gl.viewport(0, 0, sim.w, sim.h);
+    comunes(u);
+    gl.uniform1f(u.uDt, dt);
+    gl.uniform1f(u.uReunion, S.reunion);
+    gl.uniform1f(u.uFlow, S.flow);
+    gl.uniform1f(u.uMic, S.mic);
+    gl.uniform3fv(u.uRayO, ray.o); gl.uniform3fv(u.uRayD, ray.d);
+    gl.uniform1f(u.uMouseF, S.raton);
+    tex(0, sim.pos[sim.i], u.uPos); tex(1, sim.vel[sim.i], u.uVel);
+    tex(2, sim.p0, u.uP0); tex(3, sim.p1, u.uP1);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sim.fb[1 - sim.i]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    sim.i = 1 - sim.i;
+  }
+
+  let accI = 0;
+  function dibujar(dt){
+    const k = Math.cbrt(262144/sim.N);
+    // Estela más larga mientras las partículas viajan entre nebulosa y mente.
+    let decaer = reducido ? 0 : 0.45 + 0.35*Math.min(1, S.mov*2);
+    decaer = Math.pow(decaer, dt*60);
+    const dst = 1 - accI;
+
+    // 1. Estela: lo del fotograma anterior, un poco más apagado.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, accFb[dst]);
+    gl.viewport(0, 0, W, H);
+    gl.disable(gl.BLEND);
+    gl.useProgram(P.estela.p);
+    tex(0, acc[accI], P.estela.u.uTex);
+    gl.uniform1f(P.estela.u.uK, decaer);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // 2. Partículas, sumando luz.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    const pr = P.part, u = pr.u;
+    gl.useProgram(pr.p);
+    comunes(u);
+    gl.uniformMatrix4fv(u.uVP, false, VP);
+    gl.uniform1i(u.uW, sim.w);
+    gl.uniform1f(u.uPx, H/(2*Math.tan(FOV/2)));
+    gl.uniform1f(u.uSize, 0.004*k);
+    gl.uniform1f(u.uGain, 0.02*k*(1 - decaer*0.85) * (hdr.ok ? 1 : 0.6));
+    gl.uniform1f(u.uBeat, S.beat);
+    gl.uniform1f(u.uDim, S.dim);
+    gl.uniform1f(u.uNube, S.nube);
+    gl.uniform3fv(u.uCam, ojo);
+    if (analitico) gl.uniform1f(u.uReunion, S.reunion);
+    else { tex(0, sim.pos[sim.i], u.uPos); tex(1, sim.vel[sim.i], u.uVel); }
+    tex(2, sim.p0, u.uP0); tex(3, sim.p1, u.uP1);
+    gl.drawArrays(gl.POINTS, 0, sim.N);
+    gl.disable(gl.BLEND);
+
+    // 3. Bloom: umbral, seis bajadas y otras tantas subidas sumando.
+    const escena = acc[dst];
+    gl.useProgram(P.pre.p);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, mips[0].f);
+    gl.viewport(0, 0, mips[0].w, mips[0].h);
+    tex(0, escena, P.pre.u.uTex);
+    gl.uniform2f(P.pre.u.uTexel, 1/W, 1/H);
+    gl.uniform1f(P.pre.u.uThr, 0.75);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.useProgram(P.baja.p);
+    for (let i = 1; i < mips.length; i++) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, mips[i].f);
+      gl.viewport(0, 0, mips[i].w, mips[i].h);
+      tex(0, mips[i-1].t, P.baja.u.uTex);
+      gl.uniform2f(P.baja.u.uTexel, 1/mips[i-1].w, 1/mips[i-1].h);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.useProgram(P.sube.p);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = mips.length - 1; i > 0; i--) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, mips[i-1].f);
+      gl.viewport(0, 0, mips[i-1].w, mips[i-1].h);
+      tex(0, mips[i].t, P.sube.u.uTex);
+      gl.uniform2f(P.sube.u.uTexel, 0.5/mips[i].w, 0.5/mips[i].h);
+      gl.uniform1f(P.sube.u.uK, 1.0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.disable(gl.BLEND);
+
+    // 4. Composición a pantalla.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    const pc = P.comp, uc = pc.u;
+    gl.useProgram(pc.p);
+    tex(0, escena, uc.uScene); tex(1, mips[0].t, uc.uBloom);
+    gl.uniform2f(uc.uRes, W, H);
+    gl.uniform1f(uc.uTime, S.tiempo);
+    gl.uniform1f(uc.uBloomK, 0.32 + S.audio*0.3);
+    gl.uniform1f(uc.uExpo, 1.15);
+    gl.uniform1f(uc.uCono, S.cono*S.dim*Math.max(S.nube, 0.001));
+    gl.uniform1f(uc.uGrano, reducido ? 0.008 : 0.022);
+    gl.uniform2fv(uc.uApex, proyectar([0.0, 3.2, 0.3]));
+    gl.uniform2fv(uc.uBase, proyectar([0.0, -1.4, 0.0]));
+    const centro = proyectar(MENTE);
+    gl.uniform2fv(uc.uCentro, centro);
+    const borde = proyectar([0, tamMente(), 0]);
+    gl.uniform1f(uc.uRadio, Math.hypot(borde[0] - centro[0], borde[1] - centro[1])*2.4);
+    const halo = (0.03 + 0.05*S.beat + 0.12*S.audio)*S.reunion*S.dim*S.nube;
+    gl.uniform3f(uc.uHalo, 1.0*halo, 0.6*halo, 0.28*halo);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    accI = dst;
+  }
+
+  // ─── Ritmo ───────────────────────────────────────────────────────────────
+  // El monitor pide 60, 144 o más cuadros por segundo, pero la nebulosa en
+  // reposo se mueve despacio: a 30 se ve igual y cuesta la mitad. Mientras
+  // escucha, piensa, habla, el cerebro se forma o le mueve con el ratón, 60.
+  // En reposo con la ventana en segundo plano, 20. ?fps=N fija el tope y
+  // ?fps=libre lo quita.
+  const fpsPedido = params.get('fps');
+  function fpsTope(){
+    if (fpsPedido === 'libre') return 1000;
+    if (fpsPedido && +fpsPedido > 0) return Math.max(5, +fpsPedido);
+    const vivo = nombreEstado === 'escucha' || nombreEstado === 'piensa' || nombreEstado === 'habla'
+      || S.reunion > 0.005 || S.mov > 0.005 || S.audio > 0.01 || S.mic > 0.01
+      || arrastre.activo || S.raton > 0.02 || S.tiempo < 4;
+    if (vivo) return 60;
+    return document.hasFocus() ? 30 : 20;
+  }
+
+  // ─── Bucle ───────────────────────────────────────────────────────────────
+  let ultimo = performance.now(), cuentaFps = 0, relojFps = 0;
+  let previo = ultimo, periodo = 1000/60, topeAntes = 0;
+  function cuadro(ahora){
+    requestAnimationFrame(cuadro);
+    // Cada cuánto llama el monitor (media), para saber qué cuadros saltar.
+    const paso = ahora - previo; previo = ahora;
+    if (paso > 0 && paso < 100) periodo += (paso - periodo)*0.05;
+    if (document.hidden) { ultimo = ahora; return; }
+    const tope = fpsTope();
+    if (tope !== topeAntes) { topeAntes = tope; info.tope = tope; gob.t = 0; gob.n = 0; gob.gpu = 0; gob.gpuN = 0; }
+    if (ahora - ultimo < 1000/tope - periodo/2) return;
+    const bruto = (ahora - ultimo)/1000;
+    ultimo = ahora;
+    const dt = Math.min(0.05, Math.max(0.0005, bruto));
+    const t0 = performance.now();
+    ajustar();
+    actualizar(dt);
+    camara();
+    leerMedida();
+    const midiendo = empezarMedida();
+    if (!analitico) {
+      if (dt > 1/45) { simular(dt/2); simular(dt/2); } else simular(dt);
+    }
+    dibujar(dt);
+    if (midiendo) gl.endQuery(ext.timer.TIME_ELAPSED_EXT);
+    info.ms = info.ms*0.9 + (performance.now() - t0)*0.1;
+    info.historial.push(bruto*1000); if (info.historial.length > 120) info.historial.shift();
+    cuentaFps++; relojFps += bruto;
+    if (relojFps >= 0.5) { info.fps = cuentaFps/relojFps; cuentaFps = 0; relojFps = 0; }
+    gobernar(bruto, 1000/tope);
+    for (const g of ganchos) g(dt);
+  }
+
+  cv.addEventListener('webglcontextlost', e => { e.preventDefault(); });
+  cv.addEventListener('webglcontextrestored', () => location.reload());
+
+  crearSim(nivelInicial, false);
+  ajustar();
+  requestAnimationFrame(cuadro);
+
+  return {
+    ok: true, info, NIVELES,
+    estado(nombre){ if (PERFILES[nombre]) { perfil = PERFILES[nombre]; nombreEstado = nombre; } },
+    audio(v){ S.audioT = Math.max(0, Math.min(1, v)); },
+    mic(v){ S.micT = Math.max(0, Math.min(1, v)); },
+    nube(v){ S.nubeT = v; },
+    // Fuerza la reunión (0..1) al margen del estado; null la devuelve al estado.
+    forzar(v){ forzado = v == null ? null : Math.max(0, Math.min(1, v)); },
+    // Mientras se escribe, las partículas se agitan y empiezan a acercarse.
+    atencion(v){ S.atencion = Math.max(S.atencion, Math.min(1, v)); },
+    alPulso(f){ pulsoCb = f; },
+    alCuadro(f){ ganchos.push(f); },
+    get reunion(){ return S.reunion; },
+  };
+})();
+</script>
+
+<!-- Los módulos son los mismos de /nexus y /aeon (/modulos.js): aquí van las
+     piezas que ese archivo espera encontrar ya definidas. -->
+<script>
+// El PIN: el que trae el QR (?token=), el guardado, o el de la interfaz móvil
+// anterior (se guardaba como «jarvis_token»), para no obligar a reemparejar.
+var token = (function(){
+  try {
+    return new URLSearchParams(location.search).get('token')
+        || localStorage.getItem('jarvis_pin') || localStorage.getItem('jarvis_token') || '';
+  } catch (e) { return ''; }
+})();
+// Cada petición al PC lleva el PIN en la cabecera. En el propio PC no hace
+// falta, pero en el teléfono es la llave: si el router le cambia la IP, sigue
+// entrando igual.
+(function(){
+  const original = window.fetch.bind(window);
+  window.fetch = function(recurso, opciones){
+    try {
+      if (token && typeof recurso === 'string' && (recurso.startsWith('/') || recurso.startsWith(location.origin))) {
+        opciones = Object.assign({}, opciones);
+        const h = new Headers(opciones.headers || {});
+        if (!h.has('X-Token')) h.set('X-Token', token);
+        opciones.headers = h;
+      }
+    } catch (e) {}
+    return original(recurso, opciones);
+  };
+})();
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const API = {
+  async get(ruta){
+    const r = await fetch(ruta, {headers:{'X-Token':token}});
+    if (!r.ok && r.status === 403) throw new Error('PIN incorrecto');
+    return (r.headers.get('content-type') || '').includes('json') ? r.json() : r.text();
+  },
+  async post(ruta, cuerpo){
+    const r = await fetch(ruta, {method:'POST', headers:{'Content-Type':'application/json','X-Token':token},
+                                 body: JSON.stringify(cuerpo || {})});
+    try { return await r.json(); } catch (e) { return {ok:r.ok}; }
+  },
+  async del(ruta){
+    const r = await fetch(ruta, {method:'DELETE', headers:{'X-Token':token}});
+    try { return await r.json(); } catch (e) { return {ok:r.ok}; }
+  },
+  u(ruta){ return API.get('/api/nexus/u' + ruta); },
+  up(ruta, cuerpo){ return API.post('/api/nexus/u' + ruta, cuerpo); },
+  medios(ruta){ return ruta + (ruta.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token); }
+};
+const caja  = (t, c) => `<div class="mcaja"><h4>${t}</h4>${c}</div>`;
+const barra = (v, max = 100) => `<div class="medidor"><i style="width:${Math.min(100, (v/max)*100)}%"></i></div>`;
+const duracion = seg => {
+  const n = Number(seg);
+  if (!n || Number.isNaN(n)) return esc(seg || '—');
+  const h = Math.floor(n/3600), m = Math.round((n % 3600)/60);
+  return h ? `hace ${h} h ${m} min` : `hace ${m} min`;
+};
+const tabla = (cab, filas) =>
+  `<table class="mtabla"><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr>${
+    filas.map(f => `<tr>${f.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6500); }
+</script>
+<script src="/modulos.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     APLICACIÓN — conversación, voz, telemetría y el ritual de arranque.
+     Habla con el mismo backend de siempre (web_interface/app.py).
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+(function(){
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const guardado = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v){ try { localStorage.setItem(k, v); } catch (e) {} },
+  };
+  const params = new URLSearchParams(location.search);
+  const JSONH = { 'Content-Type': 'application/json' };
+  const ETIQUETAS = {
+    arranque:'Despertando', reposo:'En reposo', escucha:'Escuchando', piensa:'Pensando',
+    habla:'Hablando', descanso:'Descansando', enfoque:'Enfoque', apagado:'Apagado'
+  };
+  const tts = $('#tts');
+  const App = {
+    estado:'arranque', base:'reposo', audio: guardado.get('origen_audio', '1') === '1',
+    continua:false, pausaContinua:false, recCont:null, rec:null, escuchando:false,
+    vozId:0, ventana:0, token:'', grabadora:null, trozos:[], apagado:false
+  };
+
+  // ─── Acceso ──────────────────────────────────────────────────────────────
+  // En el PC, el servidor da el PIN solo. En el teléfono vale el que trae el
+  // QR o el guardado; si caducó y el móvil ya estaba emparejado, el PC le da
+  // el nuevo; si no, se pide a mano.
+  App.token = token;
+  App.esPC = false;
+  function fijarToken(t){
+    App.token = token = String(t || '');
+    guardado.set('jarvis_pin', App.token);
+  }
+  function darseDeAlta(){
+    // Así el PC apunta este teléfono como emparejado (y lo ve en su pantalla).
+    fetch('/allow_my_ip', { method:'POST', headers: JSONH, body: JSON.stringify({ token: App.token }) }).catch(() => {});
+  }
+  async function asegurarAcceso(){
+    try {
+      const r = await fetch('/api/local_token');
+      if (r.ok) { const j = await r.json(); if (j.token) { fijarToken(j.token); App.esPC = true; return true; } }
+    } catch (e) {
+      mostrarAcceso('No llego al PC. ¿Está encendido JARVIS y estás en la misma red?');
+      return false;
+    }
+    if (App.token) {
+      try {
+        const d = await (await fetch('/token_ok?token=' + encodeURIComponent(App.token))).json();
+        if (d.ok) { fijarToken(App.token); darseDeAlta(); return true; }
+        if (d.bloqueado) { mostrarAcceso('Demasiados intentos. Vuelve a probar en ' + (d.minutos || 15) + ' min.'); return false; }
+      } catch (e) {}
+    }
+    try {
+      const r = await fetch('/pin_actual');
+      if (r.ok) { const j = await r.json(); if (j.pin) { fijarToken(j.pin); darseDeAlta(); return true; } }
+    } catch (e) {}
+    mostrarAcceso(App.token ? 'Ese PIN ya no vale: escanea otra vez el QR del PC.' : '');
+    return false;
+  }
+  let alEntrar = null;
+  function mostrarAcceso(error){
+    $('#accesoError').textContent = error || '';
+    $('#acceso').classList.add('on');
+    setTimeout(() => $('#accesoPin').focus(), 60);
+  }
+  $('#acceso').addEventListener('submit', async e => {
+    e.preventDefault();
+    const t = $('#accesoPin').value.trim();
+    if (!/^\d{6}$/.test(t)) { $('#accesoError').textContent = 'El PIN tiene 6 cifras.'; return; }
+    $('#accesoError').textContent = 'Comprobando…';
+    try {
+      const d = await (await fetch('/token_ok?token=' + encodeURIComponent(t))).json();
+      if (d.bloqueado) { $('#accesoError').textContent = 'Demasiados intentos. Vuelve a probar en ' + (d.minutos || 15) + ' min.'; return; }
+      if (!d.ok) { $('#accesoError').textContent = 'PIN incorrecto.'; return; }
+      fijarToken(t); darseDeAlta();
+      $('#acceso').classList.remove('on');
+      if (alEntrar) alEntrar();
+    } catch (err) { $('#accesoError').textContent = 'No llego al PC.'; }
+  });
+  // El PIN no se queda a la vista en la barra de direcciones.
+  if (params.get('token')) {
+    params.delete('token');
+    history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
+  }
+
+  // ─── Estado ──────────────────────────────────────────────────────────────
+  function ponerEstado(e){
+    App.estado = e;
+    document.body.dataset.estado = e;
+    $('#estadoTxt').textContent = ETIQUETAS[e] || e;
+    Motor.estado(e);
+  }
+  function alReposo(){ ponerEstado(App.apagado ? 'apagado' : (App.escuchando ? 'escucha' : App.base)); }
+
+  let avisoT = null;
+  function aviso(txt, ms){
+    const a = $('#aviso'); a.textContent = txt; a.classList.add('on');
+    clearTimeout(avisoT); avisoT = setTimeout(() => a.classList.remove('on'), ms || 3800);
+  }
+  window.avisar = aviso;          // brindis() de /modulos.js avisa por aquí
+
+  // ─── Audio: contexto, analizadores y el pulso que suena ──────────────────
+  const Son = {
+    ctx:null, fuente:null, anal:null, buf:null, micAnal:null, micBuf:null, micStream:null, maestro:null, dron:null,
+    asegurar(){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      if (!this.ctx) { this.ctx = new AC(); this.maestro = this.ctx.createGain(); this.maestro.gain.value = 0.9; this.maestro.connect(this.ctx.destination); }
+      if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+      return this.ctx;
+    },
+    conectarVoz(){
+      // Una vez enganchado al contexto, el <audio> suena a través de él: solo
+      // se engancha si el contexto ya corre, o la voz se quedaría muda.
+      if (this.fuente || !this.ctx || this.ctx.state !== 'running') return;
+      try {
+        this.fuente = this.ctx.createMediaElementSource(tts);
+        this.anal = this.ctx.createAnalyser(); this.anal.fftSize = 1024;
+        this.buf = new Float32Array(this.anal.fftSize);
+        this.fuente.connect(this.anal); this.anal.connect(this.ctx.destination);
+      } catch (e) {}
+    },
+    nivelVoz(){
+      if (!this.anal || tts.paused) return 0;
+      this.anal.getFloatTimeDomainData(this.buf);
+      let s = 0; for (let i = 0; i < this.buf.length; i++) s += this.buf[i]*this.buf[i];
+      return Math.min(1, Math.sqrt(s/this.buf.length)*4.5);
+    },
+    async abrirMic(){
+      if (this.micStream || !navigator.mediaDevices) return;
+      try {
+        const ctx = this.asegurar(); if (!ctx) return;
+        this.micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true } });
+        const src = ctx.createMediaStreamSource(this.micStream);
+        this.micAnal = ctx.createAnalyser(); this.micAnal.fftSize = 512;
+        this.micBuf = new Float32Array(this.micAnal.fftSize);
+        src.connect(this.micAnal);
+      } catch (e) { this.micStream = null; }
+    },
+    cerrarMic(){
+      if (this.micStream) this.micStream.getTracks().forEach(t => t.stop());
+      this.micStream = null; this.micAnal = null;
+    },
+    nivelMic(){
+      if (!this.micAnal) return 0;
+      this.micAnal.getFloatTimeDomainData(this.micBuf);
+      let s = 0; for (let i = 0; i < this.micBuf.length; i++) s += this.micBuf[i]*this.micBuf[i];
+      return Math.min(1, Math.sqrt(s/this.micBuf.length)*8);
+    },
+  };
+
+  // ─── Subtítulos ──────────────────────────────────────────────────────────
+  const Sub = { palabras:[], mostradas:0, inicio:0, dur:0, modo:null, bordes:[], sintetico:false };
+  function subtitularTu(txt){
+    const el = $('#subTu');
+    el.textContent = txt.length > 160 ? txt.slice(0, 157) + '…' : txt;
+  }
+  function subtitular(txt){
+    const el = $('#subJ');
+    el.classList.remove('vieja');
+    el.textContent = '';
+    Sub.palabras = []; Sub.bordes = []; Sub.mostradas = 0;
+    let pos = 0;
+    const trozos = txt.split(/(\s+)/);
+    for (const t of trozos) {
+      if (/^\s+$/.test(t)) { el.appendChild(document.createTextNode(t)); pos += t.length; continue; }
+      if (!t) continue;
+      const s = document.createElement('span'); s.className = 'w'; s.textContent = t;
+      el.appendChild(s); Sub.palabras.push(s); Sub.bordes.push(pos); pos += t.length;
+    }
+    el.scrollTop = 0;
+    Sub.modo = null;
+  }
+  function revelarHasta(n){
+    n = Math.min(Sub.palabras.length, Math.max(0, Math.floor(n)));
+    if (n <= Sub.mostradas) return;
+    for (let i = Sub.mostradas; i < n; i++) Sub.palabras[i].classList.add('on');
+    Sub.mostradas = n;
+    const el = $('#subJ'), ult = Sub.palabras[n-1];
+    if (ult && ult.offsetTop + ult.offsetHeight > el.scrollTop + el.clientHeight - 8) el.scrollTop = ult.offsetTop - el.clientHeight*0.55;
+  }
+  function revelarTodo(){ revelarHasta(Sub.palabras.length); Sub.modo = null; }
+  function revelarPorTiempo(ms){ Sub.modo = 'tiempo'; Sub.inicio = performance.now(); Sub.dur = ms; }
+
+  // ─── Voz de JARVIS ───────────────────────────────────────────────────────
+  function callar(){
+    App.vozId++;
+    try { tts.pause(); tts.removeAttribute('src'); tts.load(); } catch (e) {}
+    try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+    Motor.audio(0);
+    revelarTodo();
+    if (App.estado === 'habla') alReposo();
+  }
+  function vozFin(){ fetch('/api/voz_fin', { method:'POST' }).catch(() => {}); }
+  function finVoz(id){
+    if (id !== App.vozId) return;
+    revelarTodo();
+    Motor.audio(0);
+    vozFin();
+    App.ventana = Date.now() + 8000;
+    reanudarContinua();
+    alReposo();
+    setTimeout(() => { if (id === App.vozId) $('#subJ').classList.add('vieja'); }, 9000);
+  }
+
+  function decir(texto){
+    texto = String(texto || '').trim();
+    if (!texto) return;
+    const id = ++App.vozId;
+    Sub.sintetico = false;
+    try { tts.pause(); } catch (e) {}
+    try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+    subtitular(texto);
+    ponerEstado('habla');
+    const estimado = Math.max(2200, Math.min(40000, texto.length*62));
+    if (!App.audio) {
+      revelarPorTiempo(estimado*0.55);
+      Sub.sintetico = true;
+      setTimeout(() => finVoz(id), estimado*0.55 + 600);
+      return;
+    }
+    pausarContinua();
+    const hablar = texto.replace(/\s+/g, ' ').slice(0, 1800);
+    fetch('/api/speak', { method:'POST', headers: JSONH, body: JSON.stringify({ text: hablar, agente: 'jarvis' }) })
+      .then(r => { if (!r.ok || r.status === 204) throw new Error('sin voz de servidor'); return r.blob(); })
+      .then(b => {
+        if (id !== App.vozId) return;
+        const url = URL.createObjectURL(b);
+        Son.conectarVoz();
+        tts.src = url;
+        tts.onended = () => { URL.revokeObjectURL(url); finVoz(id); };
+        tts.onerror = () => { URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado); };
+        Sub.modo = 'audio';
+        return tts.play().catch(err => {
+          if (err && err.name === 'NotAllowedError') App.vozBloqueada = true;
+          URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado);
+        });
+      })
+      .catch(() => { if (id === App.vozId) vozNavegador(id, hablar, estimado); });
+  }
+
+  function vozNavegador(id, texto, estimado){
+    if (id !== App.vozId) return;
+    revelarPorTiempo(estimado);
+    Sub.sintetico = true;
+    let terminado = false;
+    const acabar = () => { if (terminado) return; terminado = true; Sub.sintetico = false; finVoz(id); };
+    const seguro = setTimeout(acabar, estimado + 4000);
+    try {
+      if (!('speechSynthesis' in window)) { clearTimeout(seguro); setTimeout(acabar, estimado); return; }
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'es-ES'; u.rate = 0.98; u.pitch = 0.92;
+      const vs = speechSynthesis.getVoices();
+      const v = vs.find(x => /es[-_]ES/i.test(x.lang) && /jorge|pablo|alvaro|david|enrique|male|hombre/i.test(x.name))
+             || vs.find(x => /es[-_]ES/i.test(x.lang)) || vs.find(x => /^es/i.test(x.lang));
+      if (v) u.voice = v;
+      u.onboundary = e => {
+        if (id !== App.vozId) return;
+        let n = 0; while (n < Sub.bordes.length && Sub.bordes[n] <= e.charIndex) n++;
+        revelarHasta(n);
+      };
+      const t0 = performance.now();
+      u.onend = () => { clearTimeout(seguro); acabar(); };
+      // Sin voces instaladas la síntesis falla al instante: los subtítulos
+      // siguen a su ritmo en vez de saltar de golpe al final.
+      u.onerror = ev => {
+        if (ev && ev.error === 'not-allowed') App.vozBloqueada = true;
+        clearTimeout(seguro); setTimeout(acabar, Math.max(0, estimado - (performance.now() - t0)));
+      };
+      speechSynthesis.speak(u);
+    } catch (e) { clearTimeout(seguro); setTimeout(acabar, estimado); }
+  }
+
+  // Cada fotograma: nivel de la voz para la mente y avance de subtítulos.
+  Motor.alCuadro(() => {
+    let nivel = 0;
+    if (App.estado === 'habla') {
+      if (!tts.paused && Son.anal) nivel = Son.nivelVoz();
+      else if (Sub.sintetico || (!tts.paused && !Son.anal)) {
+        const t = performance.now()/1000;
+        nivel = 0.28 + 0.22*Math.abs(Math.sin(t*7.3)) * (0.6 + 0.4*Math.sin(t*2.1));
+      }
+    }
+    Motor.audio(nivel);
+    Motor.mic(App.escuchando ? Son.nivelMic() : 0);
+    if (Sub.modo === 'audio' && !tts.paused && tts.duration && isFinite(tts.duration)) {
+      revelarHasta(Sub.palabras.length*(tts.currentTime/tts.duration)*1.04 + 1);
+    } else if (Sub.modo === 'tiempo') {
+      const f = (performance.now() - Sub.inicio)/Math.max(1, Sub.dur);
+      revelarHasta(Sub.palabras.length*f + 1);
+    }
+  });
+
+  // ─── Conversación ────────────────────────────────────────────────────────
+  const hist = [];
+  function anotar(quien, texto, cuando){
+    hist.push({ quien, texto, t: new Date() });
+    const l = $('#lista');
+    if (l.querySelector('.vacio')) l.textContent = '';
+    const d = document.createElement('div');
+    d.className = 'm ' + (quien === 'tu' ? 'u' : 'j');
+    const q = document.createElement('div'); q.className = 'q';
+    q.textContent = (quien === 'tu' ? 'tú' : 'jarvis') + ' · ' + (cuando || new Date().toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' }));
+    const t = document.createElement('div'); t.className = 't'; t.textContent = texto;
+    d.append(q, t); l.appendChild(d); l.scrollTop = l.scrollHeight;
+  }
+  function cargarHistorial(){
+    fetch('/api/history').then(r => r.ok ? r.json() : null).then(j => {
+      const ms = (j && j.messages) || [];
+      if (!ms.length || hist.length) return;
+      ms.slice(-30).forEach(m => anotar(m.role === 'user' ? 'tu' : 'jarvis', m.text || '', 'antes'));
+    }).catch(() => {});
+  }
+
+  let enVuelo = 0;
+  async function enviar(texto){
+    texto = String(texto || '').trim();
+    if (!texto) return;
+    if (App.apagado) revivir(true);
+    App.hablado = true;
+    callar();
+    subtitularTu(texto);
+    anotar('tu', texto);
+    ponerEstado('piensa');
+    enVuelo++;
+    let resp;
+    try {
+      const r = await fetch('/process_text', { method:'POST', headers: JSONH, body: JSON.stringify({ text: texto }) });
+      const d = await r.json().catch(() => ({}));
+      resp = d.response || d.error || 'Señor, el núcleo no me ha devuelto nada.';
+    } catch (e) {
+      resp = 'Señor, he perdido el enlace con el núcleo. ¿Sigue en marcha el servidor?';
+    }
+    enVuelo--;
+    anotar('jarvis', resp);
+    decir(resp);
+  }
+
+  $('#formulario').addEventListener('submit', e => {
+    e.preventDefault();
+    const t = $('#entrada').value.trim();
+    if (!t) return;
+    $('#entrada').value = '';
+    enviar(t);
+  });
+  $$('#chips .chip').forEach(c => c.addEventListener('mousedown', e => { e.preventDefault(); enviar(c.dataset.c); }));
+  // Mientras escribes, las partículas se agitan y empiezan a acercarse.
+  $('#entrada').addEventListener('input', () => { if ($('#entrada').value.trim()) Motor.atencion(0.35); });
+
+  // ─── Escucha ─────────────────────────────────────────────────────────────
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function marcarMic(on){ $('#bMic').classList.toggle('on', on); }
+
+  function escuchar(){
+    if (App.escuchando) { if (App.rec) try { App.rec.stop(); } catch (e) {} ; if (App.grabadora) pararGrabacion(); return; }
+    callar();
+    Son.asegurar();
+    if (!window.isSecureContext) {
+      aviso('El micrófono del móvil necesita HTTPS: actívalo en el PC en Módulos → Enlace (acceso remoto). Mientras, escríbele.', 7000);
+      return;
+    }
+    if (!SR) return grabarParaServidor();
+    pausarContinua();
+    const rec = new SR();
+    rec.lang = 'es-ES'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    let final = '';
+    rec.onresult = e => {
+      let txt = '';
+      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      $('#entrada').value = txt;
+      subtitularTu(txt);
+      if (e.results[e.results.length - 1].isFinal) final = txt;
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') aviso('El navegador no me deja usar el micrófono.');
+      else if (e.error === 'network') aviso('El reconocimiento de voz necesita conexión a internet.');
+    };
+    rec.onend = () => {
+      App.escuchando = false; App.rec = null; marcarMic(false); Son.cerrarMic();
+      if (final.trim()) { $('#entrada').value = ''; enviar(final); }
+      else { if (App.estado === 'escucha') alReposo(); reanudarContinua(); }
+    };
+    App.rec = rec; App.escuchando = true; marcarMic(true); ponerEstado('escucha'); Son.abrirMic();
+    try { rec.start(); } catch (e) { App.escuchando = false; marcarMic(false); alReposo(); }
+  }
+
+  // Sin reconocimiento en el navegador (Firefox): se graba y lo transcribe
+  // el servidor con Whisper, igual que el móvil.
+  async function grabarParaServidor(){
+    if (!navigator.mediaDevices || !window.MediaRecorder) { aviso('Este navegador no puede escuchar. Prueba con Chrome o Edge.'); return; }
+    if (!App.token) { aviso('Falta el PIN de voz: abre esta página desde el propio PC o con ?token=…'); return; }
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ audio:true });
+      const gr = new MediaRecorder(st);
+      App.trozos = [];
+      gr.ondataavailable = e => { if (e.data.size) App.trozos.push(e.data); };
+      gr.onstop = () => {
+        st.getTracks().forEach(t => t.stop());
+        const b = new Blob(App.trozos, { type: App.trozos[0] ? App.trozos[0].type : 'audio/webm' });
+        const fd = new FormData(); fd.append('audio', b, 'voz.webm'); fd.append('token', App.token);
+        ponerEstado('piensa');
+        fetch('/voice', { method:'POST', body: fd }).then(r => r.json()).then(j => {
+          if (j.texto) { subtitularTu(j.texto); anotar('tu', j.texto); }
+          const rep = j.respuesta || j.error || '';
+          if (rep) { anotar('jarvis', rep); decir(rep); } else alReposo();
+        }).catch(e => { aviso('Error de voz: ' + e.message); alReposo(); });
+      };
+      App.grabadora = gr; gr.start();
+      App.escuchando = true; marcarMic(true); ponerEstado('escucha'); Son.abrirMic();
+    } catch (e) { aviso('Micrófono: ' + e.message); }
+  }
+  function pararGrabacion(){
+    const gr = App.grabadora; App.grabadora = null;
+    App.escuchando = false; marcarMic(false); Son.cerrarMic();
+    if (gr && gr.state !== 'inactive') gr.stop();
+  }
+  $('#bMic').addEventListener('click', escuchar);
+
+  // Voz continua: se le llama por su nombre; justo después de que hable, se
+  // le puede contestar sin nombrarlo (como hace la escucha del PC).
+  function iniciarContinua(){
+    if (!SR) { aviso('La voz continua necesita Chrome o Edge.'); App.continua = false; marcarContinua(); return; }
+    const rec = new SR();
+    rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = e => {
+      const r = e.results[e.results.length - 1];
+      if (!r.isFinal) return;
+      const txt = r[0].transcript.trim();
+      const m = txt.match(/\b(?:jarvis|yarvis|jarbis|harvis)\b[\s,:.!¡¿?]*(.*)$/i);
+      if (m) {
+        if (m[1].trim()) enviar(m[1]);
+        else { ponerEstado('escucha'); App.ventana = Date.now() + 8000; setTimeout(() => { if (App.estado === 'escucha' && !App.escuchando) alReposo(); }, 8000); }
+      } else if (Date.now() < App.ventana && txt.length > 1) enviar(txt);
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { App.continua = false; marcarContinua(); aviso('Sin permiso para el micrófono.'); }
+    };
+    rec.onend = () => { if (App.continua && !App.pausaContinua && App.recCont === rec) setTimeout(() => { try { rec.start(); } catch (e) {} }, 250); };
+    App.recCont = rec;
+    try { rec.start(); } catch (e) {}
+  }
+  function detenerContinua(){ const r = App.recCont; App.recCont = null; if (r) try { r.stop(); } catch (e) {} }
+  function pausarContinua(){ if (!App.continua) return; App.pausaContinua = true; if (App.recCont) try { App.recCont.stop(); } catch (e) {} }
+  function reanudarContinua(){
+    if (!App.continua || App.escuchando) return;
+    App.pausaContinua = false;
+    if (!App.recCont) iniciarContinua(); else try { App.recCont.start(); } catch (e) {}
+  }
+  function marcarContinua(){ $('#bContinua').classList.toggle('on', App.continua); }
+  $('#bContinua').addEventListener('click', () => {
+    App.continua = !App.continua; marcarContinua();
+    if (App.continua) { Son.asegurar(); App.pausaContinua = false; iniciarContinua(); aviso('Voz continua: di «Jarvis» y lo que necesites.'); }
+    else detenerContinua();
+  });
+
+  // ─── Botones ─────────────────────────────────────────────────────────────
+  function marcarAudio(){
+    const b = $('#bAudio');
+    b.classList.toggle('on', App.audio);
+    b.querySelector('.ondas').style.display = App.audio ? '' : 'none';
+    b.querySelector('.tacha').style.display = App.audio ? 'none' : '';
+  }
+  $('#bAudio').addEventListener('click', () => {
+    App.audio = !App.audio; guardado.set('origen_audio', App.audio ? '1' : '0'); marcarAudio();
+    if (!App.audio) { try { tts.pause(); } catch (e) {} try { speechSynthesis.cancel(); } catch (e) {} }
+  });
+  marcarAudio();
+
+  $$('.acciones [data-modo]').forEach(b => b.addEventListener('click', async () => {
+    const m = b.dataset.modo;
+    $$('.acciones [data-modo]').forEach(x => x.classList.toggle('on', x === b));
+    App.base = m === 'sleep' ? 'descanso' : m === 'focus' ? 'enfoque' : 'reposo';
+    let msg = { sleep:'Entendido. Estaré atento a cualquier necesidad, señor.',
+                focus:'Modo enfoque. Solo le responderé si me llama, señor.',
+                normal:'De vuelta al modo completo, señor. A su servicio.' }[m];
+    try { const r = await fetch('/set_mode/' + m); const d = await r.json(); if (d.response) msg = d.response; } catch (e) {}
+    anotar('jarvis', msg); decir(msg);
+  }));
+
+  function abrir(sel){ $(sel).classList.add('on'); }
+  function cerrar(sel){ $(sel).classList.remove('on'); }
+  $('#bHist').addEventListener('click', () => { $('#cajon').classList.toggle('on'); $('#bHist').classList.toggle('on', $('#cajon').classList.contains('on')); });
+  $('#bCajonX').addEventListener('click', () => { cerrar('#cajon'); $('#bHist').classList.remove('on'); });
+  $$('.velo').forEach(v => v.addEventListener('click', e => { if (e.target === v || e.target.hasAttribute('data-cerrar')) v.classList.remove('on'); }));
+
+  // ─── Emparejar el móvil ──────────────────────────────────────────────────
+  // Lo caro (direcciones, Tailscale, cortafuegos) se pide al abrir y cada 30 s;
+  // si el teléfono ya entró, cada 3 s (eso solo lee un fichero en el PC).
+  const Par = { info:null, estado:null, url:'', elegida:false, antes:null, preparado:false };
+  function pararPar(){ clearInterval(Par.info); clearInterval(Par.estado); Par.info = Par.estado = null; }
+  function qrDe(url){
+    $('#parQr').src = '/qr?url=' + encodeURIComponent(url) + '&v=' + Date.now();
+    $('#parUrl').textContent = url;
+    $('#parPista').textContent = url.startsWith('https://')
+      ? 'Escanea el QR con la cámara del teléfono (con Tailscale activado): funciona en casa y fuera, y ya lleva el PIN dentro.'
+      : 'Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC). Ya lleva el PIN dentro. Si no carga, prueba otra dirección:';
+  }
+  function enlaces(t){ return esc(t).replace(/(https?:\/\/[^\s)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+
+  function pintarRemoto(r, texto){
+    const el = $('#parRemoto');
+    let html = '<h4>FUERA DE CASA</h4>';
+    if (!r || !r.instalado) {
+      html += '<p>Para usar JARVIS fuera de casa, instala <b style="color:inherit">Tailscale</b> (gratis) en este PC y en el móvil, con la misma cuenta. Cuando lo tengas, vuelve a abrir esto: se configura solo.</p>' +
+              '<a class="mbtn" href="https://tailscale.com/download" target="_blank" rel="noopener">Descargar Tailscale</a>';
+    } else if (!r.activo) {
+      html += '<p>Tailscale está instalado pero no conectado. Ábrelo en el PC e inicia sesión; después vuelve a abrir esto.</p>';
+    } else if (!r.publicado) {
+      html += '<p>' + (texto ? enlaces(texto) : 'Activando el acceso desde fuera…') + '</p>';
+    } else if (!r.moviles.length) {
+      html += '<p><b>✓ Acceso desde fuera activo</b> (' + esc(r.url) + ').</p>' +
+              '<p>Falta el móvil: instala Tailscale en él con la misma cuenta y actívalo. En cuanto aparezca, el QR cambia solo a la dirección que funciona en casa y fuera.</p>';
+    } else {
+      html += '<p><b>✓ Funciona en casa y fuera</b> — el QR usa ' + esc(r.url) + '</p>' +
+              '<p>Solo ten Tailscale activado en el móvil (' + esc(r.moviles.join(', ')) + ').</p>';
+    }
+    if (texto && r && r.publicado) html += '<p>' + enlaces(texto) + '</p>';
+    el.innerHTML = html;
+    el.hidden = false;
+  }
+
+  function pintarInfo(d, texto){
+    $('#parPin').textContent = d.pin || '······';
+    const urls = (d.urls && d.urls.length) ? d.urls : [{ url: d.url, via: 'red local' }];
+    if (!Par.elegida || !urls.some(u => u.url === Par.url)) {
+      Par.elegida = false;
+      if (d.url !== Par.url) { Par.url = d.url; qrDe(Par.url); }
+    }
+    $('#parDirs').innerHTML = urls.map(u =>
+      `<button type="button" data-url="${esc(u.url)}" class="${u.url === Par.url ? 'activa' : ''}">${esc(u.url)}<span>${esc(u.via || '')}</span></button>`).join('');
+    pintarRemoto(d.remoto, texto);
+    const motivos = (d.diagnostico || []).map(m => `<p><b>${esc(m.que || '')}</b><br>${esc(m.hacer || '')}</p>`).join('');
+    const puerto = d.firewall && d.firewall.hace_falta;
+    $('#parAyuda').hidden = !motivos && !puerto;
+    $('#parAyuda').innerHTML = motivos +
+      (puerto ? '<button type="button" class="mbtn" id="parPuerto">Abrir el puerto en Windows</button>' : '');
+  }
+
+  async function cargarInfoPar(fresco){
+    try {
+      const d = await (await fetch('/pair_info' + (fresco ? '?fresco=1' : ''))).json();
+      if (d.error) throw new Error(d.error);
+      pintarInfo(d);
+      // Con Tailscale listo pero sin publicar, se activa solo: tocar, escanear y listo.
+      const r = d.remoto || {};
+      if (r.instalado && r.activo && !r.publicado && !Par.preparado) {
+        Par.preparado = true;
+        const p = await (await fetch('/api/remoto/preparar', { method:'POST' })).json();
+        if (!p.error) pintarInfo(Object.assign({ pin: d.pin }, p), p.texto);
+      }
+    } catch (e) {
+      $('#parUrl').textContent = 'No pude leer los datos de emparejamiento.';
+    }
+  }
+  async function vigilarPar(){
+    try {
+      const p = await (await fetch('/pair_status')).json();
+      const lista = p.emparejados || [];
+      const el = $('#parEstado');
+      if (lista.length) {
+        el.className = 'par-estado ok';
+        el.textContent = 'Teléfono emparejado ✓  (' + lista.map(x => x.ip).join(', ') + ')';
+        if (Par.antes !== null && lista.length > Par.antes) aviso('Teléfono emparejado ✓');
+      } else {
+        el.className = 'par-estado';
+        el.textContent = 'Esperando al teléfono…';
+      }
+      Par.antes = lista.length;
+    } catch (e) {}
+  }
+  $('#parDirs').addEventListener('click', e => {
+    const b = e.target.closest('[data-url]');
+    if (!b) return;
+    Par.url = b.dataset.url; Par.elegida = true; qrDe(Par.url);
+    $$('#parDirs button').forEach(x => x.classList.toggle('activa', x === b));
+  });
+  $('#parAyuda').addEventListener('click', async e => {
+    if (e.target.id !== 'parPuerto') return;
+    e.target.disabled = true; e.target.textContent = 'Pidiendo permiso a Windows…';
+    try { const r = await (await fetch('/abrir_puerto', { method:'POST' })).json(); aviso(r.texto || r.error || 'Hecho'); } catch (err) {}
+    cargarInfoPar(true);
+  });
+  $('#bPar').addEventListener('click', () => {
+    abrir('#veloPar');
+    Object.assign(Par, { url:'', elegida:false, antes:null, preparado:false });
+    pararPar();
+    cargarInfoPar(true);
+    vigilarPar();
+    Par.info = setInterval(() => cargarInfoPar(false), 30000);
+    Par.estado = setInterval(vigilarPar, 3000);
+  });
+  // Al cerrar el diálogo deja de preguntar.
+  new MutationObserver(() => { if (!$('#veloPar').classList.contains('on')) pararPar(); })
+    .observe($('#veloPar'), { attributes:true, attributeFilter:['class'] });
+
+  function fmtN(n){ return Math.round(n).toLocaleString('es-ES'); }
+  $('#bOrigen').addEventListener('click', () => {
+    const i = Motor.info;
+    $('#tecOrigen').innerHTML =
+      '<b>Motor</b> WebGL2 escrito a mano · sin librerías · sin imágenes<br>' +
+      '<b>' + fmtN(i.N) + '</b> partículas · física ' + (i.modo.startsWith('GPGPU') ? 'en la GPU (muelles + flujo ABC: de la galaxia a la mente)' : 'analítica en el vertex shader') + '<br>' +
+      '<b>' + (i.fps ? i.fps.toFixed(0) : '—') + ' FPS</b> · ' + i.res + ' · HDR 16 bits · estela · bloom de 6 niveles · ACES<br>' +
+      '<b>GPU</b> ' + i.renderer.replace(/[<>&]/g, '');
+    abrir('#veloOrigen');
+  });
+
+  // ─── Módulos ─────────────────────────────────────────────────────────────
+  // Los de /modulos.js (compartidos con /nexus y /aeon). Aquí se ordenan con
+  // lo más nuevo delante y se presentan con un índice de tarjetas.
+  const hayModulos = typeof MODULOS !== 'undefined';
+  const ORDEN_MODULOS = ['ciencias','modelado3d','cerebro','correo','demos','llamadas','consejo',
+    'agenda','sistema','camara','pantalla','archivos','generador','ojos','movil','voz','aprender',
+    'agentes','datos','historial','seguridad','enlace'];
+  const NUEVOS = new Set(['ciencias','modelado3d','cerebro','correo','demos','llamadas','consejo']);
+  const DESCRIPCION = {
+    ciencias:'resuelve y grafica mates, física y química; simulaciones',
+    modelado3d:'de una idea, una foto o un vídeo a un modelo 3D y su holograma',
+    cerebro:'memoria, gasto del día y salud de los proveedores',
+    correo:'bandeja, leer, responder y resumir',
+    demos:'la web de un negocio, publicada en Vercel',
+    llamadas:'que te llame, te mande un SMS o un WhatsApp',
+    consejo:'JARVIS y ULTRON deliberan y sintetizan',
+    agenda:'tus eventos de Google Calendar', sistema:'CPU, memoria, disco y procesos',
+    camara:'la cámara del equipo, en vivo', pantalla:'ver y manejar el PC a distancia',
+    archivos:'subir y bajar archivos', generador:'documentos e imágenes a partir de una frase',
+    ojos:'lo que pasa en tu pantalla', movil:'notificaciones, apps y WhatsApp del móvil',
+    voz:'voces locales y qué suena', aprender:'misiones largas y afinado del modelo',
+    agentes:'la agencia de especialistas', datos:'bolsa, noticias, webs y YouTube',
+    historial:'conversaciones guardadas', seguridad:'guardián, IPs y red',
+    enlace:'emparejado, PIN y acceso remoto',
+  };
+  function clavesModulos(){
+    const todas = Object.keys(MODULOS);
+    return [...ORDEN_MODULOS.filter(k => todas.includes(k)), ...todas.filter(k => !ORDEN_MODULOS.includes(k))];
+  }
+  function pintarRailOrigen(){
+    const rail = $('#rail'); rail.textContent = '';
+    for (const k of clavesModulos()) {
+      const m = MODULOS[k], b = document.createElement('button');
+      b.className = 'mod'; b.dataset.mod = k; b.title = m.titulo; b.setAttribute('aria-label', m.titulo);
+      b.innerHTML = `<svg viewBox="0 0 24 24">${m.icono}</svg>`;
+      b.onclick = () => abrirModulo(k);
+      rail.appendChild(b);
+    }
+  }
+  function indiceModulos(){
+    moduloActivo = null;
+    $$('.rail .mod').forEach(b => b.classList.remove('activo'));
+    $('#mod-titulo').textContent = 'Todo lo que sé hacer';
+    $('#mod-contenido').innerHTML = '<div class="indice">' + clavesModulos().map(k =>
+      `<button data-abrir="${k}"><span><svg viewBox="0 0 24 24">${MODULOS[k].icono}</svg></span>
+        <b>${esc(MODULOS[k].titulo)}${NUEVOS.has(k) ? '<span class="nuevo">NUEVO</span>' : ''}</b>
+        <small>${esc(DESCRIPCION[k] || '')}</small></button>`).join('') + '</div>';
+  }
+  function abrirPanelModulos(){
+    if (!hayModulos) { aviso('No pude cargar los módulos (/modulos.js).'); return; }
+    $('#lienzo-mod').classList.add('abierto');
+    if (!moduloActivo) indiceModulos();
+  }
+  function cerrarPanelModulos(){
+    if (hayModulos && moduloActivo) cerrarModulo();
+    $('#lienzo-mod').classList.remove('abierto');
+  }
+  $('#bModulos').addEventListener('click', () =>
+    $('#lienzo-mod').classList.contains('abierto') ? cerrarPanelModulos() : abrirPanelModulos());
+  $('#mod-inicio').addEventListener('click', () => hayModulos && indiceModulos());
+  $('#mod-contenido').addEventListener('click', e => { const b = e.target.closest('[data-abrir]'); if (b) abrirModulo(b.dataset.abrir); });
+  // modulos.js abre y cierra el panel por su cuenta: el botón sigue su estado.
+  new MutationObserver(() => $('#bModulos').classList.toggle('on', $('#lienzo-mod').classList.contains('abierto')))
+    .observe($('#lienzo-mod'), { attributes:true, attributeFilter:['class'] });
+  if (hayModulos) pintarRailOrigen();
+
+  // ─── Apagar y despertar ──────────────────────────────────────────────────
+  $('#bApagar').addEventListener('click', async () => {
+    if (App.apagado) return;
+    let txt = 'Hasta luego, señor. Permaneceré en espera.';
+    try { const d = await (await fetch('/farewell')).json(); if (d.response) txt = d.response; } catch (e) {}
+    anotar('jarvis', txt);
+    decir(txt);
+    setTimeout(() => { App.apagado = true; ponerEstado('apagado'); }, 1400);
+    setTimeout(() => { if (App.apagado) { abrir('#apagado'); } }, 5200);
+  });
+  function revivir(silencioso){
+    if (!App.apagado) return;
+    App.apagado = false;
+    cerrar('#apagado');
+    alReposo();
+    if (!silencioso) { const m = 'Sistemas reactivados, señor. Aquí sigo.'; setTimeout(() => { anotar('jarvis', m); decir(m); }, 2600); }
+  }
+  $('#bRevivir').addEventListener('click', () => { Son.asegurar(); revivir(false); });
+
+  // ─── Teclado ─────────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if ($('#acceso').classList.contains('on')) return;
+    const escribiendo = e.target.closest('input,textarea');
+    if (e.key === 'Escape') {
+      callar(); cerrar('#cajon'); cerrarPanelModulos(); pararPar(); $$('.velo').forEach(v => v.classList.remove('on')); $('#bHist').classList.remove('on');
+      if (escribiendo) e.target.blur();
+      return;
+    }
+    if (escribiendo) return;
+    if (e.key === '/' ) { e.preventDefault(); $('#entrada').focus(); }
+    else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); escuchar(); }
+  });
+
+  // ─── Reloj y telemetría ──────────────────────────────────────────────────
+  const DIAS = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+  const MESES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  const nacido = Date.now();
+  // Nada de trabajo para lo que no se ve: con la ventana oculta, o con el
+  // panel de telemetría escondido (pantallas estrechas), no se pide ni se pinta.
+  const panelTele = $('.tele');
+  const teleVisible = () => !document.hidden && panelTele.offsetParent !== null;
+  function reloj(){
+    if (document.hidden) return;
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    $('#reloj').textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    $('#fecha').textContent = DIAS[d.getDay()] + ' ' + d.getDate() + ' ' + MESES[d.getMonth()];
+    const m = Math.floor((Date.now() - nacido)/60000);
+    $('#despierto').textContent = m < 1 ? 'recién despierto'
+      : 'despierto hace ' + (m < 60 ? m + ' min' : Math.floor(m/60) + ' h ' + (m % 60) + ' min');
+  }
+  setInterval(reloj, 1000); reloj();
+
+  function fmtUp(s){ const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return (h ? h + ' h ' : '') + m + ' min'; }
+  function nucleos(lista){
+    const box = $('#tNucleos');
+    if (box.children.length !== lista.length) { box.textContent = ''; lista.forEach(() => box.appendChild(document.createElement('span'))); }
+    lista.forEach((v, i) => { box.children[i].style.height = Math.max(8, Math.min(100, v)) + '%'; });
+  }
+  let prevRed = null;
+  async function telemetria(){
+    if (!teleVisible()) { setTimeout(telemetria, 2500); return; }
+    try {
+      const t0 = performance.now();
+      const r = await fetch('/stats', { cache:'no-store' });
+      const d = await r.json();
+      $('#tPing').textContent = Math.round(performance.now() - t0) + ' ms';
+      if (d.error) throw new Error(d.error);
+      $('#tCpu').textContent = Math.round(d.cpu || 0) + ' %';
+      if (Array.isArray(d.cpu_cores) && d.cpu_cores.length) nucleos(d.cpu_cores);
+      $('#tRam').textContent = (d.ram_used_gb ?? '—') + ' / ' + (d.ram_total_gb ?? '—') + ' GB';
+      $('#tRamB').style.width = Math.max(2, Math.min(100, d.ram_pct || 0)) + '%';
+      $('#tTemp').textContent = d.temp != null ? d.temp + ' °C' : 'sin sensor';
+      $('#tRed').textContent = (d.net_recv || '—') + ' / ' + (d.net_sent || '—');
+      $('#tUp').textContent = d.uptime ? fmtUp(d.uptime) : '—';
+      if (d.battery) { $('#tBatF').hidden = false; $('#tBat').textContent = d.battery.percent + ' %' + (d.battery.plugged ? ' · cargando' : ''); }
+      prevRed = d;
+    } catch (e) {
+      $('#tPing').textContent = 'sin enlace';
+    }
+    setTimeout(telemetria, 2500);
+  }
+
+  const chispa = $('#chispa'), cx = chispa.getContext('2d');
+  function dibujarChispa(){
+    const h = Motor.info.historial, w = chispa.width, al = chispa.height;
+    cx.clearRect(0, 0, w, al);
+    cx.strokeStyle = 'rgba(236,231,222,.07)'; cx.lineWidth = 1;
+    const y60 = al - (16.7/40)*al;
+    cx.beginPath(); cx.moveTo(0, y60); cx.lineTo(w, y60); cx.stroke();
+    if (h.length < 2) return;
+    const g = cx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(147,166,207,.15)'); g.addColorStop(1, 'rgba(232,178,106,.95)');
+    cx.strokeStyle = g; cx.lineWidth = 2; cx.beginPath();
+    h.forEach((v, i) => { const x = i/(120 - 1)*w, y = al - Math.min(1, v/40)*al; i ? cx.lineTo(x, y) : cx.moveTo(x, y); });
+    cx.stroke();
+  }
+  function motorHud(){
+    if (document.hidden) return;
+    const i = Motor.info;
+    $('#pieN').textContent = fmtN(i.N);
+    if (!teleVisible()) return;
+    $('#tGpu').textContent = i.renderer;
+    $('#tParticulas').firstChild.nodeValue = fmtN(i.N);
+    $('#tFps').textContent = i.fps ? i.fps.toFixed(0) + ' fps' + (i.tope < 60 ? ' · reposo' : '') : '—';
+    $('#tMs').textContent = i.ms ? i.ms.toFixed(2) + ' ms' : '—';
+    $('#tGpuMs').textContent = i.gpu != null ? i.gpu.toFixed(2) + ' ms' : 'no expuesto';
+    $('#tFisica').textContent = i.fps && i.N ? (i.N*i.fps/1e6).toFixed(1).replace('.', ',') + ' M/s' : '—';
+    $('#tModo').textContent = i.modo + ' · ' + i.res;
+    dibujarChispa();
+  }
+  setInterval(motorHud, 500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { reloj(); motorHud(); } });
+
+  // ─── Arranque: sin ceremonia, saluda y a trabajar ────────────────────────
+  async function saludar(){
+    ponerEstado('piensa');
+    let txt = 'Buenos días, señor. Todos los sistemas están operativos. ¿En qué puedo servirle hoy?';
+    try {
+      const d = await (await fetch('/greet')).json();
+      if (d.response) txt = d.response;
+    } catch (e) {}
+    App.saludo = txt;
+    anotar('jarvis', txt);
+    decir(txt);
+  }
+  // Los navegadores no dejan sonar nada hasta el primer gesto: si el saludo
+  // salió mudo, se dice en cuanto se toque algo (salvo que ya estés hablándole).
+  let gestoVisto = false;
+  function primerGesto(){
+    if (gestoVisto) return;
+    gestoVisto = true;
+    Son.asegurar();
+    if (App.vozBloqueada && App.saludo && !App.hablado) { App.vozBloqueada = false; decir(App.saludo); }
+  }
+  document.addEventListener('pointerdown', primerGesto, { capture:true });
+  document.addEventListener('keydown', primerGesto, { capture:true });
+
+  // Avisos en tiempo real del PC (webhooks, archivos del móvil, alertas).
+  function conectarAvisos(){
+    const sc = document.createElement('script');
+    sc.src = '/socket.io.min.js';
+    sc.onload = () => {
+      try {
+        const sock = io({ auth: { token: App.token }, transports: ['websocket', 'polling'] });
+        sock.on('notification', d => {
+          if (!d || !d.text) return;
+          aviso(d.text, 7000);
+          anotar('jarvis', d.text);
+          if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('JARVIS', { body: d.text, icon: '/icon-192.png' }); } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    };
+    document.head.appendChild(sc);
+  }
+
+  // Sin caché: el service worker nuevo borra lo que guardaba el viejo (que
+  // dejaba el teléfono clavado en una versión antigua) y recarga.
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+  Motor.nube(1);
+  alReposo();
+  function empezar(){
+    if (!App.esPC) $('#bPar').hidden = true;      // emparejar se hace desde el PC
+    cargarHistorial();
+    telemetria();
+    conectarAvisos();
+    saludar();
+  }
+  alEntrar = empezar;
+  asegurarAcceso().then(ok => { if (ok) empezar(); });
+})();
+</script>
+</body>
+</html>

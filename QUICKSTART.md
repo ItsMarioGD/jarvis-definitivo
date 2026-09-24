@@ -2,91 +2,74 @@
 
 ## Uso diario
 
-Arranca todo (JARVIS, ULTRON y los servidores MCP) con un solo comando:
+**Doble clic en el icono «JARVIS»** del escritorio (o búscalo en Inicio). Sin
+terminal: si JARVIS no estaba en marcha, sale «JARVIS despertando…» mientras lo
+arranca sin consolas y luego se abre su ventana; si ya estaba abierta, la trae
+delante. Un segundo doble clic mientras arranca no lanza nada dos veces. Para
+anclarlo a la barra de tareas, ancla este icono (clic derecho en Inicio →
+Anclar a la barra de tareas), no la ventana abierta: la ventana sola no
+arranca el núcleo.
+
+El icono lo crea JARVIS solo la primera vez que arranca. Si lo borras, no
+vuelve a aparecer solo; para recuperarlo:
+
+```bash
+python escritorio.py --acceso
+```
+
+Si algo no arranca, lo que dijo cada servidor está en `jarvis_log\` (`jarvis.log`,
+`ultron.log`, `calendar_mcp.log`...), que se empieza de cero en cada arranque.
+
+Para reiniciarlo todo (JARVIS, ULTRON y los servidores MCP que hagan falta):
 
 ```bash
 python reiniciar_todo.py
 ```
 
-**ÆON: la interfaz de gala.** Con la web arrancada,
-`http://TU-IP:5000/aeon?token=<PIN>`. Es la que se abre sola al arrancar, y las
-tres personalidades no comparten solo el color: cada una trae su propia
-retícula (las columnas se recolocan de verdad), su tipografía, su forma de
-panel y su física de partículas.
+**ORIGEN: la interfaz.** Se abre en **su propia ventana**, como una aplicación:
+sin pestañas ni barra de direcciones, con el motor de Edge que ya trae Windows
+(Chrome si no hay Edge) y un perfil aparte, sin extensiones ni nada en segundo
+plano; al cerrarla no queda nada abierto. Es la misma interfaz que en
+`http://localhost:5000`, que sigue valiendo en cualquier navegador. No hay
+cinemática: saluda y a trabajar. En silencio, JARVIS es polvo de luz
+disperso en una galaxia; cuando le hablas (o escribes), y mientras piensa o
+contesta, las partículas se reúnen en una mente de oro —un cerebro— que late con
+su voz, y al terminar se vuelve a disolver. Si el navegador no deja sonar el
+saludo al abrir, lo dice en cuanto toques algo (en la ventana propia suena solo).
 
-* **JARVIS** — sala simétrica, cristal y aire, tipografía fina y ancha. El
-  núcleo es una esfera de casco despiezado con tres anillos giroscópicos.
-* **ULTRON** — la sala se da la vuelta: la conversación pasa a la izquierda,
-  todo se vuelve monoespaciado en mayúsculas, las esquinas se cortan a bisel y
-  el núcleo es un octaedro al que unas cajas giratorias le arrancan trozos, con
-  las grietas al rojo vivo.
-* **CONSEJO** — retícula simétrica con las dos columnas enfrentadas y la
-  deliberación abajo a lo ancho; titulares en serif. El núcleo se desdobla en
-  dos tetraedros que orbitan, uno de cada color, con una costura blanca en medio.
+**Consumo.** En reposo la galaxia se dibuja a 30 cuadros por segundo (20 si la
+ventana está detrás de otra) y a 60 mientras escucha, piensa o habla; con la
+ventana minimizada no se dibuja nada. En pantallas 2K/4K se dibuja a unos 2,4
+millones de píxeles y se escala. La calidad sube sola hasta medio millón de
+partículas (`?calidad=4` pide el millón; `?fps=libre` quita el tope). La
+telemetría ya no lanza un PowerShell cada 2,5 s. Home Assistant y Android solo
+arrancan con `HA_TOKEN` o `adb`, y el MCP de JARVIS por HTTP con
+`JARVIS_MCP_HTTP=1`.
 
-El núcleo es un *raymarch* de campos de distancia en WebGL2 escrito a mano: no
-hay librería, ni CDN, ni un solo archivo de imagen; los tres cuerpos son tres
-SDF que se mezclan, y por eso la esfera **se rompe** en el octaedro en lugar de
-cambiar de dibujo. Lleva oclusión ambiental, sombra propia suave y un rebote de
-reflejo, y encima un **revelado de cine en cuatro pasadas**: las luces altas se
-separan, se difuminan en dos direcciones, se estiran en un destello anamórfico
-y se componen con curva ACES, aberración cromática, grano y viñeta. Cada
-personalidad se expone distinto —JARVIS es luz limpia, ULTRON una masa oscura
-con la lumbre dentro—, y al cambiar de una a otra la cámara entra, el cuerpo se
-desgarra y las barras de formato panorámico enmarcan el plano. Si la tarjeta no da WebGL2, el mismo núcleo se dibuja con
-trazos en 2D y no se pierde nada más. La calidad se ajusta sola mirando los
-cuadros por segundo (y si aun así no llega, apaga sombra y reflejo antes que
-perder fluidez) y respeta «reducir movimiento» del sistema.
+A la izquierda, telemetría real del equipo y del motor gráfico; a la derecha,
+los modos, la voz continua («Jarvis…»), la conversación, **los módulos** y el
+emparejado del móvil. Atajos: `/` escribir, `M` hablar, `Esc` callar o cerrar.
 
-**Suena.** No son pitidos: hay una sala de verdad (reverberación por
-convolución con un impulso generado a mano) y un ambiente propio por
-personalidad que se cruza al mutar —un acorde cristalino en JARVIS, un zumbido
-grave y sucio en ULTRON, dos voces en quinta en el CONSEJO—. La mutación entra
-con un *riser* de ruido que sube, golpe de sub-graves y soplo; escribir, enviar,
-recibir, abrir un módulo o el panel tienen su propio sonido. Todo sintetizado
-al vuelo, sin un solo archivo de audio, y todo cuelga de un compresor para que
-nada reviente el altavoz. Se apaga con el botón del altavoz de la cabecera y la
-elección se recuerda. `Tab` cambia de personalidad, `Ctrl+K` abre la paleta de órdenes
-(módulos, personalidades y frases) y el engranaje despliega el panel.
+**Módulos** (botón de los nodos): Ciencias, Modelado 3D, Cerebro, Correo, Demos
+web, Llamadas, Consejo, Agenda, Sistema, Cámara, Pantalla y control, Archivos,
+Generar, Ojos, Teléfono, Voz, Aprender, Especialistas, Datos y web, Historial,
+Guardián y Enlace. Lo de ULTRON pasa por una pasarela (`/api/nexus/u/…`) desde
+el mismo origen: no hay un segundo PIN que teclear.
 
-**NEXUS: la interfaz anterior, intacta.** Con la web arrancada,
-`http://TU-IP:5000/nexus?token=<PIN>`. Un único lienzo donde JARVIS, ULTRON y el
-CONSEJO conviven: al cambiar de personalidad el núcleo se transforma en directo
-(el círculo de JARVIS se rompe en el hexágono de ULTRON, o en el triángulo doble
-del consejo) mientras el color de toda la interfaz se interpola. `Tab` alterna
-personalidad; el engranaje despliega el panel de control sin salir de la página.
+**El móvil, en casa y fuera.** En ORIGEN, botón del móvil: sale un QR con el PIN
+dentro; el teléfono lo escanea y entra en la misma interfaz, sin teclear nada.
+Para usarlo **fuera de casa**, una sola vez: instala [Tailscale](https://tailscale.com/download)
+(gratis) en el PC y en el móvil con la misma cuenta. A partir de ahí, al pulsar
+el botón del móvil JARVIS activa solo el acceso privado por HTTPS (`tailscale
+serve`, sin abrir nada en el router) y el QR pasa a una dirección
+`https://<tu-pc>.<red>.ts.net/mobile` que vale en casa, en la calle y con datos
+móviles, y con la que además funciona el micrófono del teléfono. Sin Tailscale,
+el QR usa el Wi-Fi de casa. El PIN y el QR solo se ven desde el PC; lo que entra
+por Tailscale no cuenta como «el propio PC» y necesita el PIN. El servidor ya no
+abre ventanas de consola al consultar la red o Tailscale.
 
-En modo CONSEJO, una pregunta con consecuencias hace que las dos voces
-argumenten en lados opuestos y se muestre la síntesis debajo, marcando si el
-desacuerdo es real.
-
-Alrededor del núcleo hay HUD de verdad, no adorno: a la izquierda, telemetría
-viva con gráficas de tendencia (procesador, memoria, red, disco, batería,
-temperatura, tiempo encendido), y a la derecha el estado de los subsistemas, la
-actividad de las últimas 24 horas y el hilo de sucesos —ahí aparecen solos los
-hallazgos del enjambre, las caídas que detecta el vigilante y las alertas—. Todo
-se repinta con el color de la personalidad activa.
-
-El raíl de la izquierda trae **todo lo que hacían las dos interfaces antiguas**,
-cada cosa en su módulo:
-
-| Módulo | Qué trae |
-|---|---|
-| Sistema | CPU, memoria, disco, batería, red, procesos (y matarlos), liberar RAM, radar, bloqueo total |
-| Cámara | Emisión en vivo de la cámara del equipo |
-| Pantalla y control | Escritorio en vivo + ratón (arrastrar, clic, rueda) y teclado remotos |
-| Archivos | Subir al equipo y descargar lo que JARVIS ha generado |
-| Generar | Imágenes, Word, Excel, PowerPoint, PDF, diagramas y código |
-| Agenda | Lo de hoy, crear eventos y borrarlos (Google Calendar) |
-| Guardián | Modo de ULTRON, guardián facial, radar de red, bloquear IPs, restaurar red |
-| Voz | Hacer que hable, callarlo, voz de Windows, saludo, despedida, probar el cerebro |
-| Especialistas | Catálogo de agentes, activar personalidad, delegar en el otro agente |
-| Datos y web | Bolsa, noticias, extraer una web, descargar de YouTube |
-| Historial | Las conversaciones de los dos, y purgar la memoria de ULTRON |
-| Emparejar | QR, PIN, aparatos emparejados y cambio de PIN al instante |
-
-Lo que ULTRON expone pasa por una pasarela (`/api/nexus/u/…`) desde el mismo
-origen, así que no hay CORS ni un segundo PIN que teclear.
+Las interfaces antiguas (clásica, NEXUS, ÆON, panel, la del móvil, el HUD de
+escritorio y el HUD de React) ya no existen: sus direcciones llevan a ORIGEN.
 
 **Los dos a la vez.** Un solo comando levanta JARVIS y ULTRON y abre sus dos
 interfaces ya autenticadas (sin teclear ningún PIN):
@@ -95,25 +78,20 @@ interfaces ya autenticadas (sin teclear ningún PIN):
 python jarvis.py ambos
 ```
 
-En Windows también vale doble clic en `arrancar_ambos.bat`. Si alguno ya estaba
+En Windows también vale doble clic en `arrancar_ambos.bat` (o `JARVIS_START.bat`
+para JARVIS solo). Si alguno ya estaba
 corriendo lo reutiliza en vez de tirarlo; con `--reiniciar` cierra lo anterior y
-arranca limpio, y con `--sin-navegador` no abre pestañas. Ctrl+C para los dos.
-
-**Panel de control.** Con la web arrancada, abre `http://TU-IP:5000/panel?token=<PIN>`
-y tienes en una pantalla: qué se puede deshacer, qué órdenes fallaron, el estado
-del vigilante y del enjambre, el perfil activo, la memoria indexada, la
-seguridad, las habilidades pendientes de aprobar y el rendimiento. Con botones,
-sin tener que recordar ninguna frase.
+arranca limpio, y con `--sin-navegador` no abre ninguna ventana. Ctrl+C para los dos.
 
 ¿Solo quieres una parte? Todo pasa por un único lanzador (`jarvis.bat` hace lo
 mismo desde el explorador de Windows):
 
 | Comando | Qué abre |
 |---|---|
-| `python jarvis.py ambos` | **JARVIS y ULTRON a la vez, abriendo sus dos webs** |
-| `python jarvis.py` | HUD de escritorio de JARVIS |
+| `python jarvis.py ambos` | **JARVIS y ULTRON a la vez, abriendo ORIGEN** |
+| `python jarvis.py` | JARVIS: arranca y abre ORIGEN |
 | `python jarvis.py ultron` | Núcleo/HUD de ULTRON |
-| `python jarvis.py web` | Interfaz web (y móvil) de JARVIS |
+| `python jarvis.py web` | Lo mismo: ORIGEN (PC y móvil) |
 | `python jarvis.py ultron-web` | Interfaz web de ULTRON |
 | `python jarvis.py movil` | QR de emparejamiento del teléfono |
 | `python jarvis.py estado` | Diagnóstico: qué está listo y qué falta |
@@ -610,7 +588,8 @@ Por ADB, con el cable y la depuración USB: nada de cuentas ni servidores.
 
 | Fichero | Qué hace |
 |---|---|
-| `reiniciar_todo.py` | Arranca (o reinicia) todo el sistema |
+| `reiniciar_todo.py` | Arranca (o reinicia) todo el sistema y abre la ventana |
+| `escritorio.py` | ORIGEN como aplicación: su ventana, el icono «JARVIS» (`--acceso`) |
 | `revisar.py` | Diagnóstico: qué funciona, qué no y cómo arreglarlo |
 | `observador.py` | Mira la pantalla y se ofrece cuando le ve atascado |
 | `voz_propia.py` | Voz neuronal local, distinta para JARVIS y para ULTRON |
@@ -667,10 +646,9 @@ Por ADB, con el cable y la depuración USB: nada de cuentas ni servidores.
 | `orquestador.py` | Parte del día: agenda + hábitos + turno de noche |
 | `actualizar.py` | Actualización con pruebas y vuelta atrás automática |
 | `servicio.py` | Arranque automático (tarea programada o servicio) |
-| `web_interface/aeon.html` | **ÆON: la interfaz de gala, un diseño distinto por personalidad** |
-| `web_interface/modulos.js` | Los módulos que comparten ÆON y el NEXUS |
-| `web_interface/nexus.html` | Interfaz unificada anterior: JARVIS, ULTRON y el consejo |
-| `web_interface/panel.html` | Panel de control de todos los subsistemas |
+| `web_interface/origen.html` | **ORIGEN: la interfaz (PC y móvil), motor WebGL2 a mano** |
+| `web_interface/modulos.js` | Los módulos de ORIGEN |
+| `web_interface/sw.js` | Service worker sin caché (borra el que dejaba el móvil clavado) |
 | `web_interface/panel_api.py` | Estado y mandos del panel |
 | `web_interface/app.py` | Servidor web y móvil |
 | `jarvis_qr.py` | Genera el QR de emparejamiento |

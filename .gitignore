@@ -28,6 +28,11 @@ token.pickle
 
 # Temp files
 _*
+# ...pero los __init__.py y __main__.py son código. Con «_*» a secas ninguno
+# llegaba a GitHub, y paquetes como cognition (CognitionHub) o skills.plugins
+# (el registro de plugins) solo existían en el PC donde se escribieron.
+!__init__.py
+!__main__.py
 *.tmp
 *.bak
 
@@ -36,12 +41,6 @@ _*
 
 # Node
 node_modules/
-jarvis-fui/node_modules/
-jarvis-fui/dist/
-liquid-glass-jarvis/node_modules/
-liquid-glass-jarvis/dist/
-web-hud/node_modules/
-web-hud/dist/
 _ext_jarvis_hud/node_modules/
 
 # External libs
@@ -63,9 +62,16 @@ Thumbs.db
 Descargas/
 storage/
 jarvis_log/
+.python_del_proyecto
 _vision/
 ultron_web.log
 flask_log.txt
 codegen_test*.txt
 test*_output.txt
 test*_log.txt
+
+# TypeScript build artifacts
+web-hud/tsconfig.tsbuildinfo
+web-hud/tsconfig.node.tsbuildinfo
+web-hud/vite.config.d.ts
+web-hud/vite.config.js

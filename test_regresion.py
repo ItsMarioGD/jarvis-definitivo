@@ -870,22 +870,111 @@ def test_interfaz_web():
     _check(r.status_code == 400, "un mando desconocido se rechaza",
            f"-> {r.status_code}")
 
-    # 5. El NEXUS: la interfaz unificada se sirve y su API exige PIN.
-    r = cliente.get("/nexus")
-    _check(r.status_code == 200 and b"NEXUS" in r.data,
-           "«/nexus» sirve la interfaz unificada", f"-> {r.status_code}")
+    # 5. La API del NEXUS (la usan los módulos) sigue exigiendo PIN.
     r = cliente.post("/api/nexus/cmd", json={"agente": "jarvis", "texto": "hola"})
     _check(r.status_code == 403, "el mando del NEXUS exige PIN")
     r = cliente.get("/api/nexus/estado")
     _check(r.status_code == 403, "el estado del NEXUS exige PIN")
 
-    # 5b. AEON: la interfaz de gala y los modulos que comparte con el NEXUS.
-    r = cliente.get("/aeon")
-    _check(r.status_code == 200 and b'data-modo="jarvis"' in r.data,
-           "«/aeon» sirve la interfaz nueva", f"-> {r.status_code}")
+    # 5b. Los módulos compartidos se sirven.
     r = cliente.get("/modulos.js")
     _check(r.status_code == 200 and b"MODULOS" in r.data,
            "«/modulos.js» sirve los modulos compartidos", f"-> {r.status_code}")
+
+    # 5c. ORIGEN es la portada; el HUD clásico sigue a mano en /clasica.
+    r = cliente.get("/")
+    _check(r.status_code == 200 and b'data-interfaz="origen"' in r.data,
+           "«/» sirve la interfaz ORIGEN", f"-> {r.status_code}")
+    _check(b"/process_text" in r.data and b"/api/speak" in r.data,
+           "ORIGEN habla con el núcleo y con la voz del servidor")
+    # Las interfaces antiguas ya no existen: sus direcciones llevan a ORIGEN.
+    for vieja in ("/clasica", "/nexus", "/aeon", "/panel", "/dashboard", "/centro"):
+        r = cliente.get(vieja)
+        _check(r.status_code == 302 and r.headers.get("Location", "").endswith("/"),
+               f"«{vieja}» lleva a ORIGEN", f"-> {r.status_code}")
+    r = cliente.get("/mobile")
+    _check(r.status_code == 200 and b'data-interfaz="origen"' in r.data,
+           "el teléfono (/mobile) usa ORIGEN")
+    r = cliente.get("/sw.js")
+    _check(r.status_code == 200 and b"caches.delete" in r.data and b"addAll" not in r.data,
+           "el service worker ya no guarda páginas viejas (y borra las que guardó)")
+
+    # 5e. Emparejamiento: el PIN y el QR solo se ven desde el PC. Antes /pair y
+    # /qr los enseñaban a cualquiera del WiFi, y sin ningún móvil emparejado
+    # toda la API quedaba abierta a la red.
+    fuera = {"REMOTE_ADDR": "203.0.113.9"}          # rango de documentación: nunca es el PC
+    for ruta in ("/pair", "/qr", "/pair_info", "/api/local_token"):
+        r = cliente.get(ruta, environ_base=fuera)
+        _check(r.status_code == 403, f"«{ruta}» no se ve desde otro aparato sin PIN",
+               f"-> {r.status_code}")
+    r = cliente.post("/process_text", json={"text": "hola"}, environ_base=fuera)
+    _check(r.status_code == 403, "otro aparato sin PIN no puede hablar con JARVIS",
+           f"-> {r.status_code}")
+    r = cliente.get("/", environ_base=fuera)
+    _check(r.status_code == 200, "la interfaz sí carga (para pedir el PIN)")
+    r = cliente.get("/pair_status", environ_base=fuera, headers={"X-Token": pin})
+    _check(r.status_code == 200, "con el PIN, el teléfono entra aunque cambie de IP")
+    r = cliente.get("/api/local_token")
+    _check(r.status_code == 200 and (r.get_json() or {}).get("token") == pin,
+           "el propio PC recibe el PIN sin teclearlo")
+
+    # 5f. Fuera de casa por Tailscale: todo llega desde 127.0.0.1 y la IP real
+    # viene en X-Forwarded-For. Antes eso contaba como «el propio PC».
+    tailscale = {"X-Forwarded-For": "100.64.9.9"}
+    for ruta in ("/pair_info", "/pin_actual", "/api/local_token"):
+        r = cliente.get(ruta, headers=tailscale)
+        _check(r.status_code == 403, f"«{ruta}» por Tailscale no cuenta como el PC",
+               f"-> {r.status_code}")
+    r = cliente.get("/pair_info", headers={"Tailscale-Funnel-Request": "?1"})
+    _check(r.status_code == 403, "lo que entra por Funnel (Internet) tampoco")
+    r = cliente.post("/api/remoto/preparar", headers=tailscale)
+    _check(r.status_code == 403, "el acceso remoto solo se activa desde el PC")
+    r = cliente.get("/pair_info", environ_base=fuera, headers={"X-Forwarded-For": "127.0.0.1"})
+    _check(r.status_code == 403, "desde la red no vale inventarse X-Forwarded-For")
+    for _ in range(servidor.INTENTOS_MAX):
+        cliente.get("/token_ok?token=000000", headers=tailscale)
+    r = cliente.get("/token_ok?token=000000", headers=tailscale)
+    _check((r.get_json() or {}).get("bloqueado") is True,
+           "quien prueba PINes por Tailscale acaba bloqueado (antes era «el PC»)")
+    servidor._fallos.pop("100.64.9.9", None)
+
+    # 5g. Sin ventanas de consola: lo que lanza el servidor sale oculto.
+    import sin_ventanas
+
+    class _Proceso:
+        def __init__(self, *args, **kwargs):
+            self.banderas = kwargs.get("creationflags", 0)
+    sin_ventanas.envolver(_Proceso)
+    _check(_Proceso(["powershell"]).banderas == sin_ventanas.CREATE_NO_WINDOW,
+           "powershell y tailscale se lanzan sin ventana")
+    _check(_Proceso(["cmd"], creationflags=0x10).banderas == 0x10,
+           "quien pide una consola a propósito la sigue teniendo")
+    r = cliente.get("/")
+    _check(b'src="/modulos.js"' in r.data,
+           "ORIGEN carga los módulos compartidos")
+    r = cliente.get("/modulos.js")
+    _check(all(m in r.data for m in (b"correo:{", b"demos:{", b"llamadas:{", b"consejo:{",
+                                     b"ciencias:{", b"modelado3d:{", b"cerebro:{")),
+           "los módulos traen correo, demos, llamadas, consejo, ciencias, 3D y cerebro")
+
+    # 5d. Demos web: la lista salía siempre vacía (storage no tiene «obtener_eventos»).
+    import jarvis_webdemo
+    import storage as _almacen
+
+    class _Falso:
+        def eventos_recientes(self, limite=20, tipo=""):
+            return [{"titulo": "Demo creada: Sol", "detalle": "URL: https://sol.vercel.app",
+                     "datos": "", "ts": "2026-09-24 16:00:00"}]
+
+    real = _almacen.get_storage
+    _almacen.get_storage = lambda log=print: _Falso()
+    try:
+        demos = jarvis_webdemo.listar_demos(log=lambda *a: None)
+    finally:
+        _almacen.get_storage = real
+    _check(bool(demos) and demos[0].get("url") == "https://sol.vercel.app"
+           and demos[0].get("nombre") == "Sol",
+           "las demos web publicadas se listan con su nombre y su dirección")
 
     # 6. La caducidad del PIN y del emparejamiento están puestas.
     _check(servidor.PIN_DIAS > 0, "el PIN caduca")
@@ -1352,6 +1441,251 @@ def test_holo_puente():
            "el candado es reentrante (arrancar pide el estado con él cogido)")
     _check('ctx.load_cert_chain' in fuente,
            "el escáner del móvil va por HTTPS o no va")
+
+# ── Voz: suena dentro de JARVIS, nunca en el reproductor de Windows ───────
+def test_voz_sin_reproductor_de_windows():
+    print("\n== VOZ SIN REPRODUCTOR DE WINDOWS ==")
+    import tempfile
+    import threading
+    import wave
+    import audio_local
+    import jarvis_piper
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for nombre in ("jarvis_core.py", "jarvis_piper.py"):
+        with open(os.path.join(raiz, nombre), encoding="utf-8") as f:
+            _check("os.startfile(" not in f.read(),
+                   f"{nombre} no le pasa la voz a Windows (abría su reproductor)")
+
+    wav = os.path.join(tempfile.gettempdir(), "jarvis_prueba_voz.wav")
+    with wave.open(wav, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(b"\0\0" * 800)
+
+    abiertos = []
+    antes = (getattr(os, "startfile", None), audio_local._sin_pygame,
+             audio_local._hay_mci, audio_local._orden_mci)
+    os.startfile = lambda *a, **k: abiertos.append(a)
+    try:
+        audio_local._sin_pygame = True
+        audio_local._hay_mci = lambda: False
+        _check(audio_local.reproducir(wav) is False,
+               "sin forma de sonar aquí dentro, dice que no (y JARVIS usa otra voz)")
+        try:
+            jarvis_piper._reproducir(wav)
+            _check(False, "Piper avisa de que no pudo sonar")
+        except RuntimeError:
+            _check(True, "Piper avisa de que no pudo sonar")
+        _check(not abiertos, "y no se abre ningún programa", f"-> {abiertos}")
+
+        # MCI de Windows (winmm): suena en este proceso, sin ventana.
+        ordenes, modos = [], iter(["playing", "playing", "stopped"])
+
+        def _mci(orden):
+            ordenes.append(orden)
+            if orden.endswith(" mode"):
+                return next(modos, "stopped")
+            return "100" if orden.endswith(" length") else ""
+        audio_local._hay_mci = lambda: True
+        audio_local._orden_mci = _mci
+        _check(audio_local.reproducir(wav) is True, "con MCI la voz suena")
+        _check(any(o.startswith('open "') and "type waveaudio" in o for o in ordenes)
+               and any(o.startswith("play ") for o in ordenes)
+               and ordenes[-1].startswith("close "),
+               "abre, reproduce y cierra el audio", f"-> {ordenes}")
+
+        # Interrumpirle corta la frase (antes jarvis_piper.callar no existía).
+        ordenes.clear()
+        audio_local._orden_mci = lambda o: (ordenes.append(o), "playing" if o.endswith(" mode") else "")[1]
+        hilo = threading.Thread(target=audio_local.reproducir, args=(wav,), daemon=True)
+        hilo.start()
+        time.sleep(0.2)
+        jarvis_piper.callar()
+        hilo.join(2)
+        _check(not hilo.is_alive() and any(o.startswith("stop ") for o in ordenes),
+               "«calla» corta la voz de Piper y ElevenLabs")
+    finally:
+        if antes[0] is None:
+            del os.startfile
+        else:
+            os.startfile = antes[0]
+        (audio_local._sin_pygame, audio_local._hay_mci, audio_local._orden_mci) = antes[1:]
+        try:
+            os.remove(wav)
+        except OSError:
+            pass
+
+
+# ── Recursos: ventana de escritorio, telemetría barata y servicios justos ──
+def test_recursos_y_ventana():
+    print("\n== RECURSOS Y VENTANA DE ESCRITORIO ==")
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(raiz, "web_interface"))
+    import app as servidor
+    cliente = servidor.app.test_client()
+
+    # 1. /stats ya no arranca un PowerShell por petición ni se queda parado.
+    llamadas = []
+    antes = (servidor.subprocess.run, servidor.os, dict(servidor._TEMP))
+
+    class _Windows:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(os, attr)
+    try:
+        servidor.subprocess.run = lambda *a, **k: (llamadas.append(a), type("R", (), {"stdout": ""})())[1]
+        servidor._TEMP.update(valor=None, hasta=0.0)
+        servidor.os = _Windows()
+        for _ in range(5):
+            servidor._temperatura()
+        time.sleep(0.3)
+        for _ in range(5):
+            servidor._temperatura()
+        _check(len(llamadas) == 1, "la temperatura se lee una vez, no en cada petición",
+               f"-> {len(llamadas)} PowerShell")
+        _check(servidor._TEMP["hasta"] - time.time() > 600,
+               "si el equipo no la da, no se vuelve a preguntar en 15 minutos")
+    finally:
+        servidor.subprocess.run, servidor.os = antes[0], antes[1]
+        servidor._TEMP.clear(); servidor._TEMP.update(antes[2])
+
+    servidor._STATS.update(datos=None, hasta=0.0)
+    r1 = cliente.get("/stats")
+    t0 = time.time()
+    r2 = cliente.get("/stats")
+    _check(r1.status_code == 200 and time.time() - t0 < 0.1 and r1.get_json() == r2.get_json(),
+           "dos peticiones seguidas (PC y móvil) comparten la misma medida")
+    d = r1.get_json() or {}
+    _check(d.get("top") == [] and all(k in d for k in ("cpu", "cpu_cores", "ram_pct", "uptime")),
+           "sin ?top=1 no se recorren los procesos, y el HUD tiene sus datos")
+    servidor._STATS.update(datos=None, hasta=0.0)
+    t0 = time.time()
+    cliente.get("/stats")
+    _check(time.time() - t0 < 0.3, "la CPU se mide sin quedarse 0,4 s parada",
+           f"-> {time.time() - t0:.2f} s")
+    _check(isinstance((cliente.get("/stats?top=1").get_json() or {}).get("top"), list),
+           "con ?top=1 sí trae el top de procesos")
+
+    # 2. La interfaz no dibuja más de lo que se ve.
+    with open(os.path.join(raiz, "web_interface", "origen.html"), encoding="utf-8") as f:
+        origen = f.read()
+    _check("function fpsTope()" in origen and "return document.hasFocus() ? 30 : 20;" in origen,
+           "en reposo, 30 cuadros (20 sin foco); 60 cuando escucha, piensa o habla")
+    _check("const TOPE_AUTO = movil ? 2 : 3;" in origen,
+           "el regulador ya no sube solo al millón de partículas")
+    _check("const MAX_PX = " in origen, "en 2K/4K no se dibuja a resolución completa")
+    _check("if (!teleVisible()) { setTimeout(telemetria, 2500); return; }" in origen,
+           "con la ventana oculta no se pide telemetría")
+
+    # 3. Solo arrancan los servidores que pueden hacer algo.
+    import reiniciar_todo
+    antes_env = reiniciar_todo._valores_env
+    guardado = {k: os.environ.pop(k, None) for k in ("HA_TOKEN", "ADB_PATH", "JARVIS_MCP_HTTP")}
+    try:
+        reiniciar_todo._valores_env = lambda: {}
+        antes_which = reiniciar_todo.shutil.which
+        reiniciar_todo.shutil.which = lambda *_a, **_k: None
+        scripts = [s[2] for s in reiniciar_todo.servicios()]
+        _check(scripts == ["calendar_server.py", "app.py", "app.py"],
+               "sin Home Assistant ni adb: calendario, JARVIS y ULTRON", f"-> {scripts}")
+        reiniciar_todo._valores_env = lambda: {"HA_TOKEN": "x", "JARVIS_MCP_HTTP": "1"}
+        reiniciar_todo.shutil.which = lambda *_a, **_k: "/usr/bin/adb"
+        scripts = [s[2] for s in reiniciar_todo.servicios()]
+        _check({"ha_server.py", "android_server.py", "jarvis_mcp_server.py"} <= set(scripts),
+               "con HA_TOKEN, adb y JARVIS_MCP_HTTP=1 (también en el .env) sí arrancan")
+    finally:
+        reiniciar_todo._valores_env = antes_env
+        reiniciar_todo.shutil.which = antes_which
+        for k, v in guardado.items():
+            if v is not None:
+                os.environ[k] = v
+
+    # 4. La ventana de escritorio: ORIGEN como aplicación, perfil aparte y ligero.
+    import escritorio
+    cmd = escritorio.orden("msedge.exe", "http://localhost:5000/", primera_vez=True)
+    _check(cmd[1] == "--app=http://localhost:5000/" and
+           any(c.startswith("--user-data-dir=") for c in cmd),
+           "se abre como aplicación, con su propio perfil")
+    _check(all(b in cmd for b in ("--disable-extensions", "--disable-background-networking",
+                                  "--autoplay-policy=no-user-gesture-required")),
+           "sin extensiones ni trabajo de fondo, y saluda sin esperar a un clic")
+    _check("--window-size=1360,860" in cmd and
+           not any(c.startswith("--window-size") for c in escritorio.orden("x", primera_vez=False)),
+           "el tamaño se pone la primera vez; luego se respeta el que dejó el señor")
+    lanzados, abiertos = [], []
+    antes_esc = (escritorio.procesos_ventana, escritorio._traer_al_frente,
+                 escritorio.navegador, escritorio.subprocess.Popen)
+    import webbrowser
+    antes_wb = webbrowser.open
+    try:
+        escritorio.subprocess.Popen = lambda *a, **k: lanzados.append(a)
+        escritorio.procesos_ventana = lambda: ["ventana"]
+        escritorio._traer_al_frente = lambda procesos: bool(procesos)
+        escritorio.abrir_ventana()
+        _check(not lanzados, "si ya está abierta, la trae delante en vez de abrir otra")
+        escritorio.procesos_ventana = lambda: []
+        escritorio.navegador = lambda: ""
+        webbrowser.open = lambda url, *a, **k: abiertos.append(url) or True
+        escritorio.abrir_ventana()
+        _check(abiertos == [escritorio.URL] and not lanzados,
+               "sin Edge ni Chrome, se abre en el navegador de siempre")
+    finally:
+        (escritorio.procesos_ventana, escritorio._traer_al_frente,
+         escritorio.navegador, escritorio.subprocess.Popen) = antes_esc
+        webbrowser.open = antes_wb
+
+    # 5. Sin terminal: el icono lo crea JARVIS una vez, un segundo doble clic
+    #    no arranca nada dos veces y lo que pasa queda en jarvis_log/.
+    candado = escritorio._candado()
+    _check(candado is not None and escritorio._candado() is None,
+           "un segundo doble clic mientras arranca no lanza otro JARVIS")
+    if candado:
+        candado.close()
+
+    import tempfile
+    carpeta = tempfile.mkdtemp()
+    creados = []
+
+    class _Windows:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(os, attr)
+    antes_acc = (escritorio.os, escritorio.carpeta_datos, escritorio.crear_acceso_directo)
+    try:
+        escritorio.os = _Windows()
+        escritorio.carpeta_datos = lambda: carpeta
+
+        def _crear():
+            creados.append(1)
+            open(escritorio._marca_acceso(), "w").close()
+            return True
+        escritorio.crear_acceso_directo = _crear
+        escritorio.asegurar_acceso()
+        escritorio.asegurar_acceso()
+        _check(creados == [1], "el icono «JARVIS» se crea solo la primera vez que arranca",
+               f"-> {len(creados)} veces")
+    finally:
+        escritorio.os, escritorio.carpeta_datos, escritorio.crear_acceso_directo = antes_acc
+
+    with open(os.path.join(carpeta, "hola.py"), "w", encoding="utf-8") as f:
+        f.write("print('servidor de prueba listo')\n")
+    registro = reiniciar_todo.registro("Prueba registro")
+    reiniciar_todo.start_server("Prueba registro", carpeta, "hola.py")
+    for _ in range(40):
+        if os.path.exists(registro) and "listo" in open(registro, encoding="utf-8").read():
+            break
+        time.sleep(0.25)
+    _check(os.path.exists(registro) and "servidor de prueba listo" in open(registro, encoding="utf-8").read(),
+           "sin consola, lo que dice cada servidor queda en jarvis_log/")
+    try:
+        os.remove(registro)
+    except OSError:
+        pass
+
 
 def main():
     pruebas = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

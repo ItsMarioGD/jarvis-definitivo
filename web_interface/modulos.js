@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    MÓDULOS — todo lo que sabían hacer las dos interfaces antiguas.
-   Compartido por /nexus y /aeon: una sola copia, dos pieles distintas.
+   Los usa ORIGEN (la única interfaz): una sola copia del código.
    Espera encontrar ya definidos: API, esc, caja, barra, tabla, duracion,
    brindis y token, y los nodos mod-titulo / mod-contenido / rail.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -563,6 +563,105 @@ const MODULOS = {
       </div>
       <div id="mod-salida"></div>`;
     }
+  },
+
+  correo:{
+    titulo:'Correo', icono:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+    async cargar(){
+      const r = await API.get('/api/correo/inbox?limite=12').catch(e => ({ok:false, error:e.message}));
+      const ms = r.mensajes || [];
+      const filas = ms.map(m => [
+        (m.vip ? '<b style="color:var(--p1)">★</b> ' : '') + esc(m.from || '?'),
+        esc(m.subject || '(sin asunto)'),
+        `<button class="mbtn" data-accion="correo-leer" data-valor="${esc(m.id || '')}">leer</button>`]);
+      return `<div class="mfila">
+          <button class="mbtn" data-accion="correo-resumir">Resúmeme lo nuevo</button>
+        </div>
+        ${r.error ? `<p class="pista" style="color:#ff8080">${esc(r.error)}
+          · para dar acceso: <b>python autorizar_google.py</b></p>` : ''}
+        ${filas.length ? tabla(['De','Asunto',''], filas)
+                       : '<p class="pista">Bandeja vacía o sin acceso a Gmail.</p>'}
+        <div id="mod-salida"></div>
+        <h4 style="margin:16px 0 8px;color:var(--p1);font-size:10.5px;letter-spacing:.18em">ESCRIBIR</h4>
+        <div class="mfila">
+          <input id="correo-para" class="mcampo" style="flex:1" placeholder="para (correo)">
+          <input id="correo-asunto" class="mcampo" style="flex:1" placeholder="asunto">
+        </div>
+        <div class="mfila" style="margin-top:8px">
+          <textarea id="correo-cuerpo" class="mcampo" rows="4" style="flex:1" placeholder="mensaje"></textarea>
+        </div>
+        <div class="mfila" style="margin-top:8px">
+          <button class="mbtn" data-accion="correo-enviar">Enviar</button>
+        </div>`;
+    }
+  },
+
+  demos:{
+    titulo:'Demos web', icono:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01M8 13l-2 2 2 2M16 13l2 2-2 2"/>',
+    async cargar(){
+      const r = await API.get('/api/webdemo/lista').catch(()=>({}));
+      const filas = (r.demos || []).map(d => [
+        esc(d.nombre || '—'),
+        d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--p1)">${esc(d.url)}</a>` : '—',
+        esc(String(d.ts || '').slice(0, 16))]);
+      return `<p class="pista">JARVIS diseña la web de un negocio y la publica en Vercel
+          (necesita VERCEL_TOKEN en el .env).</p>
+        <div class="mfila" style="margin-top:8px">
+          <input id="demo-nombre" class="mcampo" style="flex:1" placeholder="nombre del negocio">
+          <select id="demo-industria" class="mcampo">
+            ${['general','restaurante','tecnologia','salud','legal','construccion','inmobiliaria',
+               'educacion','moda','viajes'].map(i => `<option>${i}</option>`).join('')}
+          </select>
+        </div>
+        <div class="mfila" style="margin-top:8px">
+          <textarea id="demo-desc" class="mcampo" rows="3" style="flex:1"
+            placeholder="qué hacen, qué quieren destacar…"></textarea>
+        </div>
+        <div class="mfila" style="margin-top:8px">
+          <button class="mbtn" data-accion="demo-crear">Crear y publicar</button>
+        </div>
+        <div id="mod-salida"></div>
+        <h4 style="margin:16px 0 8px;color:var(--p1);font-size:10.5px;letter-spacing:.18em">PUBLICADAS</h4>
+        ${filas.length ? tabla(['Negocio','Dirección','Fecha'], filas)
+                       : '<p class="pista">Todavía no hay demos.</p>'}`;
+    }
+  },
+
+  llamadas:{
+    titulo:'Llamadas', icono:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+    async cargar(){
+      const e = await API.get('/api/llamar/estado').catch(()=>({}));
+      return `<div class="mrejilla">
+        ${caja('Twilio', `<div class="grande">${e.disponible ? 'listo' : 'no'}</div>
+          <div class="pista">${esc(e.numero || '')}${e.motivo ? ' · ' + esc(e.motivo) : ''}</div>`)}
+        ${caja('En espera', `<div class="pista">llamada ${e.cooldown_llamada ?? 0} s
+          · SMS ${e.cooldown_sms ?? 0} s</div>`)}
+      </div>
+      <div class="mfila" style="margin-top:12px">
+        <input id="llamar-msg" class="mcampo" style="flex:1"
+          placeholder="qué quieres que te diga (por defecto: «JARVIS requiere su atención»)">
+      </div>
+      <div class="mfila" style="margin-top:8px">
+        <button class="mbtn" data-accion="llamar" data-valor="llamada">Llámame</button>
+        <button class="mbtn" data-accion="llamar" data-valor="sms">SMS</button>
+        <button class="mbtn" data-accion="llamar" data-valor="whatsapp">WhatsApp</button>
+      </div>
+      <p class="pista" style="margin-top:10px">JARVIS también te llama solo cuando necesita
+        que confirmes algo.</p>`;
+    }
+  },
+
+  consejo:{
+    titulo:'Consejo', icono:'<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 20a5 5 0 0 1 10 0M11 20a5 5 0 0 1 10 0"/>',
+    async cargar(){
+      return `<p class="pista">JARVIS y ULTRON piensan el asunto por separado y después se
+          sintetiza una decisión.</p>
+        <div class="mfila" style="margin-top:8px">
+          <input id="consejo-q" class="mcampo" style="flex:1" placeholder="¿sobre qué quieres que deliberen?">
+          <button class="mbtn" data-accion="consejo">Deliberar</button>
+        </div>
+        <div id="mod-salida"></div>`;
+    }
   }
 };
 
@@ -845,6 +944,68 @@ document.getElementById('mod-contenido').addEventListener('click', async e => {
         const r = await API.post('/cmd', {texto:'busca en tu memoria ' + q});
         salida('<pre style="white-space:pre-wrap;font-size:12px">'
           + esc(r.respuesta || '') + '</pre>');
+        break;
+      }
+      case 'correo-leer': {
+        salida('<p class="pista">Abriendo…</p>');
+        const r = await API.get('/api/correo/leer?id=' + encodeURIComponent(v));
+        const m = r.mensaje || {};
+        if (!r.ok || m.ok === false){ salida(esc(r.error || m.error || 'No pude abrirlo.')); break; }
+        salida(`<b>${esc(m.subject || '(sin asunto)')}</b><div class="pista">${esc(m.from || '')}</div>
+          <pre style="white-space:pre-wrap;font-size:12px">${esc(m.body || '')}</pre>`);
+        const dir = (String(m.from || '').match(/<([^>]+)>/) || [])[1] || m.from || '';
+        const para = document.getElementById('correo-para'), asu = document.getElementById('correo-asunto');
+        if (para) para.value = dir;
+        if (asu) asu.value = /^re:/i.test(m.subject || '') ? m.subject : 'Re: ' + (m.subject || '');
+        break;
+      }
+      case 'correo-resumir': {
+        salida('<p class="pista">Leyendo la bandeja…</p>');
+        const r = await API.get('/api/correo/resumir');
+        salida(esc(r.resumen || r.error || 'Sin respuesta.'));
+        break;
+      }
+      case 'correo-enviar': {
+        const para = val('correo-para'), cuerpo = val('correo-cuerpo');
+        if (!para || !cuerpo){ brindis('Falta el destinatario o el mensaje.'); break; }
+        if (!confirm('¿Enviar el correo a ' + para + '?')) break;
+        const r = await API.post('/api/correo/responder',
+          {destino: para, asunto: val('correo-asunto'), cuerpo});
+        brindis(r.mensaje || r.error || (r.ok ? 'Enviado.' : 'No se pudo enviar.'));
+        break;
+      }
+      case 'demo-crear': {
+        const nombre = val('demo-nombre');
+        if (!nombre){ brindis('Escribe el nombre del negocio.'); break; }
+        salida('<p class="pista">Diseñando y publicando… 1–2 min.</p>');
+        const r = await API.post('/api/webdemo/crear',
+          {nombre, industria: val('demo-industria') || 'general', descripcion: val('demo-desc')});
+        salida(r.ok && r.url
+          ? `Publicada: <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--p1)">${esc(r.url)}</a>`
+          : 'No se pudo: ' + esc(r.error || 'error desconocido'));
+        break;
+      }
+      case 'llamar': {
+        const etiqueta = {llamada:'la llamada', sms:'el SMS', whatsapp:'el WhatsApp'}[v] || 'el aviso';
+        if (!confirm('¿Enviar ' + etiqueta + ' a tu móvil?')) break;
+        const r = await API.post('/api/llamar', {canal: v, mensaje: val('llamar-msg') || undefined});
+        brindis(r.mensaje || r.error || (r.ok ? 'Hecho.' : 'No se pudo.'));
+        abrirModulo('llamadas');
+        break;
+      }
+      case 'consejo': {
+        const q = val('consejo-q');
+        if (!q){ brindis('Escribe el asunto.'); break; }
+        salida('<p class="pista">Deliberando… puede tardar un minuto.</p>');
+        const r = await API.post('/api/nexus/cmd', {agente:'consejo', texto:q});
+        if (!r.ok){ salida(esc(r.error || 'El consejo no respondió.')); break; }
+        salida(`${r.desacuerdo ? '<div class="pista" style="color:#ffb86b">No están de acuerdo.</div>' : ''}
+          <h4 style="margin:8px 0 4px;color:var(--p1);font-size:10px;letter-spacing:.18em">JARVIS</h4>
+          <pre style="white-space:pre-wrap;font-size:12px">${esc(r.jarvis || '')}</pre>
+          <h4 style="margin:8px 0 4px;color:var(--p1);font-size:10px;letter-spacing:.18em">ULTRON</h4>
+          <pre style="white-space:pre-wrap;font-size:12px">${esc(r.ultron || '')}</pre>
+          <h4 style="margin:8px 0 4px;color:var(--p1);font-size:10px;letter-spacing:.18em">SÍNTESIS</h4>
+          <pre style="white-space:pre-wrap;font-size:12px">${esc(r.sintesis || '')}</pre>`);
         break;
       }
       default: brindis('Acción desconocida: ' + a);
