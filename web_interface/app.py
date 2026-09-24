@@ -68,6 +68,23 @@ def _agentes_ia():
     return _AGENTES_IA or None
 from flask_socketio import SocketIO, emit
 
+# Límites de las respuestas. Antes cada ruta cortaba a su manera (500, 1500 o
+# 2000 caracteres) y una explicación larga llegaba a la pantalla a medias. Las
+# respuestas ya no se recortan; lo que sí se acota es cuánto se espera y cuánto
+# puede medir una pregunta.
+def _entero_env(nombre, por_defecto):
+    try:
+        return int((os.getenv(nombre) or '').strip() or por_defecto)
+    except ValueError:
+        return por_defecto
+
+
+_MAX_ENTRADA = _entero_env('JARVIS_MAX_ENTRADA', 12000)
+_ESPERA_RESPUESTA = _entero_env('JARVIS_RESPUESTA_TIMEOUT', 300)
+# Lo que se manda a sintetizar de una vez. El navegador trocea las respuestas
+# largas; esto solo frena abusos (ElevenLabs admite hasta 10 000 por petición).
+_MAX_VOZ = 5000
+
 # ── AUTENTICACIÓN (token persistente) ─────────────────────────────────────────
 AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.jarvis_auth')
 
@@ -1324,7 +1341,7 @@ def api_speak():
     en el navegador (agente conversacional de voz servicial)."""
     data = request.get_json(silent=True) or {}
     text = (data.get('text') or '').strip()
-    if not text or len(text) > 2000:
+    if not text or len(text) > _MAX_VOZ:
         return jsonify({'error': 'texto invalido'}), 400
     key = os.getenv('ELEVENLABS_API_KEY', '')
     voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
@@ -1367,7 +1384,7 @@ def api_speak():
         if not jarvis_piper.disponible(voz_local):
             voz_local = jarvis_piper.DEFAULT_VOICE
         if jarvis_piper.disponible(voz_local):
-            audio = jarvis_piper.sintetizar_bytes(text[:1000], voice_id=voz_local)
+            audio = jarvis_piper.sintetizar_bytes(text, voice_id=voz_local)
             if audio:
                 return Response(audio, mimetype='audio/wav', headers=sin_cabecera)
         else:
@@ -1468,12 +1485,12 @@ def process_text():
         if not data or 'text' not in data:
             return jsonify({'error': 'No text provided'}), 400
         text = data['text']
-        if len(text) > 2000:
+        if len(text) > _MAX_ENTRADA:
             return jsonify({'error': 'Texto invalido o muy largo'}), 400
         if core:
             try:
                 response = core.process_text_stream(text, speak_server=False)
-                return jsonify({'status': 'success', 'response': response[:500] if response else ''})
+                return jsonify({'status': 'success', 'response': response or ''})
             except Exception as e:
                 import traceback
                 return jsonify({'status': 'error', 'response': f'Error procesando: {str(e)[:200]}', 'trace': traceback.format_exc()[:500]})
@@ -2085,7 +2102,7 @@ def companion_voice():
             ok = core.dictar(texto)
             return jsonify({'texto': texto, 'respuesta': 'Dictado escrito, señor.' if ok else 'Señor, no pude escribir el dictado.'})
         resp = core.process_text_stream(texto, speak_server=False) or 'Señor, no he entendido.'
-        return jsonify({'texto': texto, 'respuesta': resp[:1500]})
+        return jsonify({'texto': texto, 'respuesta': resp})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -2160,7 +2177,7 @@ def companion_cmd():
         return jsonify({'error': 'token invalido'}), 403
     data = request.get_json(silent=True) or {}
     texto = (data.get('texto') or '').strip()
-    if not texto or len(texto) > 2000:
+    if not texto or len(texto) > _MAX_ENTRADA:
         return jsonify({'error': 'texto invalido'}), 400
     if not core:
         return jsonify({'error': 'nucleo no disponible'}), 500
@@ -2168,13 +2185,13 @@ def companion_cmd():
 
     def _trabajo(res):
         try:
-            res['respuesta'] = (core.process_text_stream(texto) or 'Señor, no he entendido.')[:1500]
+            res['respuesta'] = core.process_text_stream(texto) or 'Señor, no he entendido.'
         except Exception as e:
             res['respuesta'] = f"Señor, tuve un problema procesando eso: {str(e)[:120]}"
 
     hilo = threading.Thread(target=_trabajo, args=(resultado,), daemon=True)
     hilo.start()
-    hilo.join(timeout=120)
+    hilo.join(timeout=_ESPERA_RESPUESTA)
     return jsonify({'texto': texto, 'respuesta': resultado.get('respuesta', 'Procesando...')})
 
 
@@ -2373,7 +2390,7 @@ def api_nexus_cmd():
     datos = request.get_json(silent=True) or {}
     texto = (datos.get('texto') or '').strip()
     agente = (datos.get('agente') or 'jarvis').lower()
-    if not texto or len(texto) > 2000:
+    if not texto or len(texto) > _MAX_ENTRADA:
         return jsonify({'error': 'texto invalido'}), 400
 
     if agente == 'ultron':
@@ -2403,13 +2420,13 @@ def api_nexus_cmd():
     def _trabajo(res):
         try:
             res['respuesta'] = (core.process_text_stream(texto)
-                                or 'Señor, no he entendido.')[:2000]
+                                or 'Señor, no he entendido.')
         except Exception as e:
             res['respuesta'] = f'Señor, tuve un problema: {str(e)[:150]}'
 
     hilo = threading.Thread(target=_trabajo, args=(resultado,), daemon=True)
     hilo.start()
-    hilo.join(timeout=150)
+    hilo.join(timeout=_ESPERA_RESPUESTA)
     return jsonify({'agente': 'jarvis',
                     'respuesta': resultado.get('respuesta', 'Procesando…')})
 
@@ -2519,7 +2536,7 @@ def _bloquear_por_presencia():
 @socketio.on('send_message')
 def on_send_message(data):
     text = (data or {}).get('text', '')
-    if not text or len(text) > 2000:
+    if not text or len(text) > _MAX_ENTRADA:
         return
     text = text.strip()
     if not text:
@@ -2534,7 +2551,7 @@ def on_send_message(data):
         try:
             resp = core.process_text_stream(text, speak_server=False) or ''
             with app.app_context():
-                socketio.emit('receive_message', {'text': resp[:1500]}, to=None)
+                socketio.emit('receive_message', {'text': resp}, to=None)
         except Exception as e:
             import traceback
             traceback.print_exc()

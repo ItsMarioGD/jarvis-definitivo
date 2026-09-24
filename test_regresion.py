@@ -2588,3 +2588,91 @@ def test_imagenes_avisan():
            "reintenta cinco veces: el servicio falla rápido y acierta lento")
     _check("procedural" in fuente and "log(" in fuente,
            "y si acaba en el dibujo de repuesto, lo DICE")
+
+
+# ── 58. Respuestas completas: nada se queda a medias ───────────────────────
+def test_respuestas_completas():
+    print("\n== 58. RESPUESTAS COMPLETAS ==")
+    import inspect
+    import types
+
+    import perfiles
+    from jarvis_core import JarvisCore, _FiltroPensamiento
+
+    # Las preguntas de conocimiento van a la conversación (streaming, memoria,
+    # sin tope), no al bucle de herramientas. «foto» estaba en «fotosíntesis»,
+    # «ram» en «programación» y «red» en «red neuronal».
+    for frase in ("explícame la fotosíntesis", "puedes explicarme que es el big bang",
+                  "que es una red neuronal", "explicame la programacion orientada a objetos",
+                  "cómo funciona la memoria ram", "hablame de la luz"):
+        _check(not JarvisCore._parece_orden(frase), f"«{frase}» es una pregunta, no una orden")
+    for frase in ("apagalo ya", "buscame fotos de gatos", "explícame qué es docker y ábrelo",
+                  "por qué mi disco está lleno"):
+        _check(JarvisCore._parece_orden(frase), f"«{frase}» sigue siendo una orden")
+
+    # Sin recorte, las respuestas viejas se abrevian solo al mandarlas al
+    # cerebro, para que el modelo de casa no pierda sus instrucciones.
+    hist = [{"role": "system", "content": "S"}] + [
+        m for _ in range(4) for m in ({"role": "user", "content": "q"},
+                                      {"role": "assistant", "content": "x" * 3000})]
+    enviado = JarvisCore._historial_para_cerebro(types.SimpleNamespace(history=hist))
+    _check([len(m["content"]) for m in enviado][-2:] == [1, 3000]
+           and len(enviado[2]["content"]) < 1300,
+           "al cerebro van enteras las últimas respuestas y abreviadas las viejas")
+    _check(all(len(m["content"]) == 3000 for m in hist if m["role"] == "assistant"),
+           "el historial guardado no se toca")
+
+    # Sin tope de 700 caracteres salvo que el señor lo ponga en cerebro.json.
+    largo = "Una frase de una explicación larga. " * 100
+    _check(JarvisCore._recortar_respuesta(types.SimpleNamespace(_cerebro={}), largo) == largo,
+           "una respuesta larga no se recorta por defecto")
+    corto = JarvisCore._recortar_respuesta(types.SimpleNamespace(
+        _cerebro={"respuesta_max": 100}), largo)
+    _check(len(corto) <= 102, "respuesta_max sigue funcionando si se pone a mano")
+
+    # El prompt ya no limita a tres oraciones ni prohíbe explicar.
+    fuente = inspect.getsource(JarvisCore.__init__)
+    _check("Respuestas concisas (máx 3 oraciones)" not in fuente,
+           "el prompt no limita a tres oraciones")
+    _check("Nunca dejes una explicación a medias" in fuente,
+           "el prompt pide terminar siempre la explicación")
+
+    # El razonamiento <think> de Qwen no se cuela en el texto ni en la voz,
+    # aunque la etiqueta llegue partida entre dos trozos del stream.
+    filtro = _FiltroPensamiento()
+    salida = "".join(filtro.alimentar(t) for t in
+                     ("Hola <th", "ink>borrador</thi", "nk>señor.")) + filtro.alimentar("", final=True)
+    _check(salida == "Hola señor.", "el <think> se filtra en streaming", f"-> {salida!r}")
+
+    # A la voz va la explicación entera; solo se queda en pantalla lo técnico.
+    voz = JarvisCore._texto_para_voz(
+        "Titular.\n\nLa explicación completa.\n\nDesarrollo verificado (sympy):\n  x = 2")
+    _check("explicación completa" in voz and "sympy" not in voz,
+           "la voz lee titular y explicación, no el desarrollo técnico", f"-> {voz!r}")
+
+    # Quedarse sin créditos de ElevenLabs no puede tirar las frases pendientes.
+    fuente = inspect.getsource(JarvisCore._handle_elevenlabs_error)
+    _check("self._flush_tts_queue()" not in fuente,
+           "un fallo de ElevenLabs no vacía la cola de voz")
+
+    # Un perfil breve no deja a medias una explicación pedida.
+    core = types.SimpleNamespace(get_pref=lambda *_a, **_k: None)
+    viejo = perfiles.verbosidad
+    try:
+        perfiles.verbosidad = lambda _c: "breve"
+        _check("explícalo completo" in perfiles.instruccion_prompt(core),
+               "el perfil breve respeta las explicaciones pedidas")
+    finally:
+        perfiles.verbosidad = viejo
+
+    # La web y el móvil ya no cortan la respuesta ni la voz.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    app = open(os.path.join(raiz, "web_interface", "app.py"), encoding="utf-8").read()
+    _check("response[:500]" not in app and "resp[:1500]" not in app,
+           "el servidor web devuelve la respuesta entera")
+    movil = open(os.path.join(raiz, "web_interface", "mobile.html"), encoding="utf-8").read()
+    _check(".slice(0, 400)" not in movil and "trocearVoz" in movil,
+           "el móvil dice la respuesta entera, por trozos")
+    web = open(os.path.join(raiz, "web_interface", "index.html"), encoding="utf-8").read()
+    _check("t.slice(0,1800)" not in web and "trocearVoz" in web,
+           "la web dice la respuesta entera, por trozos")

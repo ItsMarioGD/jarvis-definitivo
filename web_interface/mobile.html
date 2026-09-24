@@ -432,31 +432,68 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
     document.documentElement.style.setProperty('--vl', vLevel.toFixed(3));
   })();
 
+  // Cada respuesta nueva (o «calla») invalida la que se estuviera diciendo.
+  let vozTurno = 0;
+  // Antes se decían solo los primeros 400 caracteres: una explicación larga se
+  // quedaba a medias. Ahora se trocea en unas pocas frases por petición y se
+  // dice entera.
+  function trocearVoz(texto, max) {
+    max = max || 600;
+    const frases = String(texto || '').replace(/[«»"*#`_]+/g, ' ').split(/(?<=[.!?…:;])\s+|\n+/);
+    const trozos = []; let actual = '';
+    frases.forEach(function (f) {
+      f = f.trim();
+      while (f.length > max) {
+        let corte = f.lastIndexOf(', ', max);
+        if (corte < max / 2) corte = f.lastIndexOf(' ', max);
+        if (corte < max / 2) corte = max;
+        if (actual) { trozos.push(actual); actual = ''; }
+        trozos.push(f.slice(0, corte + 1).trim());
+        f = f.slice(corte + 1).trim();
+      }
+      if (!f) return;
+      if (actual && actual.length + f.length + 1 > max) { trozos.push(actual); actual = ''; }
+      actual = actual ? actual + ' ' + f : f;
+    });
+    if (actual) trozos.push(actual);
+    return trozos;
+  }
   function speak(texto) {
     const A = AGENTS[agente];
-    const limpio = (texto || '').replace(/[«»"…]/g, ' ').trim().slice(0, 400);
-    if (!limpio || !audioOn) return;
+    const trozos = trocearVoz(texto);
+    if (!trozos.length || !audioOn) return;
+    stopSpeak();
+    const turno = vozTurno;
     ensureAudioGraph();
-    fetch(A.speak, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: limpio })
-    }).then(function (r) { if (!r.ok || r.status === 204) throw new Error('sin voz de servidor'); return r.blob(); })
-      .then(function (blob) {
+    function pedir(t) {
+      return fetch(A.speak, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: t })
+      }).then(function (r) { if (!r.ok || r.status === 204) throw new Error('sin voz de servidor'); return r.blob(); });
+    }
+    function alNavegador(i) { if (turno === vozTurno) browserSpeak(trozos.slice(i).join(' '), A); }
+    // El audio del trozo siguiente se pide mientras suena el actual: sin huecos.
+    let siguiente = pedir(trozos[0]);
+    function tocar(i) {
+      if (turno !== vozTurno || i >= trozos.length) return;
+      const actual = siguiente;
+      siguiente = (i + 1 < trozos.length) ? pedir(trozos[i + 1]) : null;
+      if (siguiente) siguiente.catch(function () {});
+      actual.then(function (blob) {
+        if (turno !== vozTurno) return;
         const url = URL.createObjectURL(blob);
         player.src = url;
-        return player.play().then(function () {
-          player.onended = function () { URL.revokeObjectURL(url); };
-          player.onerror = function () { URL.revokeObjectURL(url); };
-        });
-      })
-      .catch(function () { browserSpeak(limpio, A); });
+        player.onended = function () { URL.revokeObjectURL(url); tocar(i + 1); };
+        player.onerror = function () { URL.revokeObjectURL(url); alNavegador(i); };
+        return player.play();
+      }).catch(function () { alNavegador(i); });
+    }
+    tocar(0);
   }
   function browserSpeak(texto, A) {
     try {
       if (!('speechSynthesis' in window)) return;
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(texto);
-      u.lang = 'es-ES'; u.rate = A.rate; u.pitch = A.pitch; u.volume = 1;
       const vs = speechSynthesis.getVoices();
       // Voz masculina específica por agente: David (Jarvis) / Mark (Ultron)
       const pref = agente === 'ultron' ? 'mark' : 'david';
@@ -464,11 +501,18 @@ body:not([data-agent="ultron"]) #voiceGlow{display:none}
       if (!v) v = vs.find(function (x) { return /es/i.test(x.lang) && /male|hombre|david|mark/i.test(x.name); });
       if (!v) v = vs.find(function (x) { return /^es/i.test(x.lang); });
       if (!v) v = vs.find(function (x) { return /es/i.test(x.lang); });
-      if (v) u.voice = v;
-      speechSynthesis.speak(u);
+      // Frases cortas encoladas: el navegador corta una locución larga a los
+      // ~15 segundos, y así ninguna llega a ese corte.
+      trocearVoz(texto, 220).forEach(function (trozo) {
+        const u = new SpeechSynthesisUtterance(trozo);
+        u.lang = 'es-ES'; u.rate = A.rate; u.pitch = A.pitch; u.volume = 1;
+        if (v) u.voice = v;
+        speechSynthesis.speak(u);
+      });
     } catch (e) {}
   }
   function stopSpeak() {
+    vozTurno++;
     try { player.pause(); player.currentTime = 0; } catch (e) {}
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   }

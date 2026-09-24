@@ -1800,38 +1800,91 @@ async function greet(){
 }
 window._jarvisSpeaking = false;
 let audioOn = true;
+// Cada respuesta nueva (o «calla») invalida la que se estuviera diciendo.
+let _vozTurno = 0;
+// Trocea una respuesta larga en fragmentos de unas pocas frases. De una pieza
+// se cortaba a 1800 caracteres, el servidor rechazaba más de 2000 y Chrome deja
+// de hablar a los ~15 s de una misma locución: las explicaciones largas se
+// quedaban a medias o ni se decían.
+function trocearVoz(t, max){
+    max = max || 600;
+    const frases = String(t||'').replace(/[*#`_]+/g,'').split(/(?<=[.!?…:;])\s+|\n+/);
+    const trozos = []; let actual = '';
+    for(let f of frases){
+        f = f.trim(); if(!f) continue;
+        while(f.length > max){
+            // Frase enorme sin puntos: se parte por una coma o un espacio.
+            let corte = f.lastIndexOf(', ', max);
+            if(corte < max/2) corte = f.lastIndexOf(' ', max);
+            if(corte < max/2) corte = max;
+            if(actual){ trozos.push(actual); actual = ''; }
+            trozos.push(f.slice(0, corte+1).trim());
+            f = f.slice(corte+1).trim();
+        }
+        if(!f) continue;
+        if(actual && actual.length + f.length + 1 > max){ trozos.push(actual); actual = ''; }
+        actual = actual ? actual + ' ' + f : f;
+    }
+    if(actual) trozos.push(actual);
+    return trozos;
+}
 function playVoice(t){
     if(!t) return;
+    const trozos = trocearVoz(t);
+    if(!trozos.length) return;
+    stopVoice();
+    const turno = _vozTurno;
     const p = document.getElementById('ttsPlayer');
-    const chunk = String(t).length > 1800 ? t.slice(0,1800) : t;
     // Pausar reconocimiento continuo para evitar eco de la propia voz
     if(typeof recCont !== 'undefined' && recCont && wakeOn){ try{ recCont.stop(); }catch(e){} }
     const resume = ()=>{ if(wakeOn && recCont){ try{ recCont.start(); }catch(e){} } };
-    fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:chunk})})
-        .then(r=>{ if(!r.ok||r.status===204) throw new Error('sin voz de servidor'); return r.blob(); })
-        .then(blob=>{
+    const acabar = ()=>{ if(turno!==_vozTurno) return; resume(); vozFin(); finHablar(); };
+    const pedir = txt => fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})
+        .then(r=>{ if(!r.ok||r.status===204) throw new Error('sin voz de servidor'); return r.blob(); });
+    // Sin voz de servidor (o si el navegador no deja reproducir), lo que falta
+    // lo dice el propio navegador, entero.
+    const alNavegador = i=>{ if(turno===_vozTurno) browserSpeak(trozos.slice(i).join(' '), acabar); };
+    // El audio del trozo siguiente se pide mientras suena el actual: sin huecos.
+    let siguiente = pedir(trozos[0]);
+    const tocar = i=>{
+        if(turno!==_vozTurno) return;
+        if(i>=trozos.length){ acabar(); return; }
+        const actual = siguiente;
+        siguiente = (i+1<trozos.length) ? pedir(trozos[i+1]) : null;
+        if(siguiente) siguiente.catch(()=>{});
+        actual.then(blob=>{
+            if(turno!==_vozTurno) return;
             const url = URL.createObjectURL(blob);
             p.src = url;
-            p.onended = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
-            p.onerror = ()=>{ URL.revokeObjectURL(url); resume(); vozFin(); };
+            p.onended = ()=>{ URL.revokeObjectURL(url); tocar(i+1); };
+            p.onerror = ()=>{ URL.revokeObjectURL(url); alNavegador(i); };
             return p.play();
-        })
-        .catch(()=>{ browserSpeak(chunk); resume(); });
+        }).catch(()=>alNavegador(i));
+    };
+    tocar(0);
 }
-function browserSpeak(text){
+function browserSpeak(text, alFinal){
+    const fin = ()=>{ if(alFinal) alFinal(); else vozFin(); };
     try{
-        if(!('speechSynthesis' in window)) return;
+        if(!('speechSynthesis' in window)){ fin(); return; }
         speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang='es-ES'; u.rate=0.95; u.pitch=0.95; u.volume=1;
         const vs = speechSynthesis.getVoices();
         const v = vs.find(x=>/es[-_]ES/i.test(x.lang)&&/female|mujer|elena|lucia|sofia|paula|teresa/i.test(x.name))
                 || vs.find(x=>/es[-_]ES/i.test(x.lang))
                 || vs.find(x=>/es/i.test(x.lang));
-        if(v) u.voice=v;
-        u.onend = vozFin; u.onerror = vozFin;
-        speechSynthesis.speak(u);
-    }catch(e){ vozFin(); }
+        // Frases cortas encoladas: la síntesis del navegador las dice seguidas
+        // y ninguna llega al corte de los 15 segundos.
+        const trozos = trocearVoz(text, 220);
+        if(!trozos.length){ fin(); return; }
+        const turno = _vozTurno;
+        trozos.forEach((trozo, i)=>{
+            const u = new SpeechSynthesisUtterance(trozo);
+            u.lang='es-ES'; u.rate=0.95; u.pitch=0.95; u.volume=1;
+            if(v) u.voice=v;
+            if(i===trozos.length-1){ u.onend = u.onerror = ()=>{ if(turno===_vozTurno) fin(); }; }
+            speechSynthesis.speak(u);
+        });
+    }catch(e){ fin(); }
 }
 // Avisa a la escucha continua del PC de que JARVIS ya calló: desde ese
 // momento se le contesta sin decir su nombre.
@@ -1839,21 +1892,27 @@ function vozFin(){
     try{ fetch('/api/voz_fin',{method:'POST'}).catch(()=>{}); }catch(e){}
 }
 function stopVoice(){
+    _vozTurno++;
     const p = document.getElementById('ttsPlayer');
     try{ p.pause(); p.currentTime=0; }catch(e){}
     if('speechSynthesis' in window) speechSynthesis.cancel();
 }
+function finHablar(){
+    if(window._speakTimer) clearTimeout(window._speakTimer);
+    document.body.classList.remove('speaking');
+    window._jarvisSpeaking = false;
+}
 function speakVia(t){
     if(!t) return;
-    const dur = Math.max(2200, Math.min(16000, String(t).length * 65));
+    // Lo que tarda en decirse (unas 13 letras por segundo). Antes se topaba en
+    // 16 s y la animación se paraba con media respuesta por decir; ahora la
+    // quita el final real de la voz, y esto queda de red.
+    const dur = Math.max(2200, String(t).length * 75);
     document.body.classList.remove('processing','listening');
     document.body.classList.add('speaking');
     window._jarvisSpeaking = true;
     if(window._speakTimer) clearTimeout(window._speakTimer);
-    window._speakTimer = setTimeout(()=>{
-        document.body.classList.remove('speaking');
-        window._jarvisSpeaking = false;
-    }, dur);
+    window._speakTimer = setTimeout(finHablar, dur);
     if(audioOn) playVoice(t);
 }
 function toggleAudio(){
@@ -3065,8 +3124,11 @@ boot();
   })();
 
   function speak(text){
-    text=(text||'').replace(/\n+/g,' ').replace(/\s+/g,' ').trim().slice(0,2000);
+    text=(text||'').replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
     if(!text) return;
+    // La voz principal ya sabe trocear respuestas largas: se usa la misma.
+    if(typeof playVoice==='function'){ playVoice(text); return; }
+    text=text.slice(0,2000);
     try{
       fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})})
         .then(function(r){ if(r.ok&&r.status!==204){ return r.blob(); } throw 0; })

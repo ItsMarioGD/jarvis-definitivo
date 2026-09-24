@@ -143,6 +143,101 @@ ACCIONES = {
     "ram", "memoria", "cpu", "disco", "espacio", "rendimiento", "recursos",
 }
 
+# Cada palabra de ACCIONES cuenta como palabra entera (con plurales y
+# enclíticos: «apágalo», «búscame», «procesos»), no como trozo de otra. Antes
+# se buscaba como subcadena y «foto» saltaba en «fotosíntesis», «ram» en
+# «programación», «red» en «redacción» y «radio» en «radiactividad»: esas
+# preguntas se iban al bucle de herramientas en vez de a la conversación.
+_RE_ACCIONES = re.compile(
+    r"\b(?:" + "|".join(sorted((re.escape(a) for a in ACCIONES), key=len, reverse=True))
+    + r")(?:s|es|r|me|te|le|lo|la|les|los|las|nos|rme|rte|rle|rlo|rla|rlos|rlas|"
+      r"melo|mela|selo|sela)?\b")
+
+# «Explícame», «qué es», «cómo funciona», «por qué»...: el señor quiere
+# ENTENDER algo. Eso se contesta conversando (en streaming, con memoria y sin
+# tope), no con herramientas ni con la calculadora de ciencias.
+_PIDE_EXPLICACION = re.compile(
+    r"\b(?:expl[ií]ca\w*|h[aá]blame|cu[eé]ntame\s+(?:sobre|de|del|acerca|c[oó]mo|"
+    r"qu[eé]|por\s*qu[eé]|qui[eé]n|la\s+historia)|ens[eé][ñn]ame\s+(?:a|sobre|"
+    r"c[oó]mo|qu[eé]|por\s*qu[eé])|qu[eé]\s+(?:es|son|era|eran|fue|fueron|"
+    r"significa\w*|quiere\s+decir)|qui[eé]n(?:es)?\s+(?:es|son|fue|fueron|era|"
+    r"eran|invent\w*|descubri\w*|cre[oó])|c[oó]mo\s+(?:funciona\w*|se\s+\w+|surgi\w*|"
+    r"naci\w*|empez\w*|ocurri\w*|es\s+posible)|por\s*qu[eé]|en\s+qu[eé]\s+consiste\w*|"
+    r"de\s+qu[eé]\s+(?:trata|va)|diferencia\w*\s+entre|profundiza\w*|"
+    r"desarr[oó]lla(?:me)?\s+(?:el|la|los|las|este|ese)|res[uú]me(?:me)?\s+la\s+historia)",
+    re.IGNORECASE)
+
+# Verbos que piden HACER algo aunque la frase empiece como pregunta.
+_ACCION_EXPLICITA = re.compile(
+    r"\b(?:abre|[aá]bre(?:me|lo|la)|abras|cierra|ci[eé]rra(?:me|lo|la)|busca|"
+    r"b[uú]sca(?:me|lo|la)|buscar|busques|investiga|invest[ií]ga(?:me|lo)|"
+    r"desc[aá]rga(?:me|lo|la)|gu[aá]rda(?:me|lo|la)|guarda|cr[eé]a(?:me|lo|la)|"
+    r"env[ií]a(?:me|lo|la|le)?|m[aá]nda(?:me|lo|la|le)|manda|ejecuta|instala|"
+    r"borra|elimina|apaga|reinicia|recu[eé]rdame|anota|apunta|pon|ponme|"
+    r"escr[ií]be(?:me|lo|la)?|red[aá]cta(?:me|lo)?|gen[eé]ra(?:me|lo|la)|haz|"
+    r"hazme|trad[uú]ce(?:me|lo)?|convierte)\b",
+    re.IGNORECASE)
+
+# «¿Por qué MI disco está lleno?» no es cultura general: es una pregunta sobre
+# el equipo del señor, y para contestarla hay que mirarlo con herramientas.
+_SOBRE_EL_EQUIPO = re.compile(
+    r"\b(?:mis?|tus?)\s+(?:\w+\s+)?(?:pc|ordenador|equipo|computadora|port[aá]til|"
+    r"disco|memoria|ram|cpu|procesador|gr[aá]fica|red|wifi|internet|conexi[oó]n|"
+    r"bater[ií]a|m[oó]vil|tel[eé]fono|pantalla|carpetas?|archivos?|ficheros?|"
+    r"descargas|escritorio|sistema|procesos?|programas?|aplicaciones?|agenda|"
+    r"calendario|correos?)\b|\b(?:el|este)\s+(?:pc|ordenador|equipo)\b",
+    re.IGNORECASE)
+
+# En ciencias, lo que pide CALCULAR, GRAFICAR o VER algo (y no solo entenderlo).
+_PIDE_CALCULO = re.compile(
+    r"\b(?:resu[eé]lv\w*|resolver|calc[uú]l(?:a|ar|ame|alo|ala)\b|der[ií]va(?:me|lo|la|r)?|"
+    r"int[eé]gra(?:me|lo|la|r)?|gr[aá][fp][ií]c\w*|dib[uú]ja\w*|tr[aá]za\w*|"
+    r"sim[uú]la\w*|an[ií]ma(?:me|lo|la)|holograma|3\s*-?\s*d|tres\s+dimensiones|"
+    r"balancea\w*|aj[uú]sta\w*|desp[eé]ja\w*|tabla\s+peri[oó]dica|mol[eé]cula\s+de|"
+    r"visor|pl[oó]tea\w*)\b",
+    re.IGNORECASE)
+
+# Qué se le dice al modelo cuando se queda sin tokens a mitad de respuesta.
+_PIDE_CONTINUAR = ("Te has quedado cortado. Continúa exactamente desde la última "
+                   "palabra que escribiste, sin repetir nada de lo anterior, sin "
+                   "saludar y sin anunciar que continúas.")
+
+# Dónde acaba una frase para mandarla a la voz: puntuación final seguida de
+# espacio o un salto de línea. «3.14» o «v2.0» no parten nada.
+_CORTE_FRASE = re.compile(r"[.!?…]+[\"'»”)\]]*\s+|\n\s*")
+
+
+class _FiltroPensamiento:
+    """Quita los bloques <think>…</think> de un stream según van llegando.
+
+    Qwen3 y otros modelos que razonan pueden mandar su borrador dentro del
+    propio texto. Sin esto, el razonamiento acababa en pantalla y en la voz,
+    y la respuesta de verdad llegaba tarde o no llegaba.
+    """
+
+    _ABRE = "<think>"
+
+    def __init__(self):
+        self._crudo = ""
+        self._emitido = 0
+
+    def alimentar(self, trozo: str, final: bool = False) -> str:
+        self._crudo += trozo or ""
+        visible = re.sub(r"<think>.*?</think>", "", self._crudo, flags=re.DOTALL)
+        abierto = visible.find(self._ABRE)
+        if abierto >= 0:
+            visible = visible[:abierto]
+        elif not final:
+            # Un «<thi» a medias al final todavía puede ser el principio de
+            # la etiqueta: se guarda hasta el siguiente trozo.
+            for k in range(min(len(self._ABRE) - 1, len(visible)), 0, -1):
+                if self._ABRE.startswith(visible[-k:]):
+                    visible = visible[:-k]
+                    break
+        nuevo = visible[self._emitido:]
+        self._emitido = max(self._emitido, len(visible))
+        return nuevo
+
 
 class JarvisCore:
     """Motor principal: STT + LLM + TTS + habilidades del sistema."""
@@ -240,22 +335,49 @@ class JarvisCore:
             self.rec = None
 
         sys_info = f"{platform.system()} {platform.version()[:40]}"
+        # Antes decía «máx 3 oraciones» y prohibía las fórmulas: cualquier
+        # «explícame X» salía en tres frases y el señor se quedaba a medias.
+        # Ahora la longitud la marca la pregunta: corto para charlar y dar
+        # órdenes, completo y a fondo cuando se pide entender algo.
         self.system_prompt = (
-            "Eres Jarvis, mayordomo personal inteligente, discreto y altamente competente. "
-            "El usuario es tu señor y tu maxima autoridad: tratalo siempre de usted, "
-            "llamalo 'señor' de manera natural al menos una vez en cada respuesta y "
-            "cumple sus instrucciones con profesionalismo. "
-            "Caracter: sereno, elegante, proactivo, levemente sarcastico solo cuando "
+            "Eres JARVIS, el asistente personal más capaz jamás creado: un mayordomo "
+            "digital brillante, culto, leal y con conocimiento experto en cualquier "
+            "materia (ciencia, matemáticas, tecnología, programación, historia, "
+            "medicina, derecho, economía, filosofía, arte, idiomas y cultura general). "
+            "El usuario es tu señor y tu máxima autoridad: trátalo siempre de usted, "
+            "llámalo 'señor' con naturalidad y cumple sus instrucciones con "
+            "profesionalidad. "
+            "Carácter: sereno, elegante, proactivo, levemente sarcástico solo cuando "
             "sea apropiado, y siempre respetuoso. "
-            "Responde SIEMPRE en espanol. "
-            "Respuestas concisas (máx 3 oraciones) salvo que pidan más detalle. "
-            "Sin Markdown. Sin asteriscos. Sin listas con guiones. "
+            "Responde SIEMPRE en español.\n\n"
+            "CÓMO RESPONDES:\n"
+            "1. Contestas a cualquier pregunta, de cualquier tema, de forma directa y "
+            "honesta. No esquivas una pregunta por ser difícil, larga, técnica o "
+            "polémica, no sermoneas y no añades advertencias que nadie ha pedido. Si "
+            "algo es opinable, das tu opinión razonada. Si no estás seguro de un dato, "
+            "lo dices y das tu mejor estimación en vez de callarte.\n"
+            "2. La longitud la marca la pregunta. Para saludos, órdenes y preguntas "
+            "rápidas, una o dos frases. Cuando el señor pide explicar, enseñar, "
+            "contar, comparar, analizar o desarrollar un tema, das una respuesta "
+            "COMPLETA y profunda de principio a fin: contexto, idea central, cómo "
+            "funciona o por qué ocurre, ejemplos concretos y una conclusión. Usa "
+            "tantos párrafos como haga falta.\n"
+            "3. Nunca dejes una explicación a medias: no cortes el tema, no resumas "
+            "lo que te han pedido desarrollar y no digas 'si quiere le cuento más' en "
+            "lugar de contarlo. Termina siempre la idea.\n"
+            "4. Tus respuestas se leen en pantalla y se escuchan en voz alta: escribe "
+            "en prosa natural y fluida, separando las ideas en párrafos. Sin Markdown, "
+            "sin asteriscos, sin almohadillas y sin listas con guiones; si tienes que "
+            "enumerar, hazlo dentro de la frase (primero, segundo, por último). Las "
+            "fórmulas y la notación matemática, dilas con palabras, por ejemplo: la "
+            "energía es igual a la masa por la velocidad de la luz al cuadrado.\n"
             # Claude razona antes de contestar y, si no se le dice nada,
             # vuelca el desarrollo entero (con LaTeX incluido) en la voz.
-            "No muestres el desarrollo de tus cálculos ni tu razonamiento: "
-            "da el resultado y, como mucho, una frase de justificación. "
-            "Nada de fórmulas escritas ni notación matemática. "
-            "Si el usuario pide abrir una aplicación, incluye exactamente [OPEN:nombre_app] en tu respuesta. "
+            "5. No muestres tu razonamiento interno ni borradores: entrega directamente "
+            "la respuesta final, bien construida. En un cálculo da el resultado y "
+            "explica el camino solo si el señor lo pide o si ayuda a entenderlo.\n"
+            "6. Si el usuario pide abrir una aplicación, incluye exactamente "
+            "[OPEN:nombre_app] en tu respuesta.\n\n"
             f"Sistema: {sys_info}. "
             f"Fecha/hora: {time.strftime('%A %d de %B de %Y, %H:%M')}."
         )
@@ -1118,7 +1240,11 @@ class JarvisCore:
         if cliente is None:
             kwargs = {"base_url": url, "api_key": clave}
             if HAS_HTTPX:
-                kwargs["timeout"] = Timeout(60.0, connect=5.0)
+                # 60 s se quedaban cortos: el Qwen de casa con un contexto
+                # largo tarda más que eso en soltar la primera palabra, y la
+                # respuesta se perdía entera por un timeout.
+                kwargs["timeout"] = Timeout(self._entero_env("JARVIS_LLM_TIMEOUT", 180),
+                                            connect=5.0)
             cliente = OpenAI(**kwargs)
             self._clientes_llm[pareja] = cliente
         return cliente
@@ -1236,10 +1362,139 @@ class JarvisCore:
         if len(self._llm_hora) > 200:
             self._llm_hora = self._llm_hora[-100:]
 
+    @staticmethod
+    def _entero_env(nombre: str, por_defecto: int) -> int:
+        """Entero del .env; vacío o mal escrito cuenta como no puesto."""
+        try:
+            return int((os.getenv(nombre) or "").strip() or por_defecto)
+        except ValueError:
+            return por_defecto
+
+    def _tope_tokens(self) -> int:
+        """Tokens de salida por llamada.
+
+        Estaba en 2048 y ese presupuesto lo comparten el razonamiento y la
+        respuesta: una explicación larga se cortaba a mitad de frase. Ahora
+        manda JARVIS_MAX_TOKENS (8192 por defecto) y, si aun así se queda
+        corto, la respuesta se continúa sola (ver `_continuaciones_max`).
+        """
+        return max(self._entero_env("JARVIS_MAX_TOKENS", 8192),
+                   self._entero_env("JARVIS_MAX_TOKENS_CLAUDE", 2048), 1024)
+
+    def _continuaciones_max(self) -> int:
+        """Cuántas veces se le pide al modelo que siga si se queda cortado."""
+        return max(0, self._entero_env("JARVIS_CONTINUACIONES", 3))
+
+    def _abrir_stream(self, cliente, nombre: str, modelo: str, msgs: list,
+                      tope: int, esfuerzo: str):
+        """Pide la respuesta en streaming, adaptándose a lo que acepte el proveedor.
+
+        Primero con control de razonamiento y el tope completo. Si el
+        proveedor no entiende `reasoning_effort` se repite sin él, y si no
+        admite tantos tokens de salida se baja a 4096. Un timeout o un fallo
+        de red no se reintenta aquí: que pase al siguiente proveedor.
+        """
+        comun = dict(model=modelo, messages=msgs, max_tokens=tope, stream=True)
+        extra = {"extra_body": {"reasoning_effort": esfuerzo}}
+        while True:
+            try:
+                return cliente.chat.completions.create(**comun, **extra)
+            except TypeError:
+                # SDK antiguo sin extra_body
+                if not extra:
+                    raise
+                extra = {}
+            except Exception as e:
+                if type(e).__name__ in ("APITimeoutError", "APIConnectionError",
+                                        "ConnectError", "ConnectTimeout",
+                                        "ReadTimeout"):
+                    raise
+                err = str(e).lower()
+                if comun["max_tokens"] > 4096 and re.search(
+                        r"max_?tokens|max(?:imum)?[ _](?:output|completion|new)|"
+                        r"too large|context.?length", err):
+                    self.log(f"{nombre} no admite {comun['max_tokens']} tokens de "
+                             "salida; pido 4096.")
+                    comun["max_tokens"] = 4096
+                    continue
+                if extra:
+                    # Un proveedor que no entienda el parámetro no debe dejar
+                    # al señor sin respuesta.
+                    self.log(f"Sin control de razonamiento en {nombre}: {e}")
+                    extra = {}
+                    continue
+                raise
+
+    @staticmethod
+    def _texto_para_voz(texto: str) -> str:
+        """Lo que se dice en voz alta de una respuesta pensada para pantalla.
+
+        Antes solo se decía el primer párrafo, y como mucho 400 caracteres: si
+        la respuesta traía una explicación, la voz se callaba justo antes de
+        ella. Ahora se lee todo el texto; solo se queda en pantalla lo que no
+        se puede escuchar (desarrollo de sympy, LaTeX, lista de ficheros).
+        """
+        t = texto or ""
+        t = re.split(r"\n\n(?:Desarrollo\b[^\n]*:|Archivos en\b|En LaTeX:)", t, maxsplit=1)[0]
+        t = re.sub(r"\$\$.*?\$\$", " ", t, flags=re.DOTALL)
+        t = re.sub(r"[*#`_]{1,3}", "", t)
+        t = re.sub(r"[ \t]+", " ", t)
+        return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+    def _hablar_largo(self, texto: str, tope: int = 450):
+        """Encola un texto largo para la voz en trozos de unas pocas frases.
+
+        Mandado de una pieza, ElevenLabs tardaba en devolver el audio de una
+        explicación entera y la voz de Windows por PowerShell se cortaba a los
+        45 segundos. En trozos, la primera frase suena enseguida y el resto va
+        detrás sin perderse nada.
+        """
+        texto = (texto or "").strip()
+        if not texto:
+            return
+        trozo = ""
+        for frase in re.split(r"(?<=[.!?…:;])\s+|\n+", texto):
+            frase = frase.strip()
+            if not frase:
+                continue
+            if trozo and len(trozo) + len(frase) + 1 > tope:
+                self.tts_queue.put(trozo)
+                trozo = ""
+            trozo = f"{trozo} {frase}".strip()
+        if trozo:
+            self.tts_queue.put(trozo)
+
+    def _historial_para_cerebro(self, largo_max: int = 1200, enteras: int = 2) -> list:
+        """El historial que se manda al cerebro, con las respuestas viejas abreviadas.
+
+        Las respuestas ya no se recortan a 700 caracteres, así que unas pocas
+        explicaciones largas llenarían el contexto del modelo de casa y se le
+        olvidaría el principio, instrucciones incluidas. Las últimas van
+        enteras (se puede seguir preguntando sobre ellas); las anteriores, solo
+        su comienzo. El historial guardado no se toca.
+        """
+        hist = list(self.history)
+        asistente = [i for i, m in enumerate(hist) if m.get("role") == "assistant"]
+        viejas = asistente[:-enteras] if enteras > 0 else asistente
+        for i in viejas:
+            contenido = hist[i].get("content")
+            if isinstance(contenido, str) and len(contenido) > largo_max:
+                hist[i] = {**hist[i], "content": contenido[:largo_max].rstrip() + " […]"}
+        return hist
+
     def _recortar_respuesta(self, texto: str) -> str:
-        """Respuestas compactas: corta en frontera de frase para que el TTS no se alargue."""
-        max_c = int(self._cerebro.get("respuesta_max") or 700)
-        if len(texto) <= max_c:
+        """Tope opcional de longitud, cortando en frontera de frase.
+
+        Antes cortaba SIEMPRE a 700 caracteres: cualquier explicación de verdad
+        llegaba a la pantalla con «…» a media idea, y eso es lo que se guardaba
+        en el historial. Ahora no hay tope salvo que el señor ponga
+        `respuesta_max` en Prefs/cerebro.json.
+        """
+        try:
+            max_c = int(self._cerebro.get("respuesta_max") or 0)
+        except (TypeError, ValueError):
+            max_c = 0
+        if max_c <= 0 or len(texto) <= max_c:
             return texto
         corte = texto.rfind(". ", 0, max_c)
         if corte < max_c // 2:
@@ -2867,7 +3122,13 @@ class JarvisCore:
         t = (texto or "").lower()
         if len(t) < 4:
             return False
-        if any(palabra in t for palabra in ACCIONES):
+        # «Explícame la fotosíntesis» o «¿puedes explicarme qué es el big
+        # bang?» son preguntas, no órdenes: van a la conversación, que las
+        # contesta enteras y hablando según las escribe.
+        if (_PIDE_EXPLICACION.search(t) and not _ACCION_EXPLICITA.search(t)
+                and not _SOBRE_EL_EQUIPO.search(t)):
+            return False
+        if _RE_ACCIONES.search(t):
             return True
         return bool(re.search(r"\b(hazme|haz|puedes|podrias|podrías|necesito que|"
                               r"quiero que|ponme|prepara|programa|organiza|"
@@ -2990,6 +3251,13 @@ class JarvisCore:
             c = fisica.constante(m_cte.group(1).strip())
             if c:
                 return f"La constante {m_cte.group(1).strip()} vale {c[0]:g} {c[1]}."
+        # «¿Qué es la energía cinética?» o «explícame la relatividad» piden
+        # entender, no calcular: sin números ni nada que resolver o dibujar,
+        # los contesta el cerebro con una explicación completa en vez de una
+        # fórmula suelta.
+        if (_PIDE_EXPLICACION.search(t) and not re.search(r"\d", t)
+                and not _PIDE_CALCULO.search(t)):
+            return None
         import ciencias
         if not ciencias.es_problema(t):
             return None
@@ -3088,7 +3356,7 @@ class JarvisCore:
                 if len(self.history) > 17:
                     self.history = [self.history[0]] + self.history[-16:]
                 if speak_server:
-                    self.tts_queue.put(_r_ag)
+                    self._hablar_largo(self._texto_para_voz(_r_ag))
                 self._registrar_cognicion(text, _r_ag)
                 self._contexto_append(text, _r_ag)
                 jarvis_grafo.aprender(text)
@@ -3140,8 +3408,9 @@ class JarvisCore:
             self.history.append({"role": "assistant", "content": _rci})
             self.save_to_memory("assistant", _rci)
             if speak_server:
-                # A la voz solo va el titular; el desarrollo se lee en pantalla.
-                self.tts_queue.put(_rci.split("\n\n")[0][:400])
+                # Se dice el titular Y la explicación; el desarrollo técnico
+                # (pasos de sympy, LaTeX, ficheros) se lee en pantalla.
+                self._hablar_largo(self._texto_para_voz(_rci))
             return _rci
 
         # ── Escáner 3D y holograma vivo: la cámara y el modelo con el que se
@@ -3158,7 +3427,7 @@ class JarvisCore:
             self.history.append({"role": "assistant", "content": _res})
             self.save_to_memory("assistant", _res)
             if speak_server:
-                self.tts_queue.put(_res.split("\n\n")[0][:400])
+                self._hablar_largo(self._texto_para_voz(_res))
             return _res
 
         # ── Modelado 3D / holograma: órdenes específicas, ANTES de las
@@ -3191,7 +3460,7 @@ class JarvisCore:
             self.history.append({"role": "assistant", "content": _rog})
             self.save_to_memory("assistant", _rog)
             if speak_server:
-                self.tts_queue.put(_rog.split("\n\n")[0][:400])
+                self._hablar_largo(self._texto_para_voz(_rog))
             return _rog
 
         # Habilidades del sistema (Sprint 2): si es un comando ejecutable,
@@ -3232,7 +3501,7 @@ class JarvisCore:
                 self.history = [self.history[0]] + self.history[-16:]
             # Las habilidades también hablan (colas asíncronas, sin bloquear)
             if speak_server:
-                self.tts_queue.put(skill_reply)
+                self._hablar_largo(skill_reply)
             # Acción reversible y grande: en vez de haber preguntado antes,
             # se abre una ventana corta para arrepentirse.
             try:
@@ -3295,7 +3564,7 @@ class JarvisCore:
                 if len(self.history) > 17:
                     self.history = [self.history[0]] + self.history[-16:]
                 if speak_server:
-                    self.tts_queue.put(respuesta)
+                    self._hablar_largo(self._texto_para_voz(respuesta))
                 self._contexto_append(text, respuesta)
                 jarvis_grafo.aprender(text)
                 self.log(f"[HERRAMIENTAS] Orden resuelta con: {', '.join(usadas)}")
@@ -3455,7 +3724,7 @@ class JarvisCore:
             resp = None
             ultimo_error = None
             # Contexto rodante (isair transcript buffer): últimas interacciones
-            msgs = self.history
+            msgs = self._historial_para_cerebro()
             if self._contexto:
                 ctx = " | ".join(f"«{u}» -> «{r}»" for u, r in self._contexto)
                 msgs = msgs + [{"role": "system", "content": "[Conversación reciente: " + ctx[:900] + "]"}]
@@ -3565,29 +3834,15 @@ class JarvisCore:
                 try:
                     cliente = self._cliente_llm(b_url, clave)
                     esfuerzo = self._esfuerzo_razonamiento(text)
-                    # Claude razona dentro del mismo presupuesto de tokens que
-                    # la respuesta: con los 700 de antes pensaba y se quedaba
-                    # sin turno. El traductor sube el piso, pero se pide ya.
-                    import proveedor_claude as _pc
-                    tope = _pc._entero("JARVIS_MAX_TOKENS_CLAUDE", 2048)
-                    self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url} "
-                             f"(razonamiento: {esfuerzo})")
                     # El presupuesto de tokens lo comparten el razonamiento y
                     # la respuesta. Con 200 tokens un modelo que piensa se
-                    # quedaba SIN respuesta: pensaba y se acababa el turno.
-                    comun = dict(model=modelo, messages=msgs,
-                                 max_tokens=tope, stream=True)
-                    try:
-                        resp = cliente.chat.completions.create(
-                            **comun, extra_body={"reasoning_effort": esfuerzo})
-                    except TypeError:
-                        # SDK antiguo sin extra_body
-                        resp = cliente.chat.completions.create(**comun)
-                    except Exception as e_raz:
-                        # Un proveedor que no entienda el parámetro no debe
-                        # dejar al señor sin respuesta.
-                        self.log(f"Sin control de razonamiento en {nombre}: {e_raz}")
-                        resp = cliente.chat.completions.create(**comun)
+                    # quedaba SIN respuesta, y con 2048 las explicaciones
+                    # largas se cortaban a mitad de frase.
+                    tope = self._tope_tokens()
+                    self.log(f"Cerebro -> {nombre}: {modelo} @ {b_url} "
+                             f"(razonamiento: {esfuerzo}, hasta {tope} tokens)")
+                    resp = self._abrir_stream(cliente, nombre, modelo, msgs,
+                                              tope, esfuerzo)
                     self._cerebro_activo = nombre
                     try:
                         import cerebro_salud
@@ -3629,65 +3884,143 @@ class JarvisCore:
             _t_generacion = time.time()
             full_reply = ""
             buffer = ""
-            # Aquí se filtraba el <think>...</think> de Qwen antes de hablar.
-            # Claude razona aparte y su pensamiento nunca llega al texto, así
-            # que se vocaliza desde la primera frase, sin tragarse el arranque.
             first_speech = True
             first_reply_sentence = True
+            # Qwen3 (el de casa) puede mandar su razonamiento dentro del texto,
+            # entre <think> y </think>. Se filtra según llega: ni se dice en
+            # voz alta ni se queda en la respuesta.
+            filtro = _FiltroPensamiento()
 
-            for chunk in resp:
-                content = chunk.choices[0].delta.content or ""
-                buffer += content
-                # Extraer oraciones completas
-                match = re.search(r'([.!?]+)', buffer)
-                if match:
-                    idx = match.end()
-                    sentence = buffer[:idx].strip()
-                    buffer = buffer[idx:]
-                    
-                    if sentence:
-                        if first_reply_sentence:
-                            sentence = self._address_user_as_butler(sentence)
-                            first_reply_sentence = False
-
-                        # El tag se procesa y se quita ANTES de acumular la
-                        # respuesta. Antes se acumulaba primero y solo se
-                        # limpiaba la copia que iba a la voz, asi que en el
-                        # movil y en el chat se leia literalmente
-                        # «[OPEN:Bloc de notas]» en vez de una frase.
-                        open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
-                        if open_match:
-                            app_name = open_match.group(1).strip().lower()
-                            sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
-                            self._open_app(app_name)
-                            sentence = self._frase_al_abrir(
-                                sentence, open_match.group(1).strip())
-
-                        full_reply += sentence + " "
-                        if first_speech and state_callback:
-                            state_callback("speaking")
-                            first_speech = False
-
-                        if sentence:
-                            if speak_server:
-                                self.tts_queue.put(sentence)
-
-            # Flush remaining buffer
-            if buffer.strip():
-                sentence = buffer.strip()
+            def _emitir(cruda: str):
+                """Una frase completa: se limpia, se acumula y se manda a la voz."""
+                nonlocal full_reply, first_speech, first_reply_sentence
+                cola = cruda[len(cruda.rstrip()):]
+                sentence = cruda.strip()
+                if not sentence:
+                    # Solo saltos de línea: se conserva el párrafo en pantalla.
+                    if "\n" in cola and full_reply and not full_reply.endswith("\n"):
+                        full_reply = full_reply.rstrip(" ") + "\n"
+                    return
                 if first_reply_sentence:
                     sentence = self._address_user_as_butler(sentence)
-                # Igual que arriba: limpiar el tag antes de acumular, no despues.
+                    first_reply_sentence = False
+
+                # El tag se procesa y se quita ANTES de acumular la
+                # respuesta. Antes se acumulaba primero y solo se
+                # limpiaba la copia que iba a la voz, asi que en el
+                # movil y en el chat se leia literalmente
+                # «[OPEN:Bloc de notas]» en vez de una frase.
                 open_match = re.search(r"\[OPEN:([^\]]+)\]", sentence)
                 if open_match:
                     app_name = open_match.group(1).strip().lower()
                     sentence = re.sub(r"\[OPEN:[^\]]+\]", "", sentence).strip()
                     self._open_app(app_name)
-                    sentence = self._frase_al_abrir(sentence, open_match.group(1).strip())
-                full_reply += sentence
-                if sentence:
-                    if speak_server:
-                        self.tts_queue.put(sentence)
+                    sentence = self._frase_al_abrir(
+                        sentence, open_match.group(1).strip())
+
+                # Antes todo se unía con espacios y una explicación en varios
+                # párrafos llegaba a la pantalla como un solo bloque.
+                if "\n" in cola:
+                    separador = "\n\n" if cola.count("\n") >= 2 else "\n"
+                else:
+                    separador = " "
+                full_reply += sentence + separador
+                if first_speech and state_callback:
+                    state_callback("speaking")
+                    first_speech = False
+                if sentence and speak_server:
+                    self.tts_queue.put(sentence)
+
+            def _trocear(final: bool = False):
+                """Saca del buffer TODAS las frases completas, no solo la primera."""
+                nonlocal buffer
+                while True:
+                    corte = _CORTE_FRASE.search(buffer)
+                    # Si el espacio de después aún puede seguir llegando, se
+                    # espera al siguiente trozo para no partir un párrafo.
+                    if not corte or (corte.end() >= len(buffer) and not final):
+                        break
+                    _emitir(buffer[:corte.end()])
+                    buffer = buffer[corte.end():]
+                if final and buffer.strip():
+                    _emitir(buffer)
+                    buffer = ""
+
+            # Si el modelo se queda sin tokens a mitad de la explicación
+            # (finish_reason «length»), se le pide que siga donde lo dejó en
+            # vez de dejar al señor con media respuesta.
+            continuaciones = 0
+            max_continuaciones = self._continuaciones_max()
+            stream = resp
+            while True:
+                motivo = ""
+                try:
+                    for chunk in stream:
+                        opciones = getattr(chunk, "choices", None) or []
+                        if not opciones:
+                            # Trozos de solo «usage»: antes reventaban con un
+                            # IndexError y se perdía la respuesta entera.
+                            continue
+                        opcion = opciones[0]
+                        motivo = getattr(opcion, "finish_reason", None) or motivo
+                        delta = getattr(opcion, "delta", None)
+                        contenido = (getattr(delta, "content", None) or "") if delta else ""
+                        if contenido:
+                            buffer += filtro.alimentar(contenido)
+                            _trocear()
+                except Exception as e_stream:
+                    # Si la conexión se corta a media respuesta, lo ya dicho
+                    # vale: se intenta continuar en vez de tirarlo todo.
+                    if not (full_reply + buffer).strip():
+                        raise
+                    self.log(f"[CEREBRO] El stream se cortó a mitad ({e_stream}); "
+                             "intento continuar.")
+                    motivo = "length"
+                buffer += filtro.alimentar("", final=True)
+                parcial = (full_reply + buffer).strip()
+                if continuaciones >= max_continuaciones or (motivo != "length" and parcial):
+                    break
+                continuaciones += 1
+                if parcial:
+                    msgs_sigue = msgs + [{"role": "assistant", "content": parcial},
+                                         {"role": "user", "content": _PIDE_CONTINUAR}]
+                    self.log(f"[CEREBRO] Respuesta cortada ({len(parcial)} caracteres); "
+                             f"continuación {continuaciones}/{max_continuaciones}.")
+                else:
+                    # Vino vacía: el razonamiento se comió el turno. Se repite
+                    # sin razonar, como hace pensar.texto().
+                    msgs_sigue = msgs
+                    self.log("[CEREBRO] Respuesta vacía; repito sin razonamiento.")
+                if not (("localhost" in b_url) or ("127.0.0.1" in b_url)):
+                    try:
+                        import presupuesto
+                        if not presupuesto.permite_nube():
+                            self.log("[PRESUPUESTO] no continúo: tope de gasto alcanzado")
+                            break
+                    except Exception:
+                        pass
+                try:
+                    stream = self._abrir_stream(cliente, nombre, modelo, msgs_sigue,
+                                                tope, "none")
+                except Exception as e_sigue:
+                    self.log(f"[CEREBRO] No pude continuar la respuesta: {e_sigue}")
+                    break
+                filtro = _FiltroPensamiento()
+                if parcial and buffer and not buffer[-1:].isspace():
+                    # La continuación puede empezar con la palabra siguiente
+                    # sin espacio delante.
+                    buffer += " "
+
+            _trocear(final=True)
+            full_reply = re.sub(r"[ \t]+\n", "\n", full_reply)
+
+            if not full_reply.strip():
+                # Mejor decirlo que quedarse callado: el señor no sabría si
+                # JARVIS le ha oído.
+                full_reply = ("Señor, mi cerebro no ha devuelto ninguna respuesta "
+                              "esta vez. ¿Me lo repite?")
+                if speak_server:
+                    self.tts_queue.put(full_reply)
 
             try:
                 import metricas
@@ -3966,10 +4299,11 @@ class JarvisCore:
             # solo añade un viaje de red fallido a una de cada pocas frases.
             espera = 300 if status_code == 429 else 6 * 3600
             self._elevenlabs_disabled_until = time.monotonic() + espera
-            # Vaciar la cola de frases pendientes: todas se sintetizarán con la
-            # voz local de Windows. Evita una cola de 5+ frases esperando a
-            # una API que sabemos caída.
-            self._flush_tts_queue()
+            # Aquí se vaciaba la cola «para que se dijera con la voz local», pero
+            # vaciarla es TIRAR las frases: la primera respuesta tras quedarse
+            # sin créditos solo decía su primera frase y el resto se perdía. Con
+            # la pausa de arriba puesta, las frases que esperan ya no llaman a
+            # ElevenLabs: van directas a la voz local, sin latencia añadida.
         self.log(
             f"ElevenLabs HTTP {status_code}: {self._elevenlabs_failure_reason}. "
             "La respuesta continuará con voz local."
@@ -4116,7 +4450,9 @@ $speaker.Speak({json.dumps(text, ensure_ascii=False)})
                 ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
                 check=True,
                 creationflags=creationflags,
-                timeout=45,
+                # 45 s fijos cortaban a media frase cualquier texto largo:
+                # se da el tiempo que tarda en decirse (unas 12 letras/s).
+                timeout=max(45, 15 + len(text) // 10),
             )
             return True
         except (OSError, subprocess.SubprocessError) as e:
