@@ -2,18 +2,39 @@
 
 ## Uso diario
 
-Arranca todo (JARVIS, ULTRON y los servidores MCP) con un solo comando:
+**Doble clic en el icono «JARVIS»** del escritorio (o búscalo en Inicio). Si
+JARVIS no estaba en marcha, lo arranca sin consolas; si la ventana ya estaba
+abierta, la trae delante. El icono lo crea `JARVIS_START.bat` la primera vez, o:
+
+```bash
+python escritorio.py --acceso
+```
+
+Para reiniciarlo todo (JARVIS, ULTRON y los servidores MCP que hagan falta):
 
 ```bash
 python reiniciar_todo.py
 ```
 
-**ORIGEN: la interfaz.** Con JARVIS arrancado, `http://localhost:5000` (se abre
-sola). No hay cinemática: saluda y a trabajar. En silencio, JARVIS es polvo de luz
+**ORIGEN: la interfaz.** Se abre en **su propia ventana**, como una aplicación:
+sin pestañas ni barra de direcciones, con el motor de Edge que ya trae Windows
+(Chrome si no hay Edge) y un perfil aparte, sin extensiones ni nada en segundo
+plano; al cerrarla no queda nada abierto. Es la misma interfaz que en
+`http://localhost:5000`, que sigue valiendo en cualquier navegador. No hay
+cinemática: saluda y a trabajar. En silencio, JARVIS es polvo de luz
 disperso en una galaxia; cuando le hablas (o escribes), y mientras piensa o
 contesta, las partículas se reúnen en una mente de oro —un cerebro— que late con
 su voz, y al terminar se vuelve a disolver. Si el navegador no deja sonar el
-saludo al abrir, lo dice en cuanto toques algo.
+saludo al abrir, lo dice en cuanto toques algo (en la ventana propia suena solo).
+
+**Consumo.** En reposo la galaxia se dibuja a 30 cuadros por segundo (20 si la
+ventana está detrás de otra) y a 60 mientras escucha, piensa o habla; con la
+ventana minimizada no se dibuja nada. En pantallas 2K/4K se dibuja a unos 2,4
+millones de píxeles y se escala. La calidad sube sola hasta medio millón de
+partículas (`?calidad=4` pide el millón; `?fps=libre` quita el tope). La
+telemetría ya no lanza un PowerShell cada 2,5 s. Home Assistant y Android solo
+arrancan con `HA_TOKEN` o `adb`, y el MCP de JARVIS por HTTP con
+`JARVIS_MCP_HTTP=1`.
 
 A la izquierda, telemetría real del equipo y del motor gráfico; a la derecha,
 los modos, la voz continua («Jarvis…»), la conversación, **los módulos** y el
@@ -50,7 +71,7 @@ python jarvis.py ambos
 En Windows también vale doble clic en `arrancar_ambos.bat` (o `JARVIS_START.bat`
 para JARVIS solo). Si alguno ya estaba
 corriendo lo reutiliza en vez de tirarlo; con `--reiniciar` cierra lo anterior y
-arranca limpio, y con `--sin-navegador` no abre pestañas. Ctrl+C para los dos.
+arranca limpio, y con `--sin-navegador` no abre ninguna ventana. Ctrl+C para los dos.
 
 ¿Solo quieres una parte? Todo pasa por un único lanzador (`jarvis.bat` hace lo
 mismo desde el explorador de Windows):
@@ -557,7 +578,8 @@ Por ADB, con el cable y la depuración USB: nada de cuentas ni servidores.
 
 | Fichero | Qué hace |
 |---|---|
-| `reiniciar_todo.py` | Arranca (o reinicia) todo el sistema |
+| `reiniciar_todo.py` | Arranca (o reinicia) todo el sistema y abre la ventana |
+| `escritorio.py` | ORIGEN como aplicación: su ventana, el icono «JARVIS» (`--acceso`) |
 | `revisar.py` | Diagnóstico: qué funciona, qué no y cómo arreglarlo |
 | `observador.py` | Mira la pantalla y se ofrece cuando le ve atascado |
 | `voz_propia.py` | Voz neuronal local, distinta para JARVIS y para ULTRON |

@@ -6,8 +6,8 @@ title J.A.R.V.I.S.
 
 :: ============================================================
 ::  J.A.R.V.I.S. - lanzador
-::  Arranca el nucleo (Flask/SocketIO, puerto 5000) y abre ORIGEN,
-::  la unica interfaz: http://localhost:5000
+::  Arranca el nucleo (Flask/SocketIO, puerto 5000) sin consolas y abre
+::  ORIGEN, la unica interfaz, en su propia ventana (escritorio.py).
 ::  El telefono se empareja desde ORIGEN (boton del movil).
 ::
 ::  Antes de arrancar libera el puerto 5000: si quedaba un JARVIS
@@ -52,31 +52,18 @@ if errorlevel 1 (
     "%PYTHON%" -m pip install -r requirements.txt --quiet
 )
 
-:: -- MCPs opcionales (en segundo plano) -----------------------
-if exist "mcp_servers\ha_server.py" (
-    start "HA MCP" /min "%PYTHON%" mcp_servers\ha_server.py
-)
-if exist "mcp_servers\calendar_server.py" (
-    start "Calendar MCP" /min "%PYTHON%" mcp_servers\calendar_server.py
-)
-if exist "mcp_servers\android_server.py" (
-    start "Android MCP" /min "%PYTHON%" mcp_servers\android_server.py
-)
+:: -- Arrancar todo oculto y abrir la ventana de JARVIS --------
+:: reiniciar_todo arranca los servidores sin consolas (solo los MCP que tengan
+:: algo que hacer) y abre ORIGEN como aplicacion, en su propia ventana.
+"%PYTHON%" reiniciar_todo.py
 
-:: -- Nucleo de JARVIS -----------------------------------------
-start "JARVIS :5000" cmd /k "cd /d "%~dp0" && "%PYTHON%" web_interface\app.py"
-echo [OK] JARVIS arrancando en http://localhost:5000
-
-:: -- Abrir ORIGEN (con marca de tiempo: nada de paginas viejas) -
-timeout /t 5 /nobreak >nul
-start "" "http://localhost:5000/?v=%RANDOM%%RANDOM%"
+:: -- Acceso directo «JARVIS» en el escritorio y en Inicio ---------
+"%PYTHON%" escritorio.py --acceso
 
 echo.
 echo  =====================================================
-echo   JARVIS:   http://localhost:5000
-echo   Movil:    en JARVIS, boton del movil ^> escanea el QR
+echo   JARVIS esta en su ventana. A partir de ahora basta
+echo   con el icono «JARVIS» del escritorio.
 echo  =====================================================
 echo.
-echo   Cierra la ventana "JARVIS :5000" para detenerlo.
-echo.
-pause
+timeout /t 8 >nul

@@ -215,7 +215,12 @@ def abrir_navegador(cfg: dict, pausa: float = 1.2, clasico: bool = False):
         url = f"http://localhost:{cfg['puerto']}{ruta}"
         if pin:
             url += f"?token={pin}"
-        webbrowser.open_new_tab(url)
+        if cfg["nombre"] == "JARVIS":
+            # ORIGEN va en su propia ventana, como aplicación (escritorio.py).
+            import escritorio
+            escritorio.abrir_ventana(url, reemplazar=True)
+        else:
+            webbrowser.open_new_tab(url)
         time.sleep(pausa)
 
 

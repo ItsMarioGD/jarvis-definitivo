@@ -9,7 +9,7 @@ equivocado hace perder media hora depurando un fantasma. Los antiguos siguen
 donde estaban (por si algun acceso directo apunta a ellos), pero a partir de
 ahora solo hace falta recordar este:
 
-    python jarvis.py                 JARVIS: abre ORIGEN en http://localhost:5000
+    python jarvis.py                 JARVIS: abre ORIGEN en su ventana
     python jarvis.py ultron          HUD de escritorio de ULTRON
     python jarvis.py web             lo mismo que el anterior (ORIGEN, movil incluido)
     python jarvis.py ultron-web      interfaz web de ULTRON
@@ -81,17 +81,17 @@ def lanzar(modo: str, extra) -> int:
 
 
 def _abrir_cuando_responda(url: str):
-    """Abre ORIGEN en el navegador en cuanto el servidor conteste."""
+    """Abre ORIGEN en su ventana en cuanto el servidor conteste."""
     import threading
     import time
     import urllib.request
-    import webbrowser
 
     def esperar():
         for _ in range(60):
             try:
                 urllib.request.urlopen(url + "health", timeout=1)
-                webbrowser.open(url + f"?v={int(time.time())}")
+                import escritorio
+                escritorio.abrir_ventana(url, reemplazar=True)
                 return
             except Exception:
                 time.sleep(1)

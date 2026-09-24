@@ -1518,6 +1518,126 @@ def test_voz_sin_reproductor_de_windows():
             pass
 
 
+# ── Recursos: ventana de escritorio, telemetría barata y servicios justos ──
+def test_recursos_y_ventana():
+    print("\n== RECURSOS Y VENTANA DE ESCRITORIO ==")
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(raiz, "web_interface"))
+    import app as servidor
+    cliente = servidor.app.test_client()
+
+    # 1. /stats ya no arranca un PowerShell por petición ni se queda parado.
+    llamadas = []
+    antes = (servidor.subprocess.run, servidor.os, dict(servidor._TEMP))
+
+    class _Windows:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(os, attr)
+    try:
+        servidor.subprocess.run = lambda *a, **k: (llamadas.append(a), type("R", (), {"stdout": ""})())[1]
+        servidor._TEMP.update(valor=None, hasta=0.0)
+        servidor.os = _Windows()
+        for _ in range(5):
+            servidor._temperatura()
+        time.sleep(0.3)
+        for _ in range(5):
+            servidor._temperatura()
+        _check(len(llamadas) == 1, "la temperatura se lee una vez, no en cada petición",
+               f"-> {len(llamadas)} PowerShell")
+        _check(servidor._TEMP["hasta"] - time.time() > 600,
+               "si el equipo no la da, no se vuelve a preguntar en 15 minutos")
+    finally:
+        servidor.subprocess.run, servidor.os = antes[0], antes[1]
+        servidor._TEMP.clear(); servidor._TEMP.update(antes[2])
+
+    servidor._STATS.update(datos=None, hasta=0.0)
+    r1 = cliente.get("/stats")
+    t0 = time.time()
+    r2 = cliente.get("/stats")
+    _check(r1.status_code == 200 and time.time() - t0 < 0.1 and r1.get_json() == r2.get_json(),
+           "dos peticiones seguidas (PC y móvil) comparten la misma medida")
+    d = r1.get_json() or {}
+    _check(d.get("top") == [] and all(k in d for k in ("cpu", "cpu_cores", "ram_pct", "uptime")),
+           "sin ?top=1 no se recorren los procesos, y el HUD tiene sus datos")
+    servidor._STATS.update(datos=None, hasta=0.0)
+    t0 = time.time()
+    cliente.get("/stats")
+    _check(time.time() - t0 < 0.3, "la CPU se mide sin quedarse 0,4 s parada",
+           f"-> {time.time() - t0:.2f} s")
+    _check(isinstance((cliente.get("/stats?top=1").get_json() or {}).get("top"), list),
+           "con ?top=1 sí trae el top de procesos")
+
+    # 2. La interfaz no dibuja más de lo que se ve.
+    with open(os.path.join(raiz, "web_interface", "origen.html"), encoding="utf-8") as f:
+        origen = f.read()
+    _check("function fpsTope()" in origen and "return document.hasFocus() ? 30 : 20;" in origen,
+           "en reposo, 30 cuadros (20 sin foco); 60 cuando escucha, piensa o habla")
+    _check("const TOPE_AUTO = movil ? 2 : 3;" in origen,
+           "el regulador ya no sube solo al millón de partículas")
+    _check("const MAX_PX = " in origen, "en 2K/4K no se dibuja a resolución completa")
+    _check("if (!teleVisible()) { setTimeout(telemetria, 2500); return; }" in origen,
+           "con la ventana oculta no se pide telemetría")
+
+    # 3. Solo arrancan los servidores que pueden hacer algo.
+    import reiniciar_todo
+    antes_env = reiniciar_todo._valores_env
+    guardado = {k: os.environ.pop(k, None) for k in ("HA_TOKEN", "ADB_PATH", "JARVIS_MCP_HTTP")}
+    try:
+        reiniciar_todo._valores_env = lambda: {}
+        antes_which = reiniciar_todo.shutil.which
+        reiniciar_todo.shutil.which = lambda *_a, **_k: None
+        scripts = [s[2] for s in reiniciar_todo.servicios()]
+        _check(scripts == ["calendar_server.py", "app.py", "app.py"],
+               "sin Home Assistant ni adb: calendario, JARVIS y ULTRON", f"-> {scripts}")
+        reiniciar_todo._valores_env = lambda: {"HA_TOKEN": "x", "JARVIS_MCP_HTTP": "1"}
+        reiniciar_todo.shutil.which = lambda *_a, **_k: "/usr/bin/adb"
+        scripts = [s[2] for s in reiniciar_todo.servicios()]
+        _check({"ha_server.py", "android_server.py", "jarvis_mcp_server.py"} <= set(scripts),
+               "con HA_TOKEN, adb y JARVIS_MCP_HTTP=1 (también en el .env) sí arrancan")
+    finally:
+        reiniciar_todo._valores_env = antes_env
+        reiniciar_todo.shutil.which = antes_which
+        for k, v in guardado.items():
+            if v is not None:
+                os.environ[k] = v
+
+    # 4. La ventana de escritorio: ORIGEN como aplicación, perfil aparte y ligero.
+    import escritorio
+    cmd = escritorio.orden("msedge.exe", "http://localhost:5000/", primera_vez=True)
+    _check(cmd[1] == "--app=http://localhost:5000/" and
+           any(c.startswith("--user-data-dir=") for c in cmd),
+           "se abre como aplicación, con su propio perfil")
+    _check(all(b in cmd for b in ("--disable-extensions", "--disable-background-networking",
+                                  "--autoplay-policy=no-user-gesture-required")),
+           "sin extensiones ni trabajo de fondo, y saluda sin esperar a un clic")
+    _check("--window-size=1360,860" in cmd and
+           not any(c.startswith("--window-size") for c in escritorio.orden("x", primera_vez=False)),
+           "el tamaño se pone la primera vez; luego se respeta el que dejó el señor")
+    lanzados, abiertos = [], []
+    antes_esc = (escritorio.procesos_ventana, escritorio._traer_al_frente,
+                 escritorio.navegador, escritorio.subprocess.Popen)
+    import webbrowser
+    antes_wb = webbrowser.open
+    try:
+        escritorio.subprocess.Popen = lambda *a, **k: lanzados.append(a)
+        escritorio.procesos_ventana = lambda: ["ventana"]
+        escritorio._traer_al_frente = lambda procesos: bool(procesos)
+        escritorio.abrir_ventana()
+        _check(not lanzados, "si ya está abierta, la trae delante en vez de abrir otra")
+        escritorio.procesos_ventana = lambda: []
+        escritorio.navegador = lambda: ""
+        webbrowser.open = lambda url, *a, **k: abiertos.append(url) or True
+        escritorio.abrir_ventana()
+        _check(abiertos == [escritorio.URL] and not lanzados,
+               "sin Edge ni Chrome, se abre en el navegador de siempre")
+    finally:
+        (escritorio.procesos_ventana, escritorio._traer_al_frente,
+         escritorio.navegador, escritorio.subprocess.Popen) = antes_esc
+        webbrowser.open = antes_wb
+
+
 def main():
     pruebas = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for prueba in pruebas:

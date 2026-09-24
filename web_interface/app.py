@@ -1099,6 +1099,55 @@ def upload_movil():
 
 
 # ── STATS / DASHBOARD ──────────────────────────────────────────────────────────
+# La telemetría de ORIGEN pide esto cada 2,5 s. Antes, cada petición arrancaba
+# un PowerShell para leer la temperatura (24 por minuto, con cientos de ms de
+# CPU y decenas de MB cada uno), recorría todos los procesos del equipo y se
+# quedaba 0,4 s parada midiendo la CPU. Ahora:
+#  - la temperatura se lee aparte, como mucho una vez por minuto, y si el equipo
+#    no la da (lo normal sin permisos de administrador), cada 15 minutos;
+#  - la CPU se mide sin esperar: psutil compara con la llamada anterior;
+#  - el top de procesos solo se calcula si se pide (?top=1);
+#  - la respuesta se reutiliza 2 s si la piden a la vez el PC y el móvil.
+_TEMP = {'valor': None, 'hasta': 0.0}
+_TEMP_LOCK = threading.Lock()
+_STATS = {'datos': None, 'hasta': 0.0, 'cpu_lista': False}
+
+
+def _leer_temperatura():
+    valor = None
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-CimInstance MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"],
+                           capture_output=True, text=True, timeout=8, creationflags=0x08000000)
+        v = (r.stdout or '').strip()
+        if v:
+            valor = round((int(v) / 10) - 273.15, 1)
+    except Exception:
+        pass
+    finally:
+        _TEMP['valor'] = valor
+        _TEMP['hasta'] = time.time() + (60 if valor is not None else 900)
+        _TEMP_LOCK.release()
+
+
+def _temperatura():
+    """La última temperatura leída; si toca, se relee aparte, sin esperar."""
+    if os.name != 'nt':
+        return None
+    if time.time() >= _TEMP['hasta'] and _TEMP_LOCK.acquire(blocking=False):
+        threading.Thread(target=_leer_temperatura, daemon=True).start()
+    return _TEMP['valor']
+
+
+def _top_procesos(psutil):
+    top = []
+    for p in sorted(psutil.process_iter(['name', 'cpu_percent', 'memory_percent']),
+                    key=lambda p: p.info['cpu_percent'] or 0, reverse=True)[:5]:
+        top.append({'nombre': p.info['name'] or '?', 'cpu': round(p.info['cpu_percent'] or 0, 1),
+                    'mem': round(p.info['memory_percent'] or 0, 1)})
+    return top
+
+
 @app.route('/stats')
 def stats_json():
     """Telemetria del equipo, en un unico formato.
@@ -1109,32 +1158,27 @@ def stats_json():
     el total de RAM y sin el tiempo encendido: los pedia y no llegaban. Aqui
     van todas las claves juntas, las del panel del movil y las del HUD.
     """
+    con_top = bool(request.args.get('top'))
+    if not con_top and _STATS['datos'] is not None and time.time() < _STATS['hasta']:
+        return jsonify(_STATS['datos'])
     try:
         import psutil
-        cpu = psutil.cpu_percent(interval=0.3)
-        ram = psutil.virtual_memory()
-        disco = psutil.disk_usage('C:\\')
-        net = psutil.net_io_counters()
-        top = []
-        for p in sorted(psutil.process_iter(['name', 'cpu_percent', 'memory_percent']),
-                        key=lambda p: p.info['cpu_percent'] or 0, reverse=True)[:5]:
-            top.append({'nombre': p.info['name'] or '?', 'cpu': round(p.info['cpu_percent'] or 0, 1),
-                        'mem': round(p.info['memory_percent'] or 0, 1)})
-        temp = None
+        if not _STATS['cpu_lista']:
+            # La primera medida sin espera no vale (no hay con qué comparar).
+            psutil.cpu_percent(interval=None)
+            psutil.cpu_percent(interval=None, percpu=True)
+            time.sleep(0.2)
+            _STATS['cpu_lista'] = True
+        cpu = psutil.cpu_percent(interval=None)
         try:
-            r = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                "Get-CimInstance MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"],
-                               capture_output=True, text=True, timeout=8, creationflags=0x08000000)
-            v = (r.stdout or '').strip()
-            if v:
-                temp = round((int(v) / 10) - 273.15, 1)
-        except Exception:
-            pass
-
-        try:
-            cores = [round(x, 1) for x in psutil.cpu_percent(interval=0.1, percpu=True)]
+            cores = [round(x, 1) for x in psutil.cpu_percent(interval=None, percpu=True)]
         except Exception:
             cores = []
+        ram = psutil.virtual_memory()
+        disco = psutil.disk_usage((os.environ.get('SystemDrive', 'C:') + '\\') if os.name == 'nt' else '/')
+        net = psutil.net_io_counters()
+        top = _top_procesos(psutil) if con_top else []
+        temp = _temperatura()
         try:
             arranque = psutil.boot_time()
             uptime = int(time.time() - arranque)
@@ -1147,7 +1191,7 @@ def stats_json():
         except Exception:
             bateria = None
 
-        return jsonify({
+        datos = {
             # Claves del panel del movil / dashboard
             'cpu': cpu, 'ram_pct': ram.percent,
             'ram_used_gb': round(ram.used / 1073741824, 1),
@@ -1166,7 +1210,10 @@ def stats_json():
             'net_sent': f"{round(net.bytes_sent / 1048576, 1)} MB",
             'net_recv': f"{round(net.bytes_recv / 1048576, 1)} MB",
             'uptime': uptime, 'battery': bateria,
-        })
+        }
+        if not con_top:
+            _STATS['datos'], _STATS['hasta'] = datos, time.time() + 2.0
+        return jsonify(datos)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
