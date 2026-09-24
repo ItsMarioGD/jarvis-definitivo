@@ -23,16 +23,18 @@ se sienta como un asistente que espera órdenes, sino como algo que está ahí.
 Cada partícula tiene su umbral, así que no llegan todas a la vez: el cerebro se va
 formando. Reunirse tarda un segundo; disolverse, unos tres y tras una pausa.
 
-**Arranque:** una chispa y «toca para despertarlo». El gesto desbloquea el audio y
-empieza el ritual: dron grave, un pulso audible y cinco frases («Antes de ser una voz,
-fui una idea.» … «Pienso. Luego existo.»). Con cada frase el polvo se acerca un poco
-más, y con el nombre se forma la mente entera por primera vez. La primera vez dura
-unos 24 s; luego solo el nombre (`?intro=1` repite la versión larga y `?directo=1` se
-salta la puerta). En la cabecera, «despierto hace N min».
+**Arranque:** sin cinemática. Las partículas aparecen, JARVIS saluda (la mente se
+forma mientras lo dice) y a trabajar. Si el navegador bloquea el audio hasta el
+primer gesto, el saludo se repite en cuanto se toca algo. En la cabecera,
+«despierto hace N min».
 
-**Módulos:** el botón de nodos abre un panel lateral con los mismos módulos que
-`/nexus` y `/aeon` (`/modulos.js`), con un índice de tarjetas y lo más nuevo
-delante: Ciencias, Modelado 3D, Cerebro, Correo, Demos web, Llamadas y Consejo,
+**Móvil:** la misma interfaz (`/mobile` sirve ORIGEN). El QR del PC trae el PIN;
+sin él, ORIGEN pide el PIN. Todas las peticiones llevan el PIN en la cabecera, así
+que un cambio de IP del teléfono no lo deja fuera. El PIN y el QR solo se ven
+desde el PC.
+
+**Módulos:** el botón de nodos abre un panel lateral con los módulos
+(`/modulos.js`), con un índice de tarjetas y lo más nuevo delante: Ciencias, Modelado 3D, Cerebro, Correo, Demos web, Llamadas y Consejo,
 y después Agenda, Sistema, Cámara, Pantalla, Archivos, etc.
 
 **Motor (WebGL2 a mano, sin librerías ni imágenes):**
@@ -57,7 +59,7 @@ emparejar el móvil, telemetría real (`/stats`) y del motor, y apagado ritual
 
 ---
 
-## Diseño anterior (HUD Arc Reactor, ahora en `/clasica`)
+## Diseño anterior (HUD Arc Reactor, ya eliminado)
 
 ## Diseño de Interfaz Híbrida Voz/Chat
 

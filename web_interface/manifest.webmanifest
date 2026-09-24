@@ -1,12 +1,12 @@
 {
-  "name": "JARVIS Mobile",
+  "name": "J.A.R.V.I.S.",
   "short_name": "JARVIS",
-  "description": "Asistente personal JARVIS - control desde el movil",
+  "description": "JARVIS en el teléfono",
   "start_url": "/mobile",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#05070d",
-  "theme_color": "#05070d",
+  "background_color": "#030407",
+  "theme_color": "#030407",
   "icons": [
     {
       "src": "/icon-192.png",

@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    MÓDULOS — todo lo que sabían hacer las dos interfaces antiguas.
-   Compartido por /, /nexus y /aeon: una sola copia, tres pieles distintas.
+   Los usa ORIGEN (la única interfaz): una sola copia del código.
    Espera encontrar ya definidos: API, esc, caja, barra, tabla, duracion,
    brindis y token, y los nodos mod-titulo / mod-contenido / rail.
    ═══════════════════════════════════════════════════════════════════════════ */

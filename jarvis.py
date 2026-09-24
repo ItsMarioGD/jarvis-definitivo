@@ -9,9 +9,9 @@ equivocado hace perder media hora depurando un fantasma. Los antiguos siguen
 donde estaban (por si algun acceso directo apunta a ellos), pero a partir de
 ahora solo hace falta recordar este:
 
-    python jarvis.py                 HUD de escritorio de JARVIS
+    python jarvis.py                 JARVIS: abre ORIGEN en http://localhost:5000
     python jarvis.py ultron          HUD de escritorio de ULTRON
-    python jarvis.py web             interfaz web de JARVIS (movil incluido)
+    python jarvis.py web             lo mismo que el anterior (ORIGEN, movil incluido)
     python jarvis.py ultron-web      interfaz web de ULTRON
     python jarvis.py movil           QR de emparejamiento del telefono
     python jarvis.py estado          diagnostico: que hay listo y que falta
@@ -27,10 +27,10 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 
 MODOS = {
-    "jarvis":      ("interfaz_jarvis.py",       "HUD de escritorio de JARVIS"),
+    "jarvis":      ("web_interface/app.py",     "JARVIS: la interfaz ORIGEN (PC y móvil)"),
     "ultron":      ("ultron_core.py",           "Núcleo/HUD de ULTRON"),
     "ambos":       ("arrancar_ambos.py",        "JARVIS y ULTRON a la vez, con sus dos webs"),
-    "web":         ("web_interface/app.py",     "Interfaz web de JARVIS (y móvil)"),
+    "web":         ("web_interface/app.py",     "JARVIS: la interfaz ORIGEN (PC y móvil)"),
     "ultron-web":  ("ultron_interface/app.py",  "Interfaz web de ULTRON"),
     "movil":       ("jarvis_qr.py",             "Código QR para emparejar el teléfono"),
     "test":        ("test_regresion.py",        "Pruebas de regresión"),
@@ -75,7 +75,27 @@ def lanzar(modo: str, extra) -> int:
         return 2
     carpeta = os.path.dirname(ruta) or RAIZ
     print(f"→ {modo}: {destino}")
+    if destino == "web_interface/app.py":
+        _abrir_cuando_responda("http://localhost:5000/")
     return subprocess.call([_python(), os.path.basename(ruta), *extra], cwd=carpeta)
+
+
+def _abrir_cuando_responda(url: str):
+    """Abre ORIGEN en el navegador en cuanto el servidor conteste."""
+    import threading
+    import time
+    import urllib.request
+    import webbrowser
+
+    def esperar():
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(url + "health", timeout=1)
+                webbrowser.open(url + f"?v={int(time.time())}")
+                return
+            except Exception:
+                time.sleep(1)
+    threading.Thread(target=esperar, daemon=True).start()
 
 
 def estado() -> int:
@@ -182,7 +202,7 @@ def ayuda() -> int:
     print("  python jarvis.py test                      pruebas de regresión")
     print("  python jarvis.py actualizar --probar       ¿hay versión nueva?")
     print("  python jarvis.py servicio instalar         arrancar con Windows")
-    print("\nPanel de control: arranque la web y abra /panel?token=<PIN>")
+    print("\nInterfaz: arranque JARVIS y abra http://localhost:5000")
     return 0
 
 

@@ -2,13 +2,11 @@
 """
 arrancar_ambos.py - JARVIS y ULTRON a la vez, con sus dos webs abiertas
 =======================================================================
-Levanta los dos asistentes en paralelo y abre AEON: una sola interfaz con
-las tres personalidades dentro, ya autenticada y sin teclear ningun PIN.
+Levanta los dos asistentes en paralelo y abre ORIGEN, la interfaz de JARVIS
+(los modulos de ULTRON y el Consejo estan dentro), sin teclear ningun PIN.
 
-    AEON    http://localhost:5000/aeon    las tres personalidades y el panel
-    NEXUS   http://localhost:5000/nexus   la interfaz anterior, intacta
-    JARVIS  http://localhost:5000         interfaz clasica (--clasico)
-    ULTRON  http://localhost:8766         interfaz clasica (--clasico)
+    JARVIS  http://localhost:5000         ORIGEN
+    ULTRON  http://localhost:8766         su propia web (--clasico)
 
 Lo que hace, en orden:
 
@@ -26,7 +24,7 @@ Uso:
     python arrancar_ambos.py                 arranca todo y abre las webs
     python arrancar_ambos.py --sin-navegador arranca sin abrir pestañas
     python arrancar_ambos.py --solo-jarvis   solo JARVIS
-    python arrancar_ambos.py --clasico       abre las dos webs de siempre
+    python arrancar_ambos.py --clasico       abre tambien la web de ULTRON
     python arrancar_ambos.py --solo-ultron   solo ULTRON
     python arrancar_ambos.py --reiniciar     mata lo que hubiera y arranca limpio
 
@@ -65,11 +63,9 @@ AGENTES = {
         "script": "app.py",
         "puerto": int(os.getenv("JARVIS_PORT", "5000")),
         "pin": os.path.join(RAIZ, "web_interface", ".jarvis_auth"),
-        # AEON ya trae dentro las tres personalidades y el panel, así que
-        # por defecto se abre solo esa pestaña. Con --clasico se abren las
-        # interfaces de siempre, una por agente.
-        "rutas": ["/aeon"],
-        "rutas_clasicas": ["/", "/panel"],
+        # ORIGEN es la única interfaz de JARVIS.
+        "rutas": ["/"],
+        "rutas_clasicas": ["/"],
         "entorno": {},
     },
     "ultron": {
@@ -308,7 +304,7 @@ def main(argv) -> int:
         for cfg in vivos.values():
             abrir_navegador(cfg, clasico=True)
     else:
-        # Una sola pestaña: el NEXUS habla con los dos.
+        # Una sola pestaña: ORIGEN (sus módulos hablan también con ULTRON).
         abrir_navegador(vivos.get("jarvis") or list(vivos.values())[0])
 
     ip = ip_local()
@@ -318,14 +314,6 @@ def main(argv) -> int:
         print(f"  {cfg['nombre']:<7} http://localhost:{cfg['puerto']}"
               f"      PIN {pin}")
         print(f"          desde el móvil: http://{ip}:{cfg['puerto']}/mobile")
-    if "jarvis" in vivos:
-        pin = leer_pin(AGENTES['jarvis']['pin'])
-        puerto = AGENTES['jarvis']['puerto']
-        print(f"  AEON    http://localhost:{puerto}/aeon?token={pin}"
-              "    ← las tres personalidades en una")
-        print(f"  NEXUS   http://localhost:{puerto}/nexus?token={pin}"
-              "   (la interfaz anterior)")
-        print(f"  PANEL   http://localhost:{puerto}/panel?token={pin}")
     print("=" * 62)
     print("  Ctrl+C para parar los que haya arrancado este lanzador.\n")
 

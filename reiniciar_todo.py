@@ -160,6 +160,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 50)
     print("  LISTO.")
-    print(f"  Emparejar el telefono:  http://{ip}:5000/pair")
-    print(f"  Interfaz movil:         http://{ip}:5000/mobile")
+    print("  JARVIS:                 http://localhost:5000")
+    print("  Emparejar el telefono:  en JARVIS, boton del movil (QR con el PIN)")
+    print(f"  Desde el movil:         http://{ip}:5000/mobile")
     print("=" * 50)

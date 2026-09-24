@@ -40,7 +40,7 @@ if os.path.exists(_ENV_PATH):
     except Exception:
         pass
 
-from flask import Flask, jsonify, send_from_directory, request, send_file, render_template_string, Response
+from flask import Flask, jsonify, send_from_directory, request, send_file, render_template_string, Response, redirect
 
 try:
     from calendar_engine import calendar_engine
@@ -392,28 +392,83 @@ def _allowed_ips():
     return [e["ip"] for e in vigentes]
 
 
+_propias = {"ts": 0.0, "ips": set()}
+
+
+def _ips_propias() -> set:
+    """IPs de este mismo PC (cambian con el router: se recalculan cada minuto)."""
+    if time.time() - _propias["ts"] < 60:
+        return _propias["ips"]
+    ips = set(LOCALES)
+    try:
+        ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except Exception:
+        pass
+    try:
+        import red_movil
+        ips.update(e["ip"] for e in red_movil.ips_lan())
+    except Exception:
+        pass
+    try:
+        ips.add(_local_ip())
+    except Exception:
+        pass
+    _propias.update(ts=time.time(), ips=ips)
+    return ips
+
+
+def _es_este_pc(ip: str = "") -> bool:
+    """¿La petición sale del propio PC? (por localhost o por su IP de la red)."""
+    if not ip:
+        try:
+            ip = request.remote_addr or ""
+        except Exception:
+            ip = ""
+    return ip in LOCALES or ip in _ips_propias()
+
+
+# Lo único que se sirve a un aparato que todavía no ha dado el PIN: la propia
+# interfaz (que le pide el PIN), cómo comprobarlo y darse de alta, y ficheros
+# estáticos sin nada dentro. El PIN y el QR NO: esos solo se ven en el PC.
+_RUTAS_PUBLICAS = ("/", "/mobile", "/allow_my_ip", "/token_ok", "/pin_actual",
+                   "/modulos.js", "/socket.io.min.js", "/manifest.webmanifest",
+                   "/sw.js", "/icon-192.png", "/icon-512.png", "/health")
+
+
 @app.before_request
 def filtro_ips():
-    permitidas = _allowed_ips()
-    if not permitidas:
+    """Quién puede hablar con JARVIS.
+
+    Antes, mientras no hubiera ningún teléfono emparejado, TODO quedaba abierto
+    a cualquiera de la red, y /pair y /qr enseñaban el PIN a quien los pidiera:
+    cualquiera en el mismo WiFi podía emparejarse solo. Ahora pasa el propio PC,
+    los aparatos emparejados y quien trae el PIN; el resto, nada.
+    """
+    ip = request.remote_addr or ""
+    if _es_este_pc(ip):
         return None
-    if request.remote_addr in permitidas or request.remote_addr in ("127.0.0.1", "::1"):
-        return None
-    if request.path in ("/pair", "/qr", "/allow_my_ip", "/mobile", "/"):
-        return None
-    # El PIN de emparejamiento es una credencial mas fuerte que la IP: sin esto,
-    # al cambiar la IP del movil (DHCP) el telefono cargaba /mobile pero el
-    # handshake de Socket.IO se rechazaba con un 403 mudo y el chat no respondia.
-    # Solo cabecera/query: no tocamos el cuerpo de la peticion aqui para no
-    # forzar el parseo de subidas grandes en cada before_request.
-    if _auth_ok(request.headers.get('X-Token') or request.args.get('token') or ''):
+    if request.path in _RUTAS_PUBLICAS or request.path.startswith("/webhook/"):
         return None
     # Socket.IO ya valida el token en on_connect; dejarlo pasar no abre nada.
     if request.path.startswith('/socket.io'):
         return None
-    print(f"[auth] IP no autorizada: {request.remote_addr} -> {request.path}")
-    return jsonify({'error': 'IP no autorizada', 'ip': request.remote_addr,
-                    'ayuda': 'Abre /pair en el PC y vuelve a emparejar el teléfono.'}), 403
+    if ip in _allowed_ips():
+        return None
+    # El PIN es una credencial mas fuerte que la IP: si el router le cambia la
+    # IP al movil, sigue entrando. Solo cabecera/query: el cuerpo no se toca
+    # aqui para no forzar el parseo de subidas grandes en cada peticion.
+    if _auth_ok(request.headers.get('X-Token') or request.args.get('token') or ''):
+        return None
+    print(f"[auth] IP no autorizada: {ip} -> {request.path}")
+    return jsonify({'error': 'IP no autorizada', 'ip': ip,
+                    'ayuda': 'Empareja el teléfono desde el PC: botón del móvil en JARVIS.'}), 403
+
+
+def _solo_este_pc():
+    """403 si la petición no sale del PC (ni trae el PIN). None si vale."""
+    if _es_este_pc() or _auth_ok(request.headers.get('X-Token') or request.args.get('token') or ''):
+        return None
+    return jsonify({'error': 'esto solo se ve desde el PC'}), 403
 
 
 def _history_messages(limite=40):
@@ -435,19 +490,27 @@ def index():
     return resp
 
 
-@app.route('/clasica')
-def clasica():
-    """El HUD de siempre, con todos sus módulos, por si se echa de menos."""
-    return send_from_directory('.', 'index.html')
-
-
 @app.route('/mobile')
 def mobile():
-    resp = send_from_directory('.', 'mobile.html')
+    """El teléfono usa la misma interfaz que el PC (el QR apunta aquí)."""
+    resp = send_from_directory('.', 'origen.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
     return resp
+
+
+# Las interfaces antiguas ya no existen: quien tenga un marcador o un QR viejo
+# llega a ORIGEN en vez de a un 404.
+@app.route('/clasica')
+@app.route('/nexus')
+@app.route('/aeon')
+@app.route('/panel')
+@app.route('/dashboard')
+@app.route('/centro')
+def interfaz_antigua():
+    token = request.args.get('token')
+    return redirect('/' + (f'?token={token}' if token else ''), code=302)
 
 
 @app.route('/pair_info')
@@ -457,6 +520,9 @@ def pair_info():
     La página los pide cada pocos segundos: si el router cambia la IP, el QR se
     rehace solo y el que estaba en pantalla deja de ser una trampa.
     """
+    bloqueo = _solo_este_pc()
+    if bloqueo:
+        return bloqueo
     datos = {
         'pin': AUTH_TOKEN,
         'url': _pair_url(),
@@ -1025,50 +1091,6 @@ def stats_json():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/dashboard')
-def dashboard_view():
-    html = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>JARVIS - Dashboard</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{background:#0a1118;margin:0;font-family:Segoe UI,sans-serif;color:#e6edf3;padding:14px}
-h1{font-size:18px;color:#00d4ff}
-.caja{background:#12202e;border:1px solid #2a3f54;border-radius:12px;padding:12px;margin:8px 0}
-.barra{height:14px;background:#1b2c3d;border-radius:8px;overflow:hidden;margin-top:6px}
-.barra div{height:100%;background:#00d4ff;border-radius:8px;transition:width .5s}
-.val{float:right;color:#00d4ff;font-weight:bold}
-.proceso{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #16263a;font-size:13px}
-</style></head>
-<body>
-<h1>JARVIS · Dashboard <span id="hora" style="float:right;font-size:12px;color:#5a7a95"></span></h1>
-<div class="caja">CPU <span class="val" id="cpuV">--</span><div class="barra"><div id="cpuB" style="width:0%"></div></div></div>
-<div class="caja">RAM <span class="val" id="ramV">--</span><div class="barra"><div id="ramB" style="width:0%"></div></div></div>
-<div class="caja">Disco <span class="val" id="discoV">--</span><div class="barra"><div id="discoB" style="width:0%"></div></div></div>
-<div class="caja" id="extras"></div>
-<div class="caja" id="procesos"></div>
-<script>
-function actualizar() {
-  fetch('/stats').then(function (r) { return r.json(); }).then(function (d) {
-    if (d.error) return;
-    document.getElementById('cpuV').textContent = d.cpu + '%';
-    document.getElementById('cpuB').style.width = d.cpu + '%';
-    document.getElementById('ramV').textContent = d.ram_pct + '% (' + d.ram_used_gb + ' GB)';
-    document.getElementById('ramB').style.width = d.ram_pct + '%';
-    var discoPct = Math.round((1 - d.disco_libre_gb / d.disco_total_gb) * 100);
-    document.getElementById('discoV').textContent = d.disco_libre_gb + ' GB libres';
-    document.getElementById('discoB').style.width = discoPct + '%';
-    document.getElementById('hora').textContent = d.hora;
-    document.getElementById('extras').innerHTML = 'Descarga total: ' + d.net_mb + ' MB · Temperatura: ' + (d.temp !== null ? d.temp + '°C' : 'n/d');
-    var html = '<b style="font-size:13px">Procesos</b>';
-    d.top.forEach(function (p) { html += '<div class="proceso"><span>' + p.nombre + '</span><span>' + p.cpu + '% CPU · ' + p.mem + '% RAM</span></div>'; });
-    document.getElementById('procesos').innerHTML = html;
-  });
-}
-actualizar(); setInterval(actualizar, 3000);
-</script></body></html>"""
-    return render_template_string(html)
-
-
 @app.route('/allow_my_ip', methods=['POST'])
 def permitir_mi_ip():
     """Auto-emparejamiento. EXIGE el PIN: sin el, cualquiera en la misma red
@@ -1156,6 +1178,9 @@ def rotar_token():
 @app.route('/pair_status')
 def estado_emparejamiento():
     """Que aparatos estan emparejados y cuando caduca cada uno."""
+    bloqueo = _solo_este_pc()
+    if bloqueo:
+        return bloqueo
     ahora = time.time()
     filas = []
     for e in _cargar_ips():
@@ -1806,7 +1831,7 @@ def api_auth():
 def api_local_token():
     """Devuelve el token de voz SOLO para conexiones locales (localhost).
     Permite al HUD del navegador usar la voz sin introducir el PIN manualmente."""
-    if request.remote_addr in ("127.0.0.1", "::1"):
+    if _es_este_pc():
         return jsonify({'token': AUTH_TOKEN})
     return jsonify({'token': ''}), 403
 
@@ -1852,6 +1877,9 @@ def qr():
     de la imagen vacío. Ahora jarvis_qr genera el código él mismo si hace
     falta, así que el QR sale siempre.
     """
+    bloqueo = _solo_este_pc()
+    if bloqueo:
+        return bloqueo
     try:
         from jarvis_qr import qr_response_data
         # ?url= permite pedir el QR de una direccion concreta cuando el equipo
@@ -1877,6 +1905,9 @@ def pair():
     pregunta cada cuatro segundos, rehace el QR si la dirección cambió y avisa
     en cuanto un teléfono entra de verdad.
     """
+    bloqueo = _solo_este_pc()
+    if bloqueo:
+        return bloqueo
     # El PIN y la direccion se pintan ya en el HTML: la pagina no puede salir
     # con «------» mientras se resuelve la primera consulta a la red.
     html = (_PAGINA_PAIR
@@ -2201,90 +2232,6 @@ def companion_avisos():
     return jsonify({'avisos': list(avisos)[-10:][::-1]})
 
 
-@app.route('/centro')
-def companion_centro():
-    html = """<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>JARVIS - Centro de Mando</title>
-<style>
-body{background:#05070d;color:#cfe8ff;font-family:Segoe UI,sans-serif;margin:0;padding:16px}
-h1{color:#00d4ff;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 15px #00d4ff66;font-size:20px}
-.card{background:#0a1420;border:1px solid #1d3a55;border-radius:14px;padding:14px;margin:12px 0}
-.g{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-button{background:#0e2a3f;color:#7ee7ff;border:1px solid #00d4ff55;border-radius:10px;padding:12px;
-font-size:14px;cursor:pointer;transition:.15s}
-button:active{background:#123a58}
-input{width:100%;box-sizing:border-box;background:#08111c;color:#cfe8ff;border:1px solid #1d3a55;
-border-radius:10px;padding:10px;font-size:15px}
-#log{white-space:pre-wrap;font-size:13px;color:#9fd8ff;max-height:220px;overflow:auto}
-.item{background:#08111c;border:1px solid #16304a;border-radius:8px;padding:8px;margin:6px 0;font-size:13px}
-.hint{color:#5a7a95;font-size:12px}
-</style></head><body>
-<h1>Centro de Mando</h1>
-<div class="card"><input id="pin" placeholder="PIN (se guarda en el teléfono)" inputmode="numeric">
-<p class="hint">Guardar PIN en este teléfono: <button onclick="guardarPin()" style="padding:6px">Guardar</button></p></div>
-<div class="card"><div class="g">
-<button onclick="cmd('bloquea la pc un momento')">🔒 Bloquear</button>
-<button onclick="cmd('muestrame la pantalla')">🖥 Pantalla</button>
-<button onclick="cmd('abre la camara')">📷 Cámara</button>
-<button onclick="cmd('dame las stats del pc')">📊 Stats</button>
-<button onclick="cmd('activa modo silencio')">🔕 No molestar</button>
-<button onclick="cmd('desactiva modo silencio')">🔔 Normal</button>
-<button onclick="cmd('apagate en 30 minutos')">⏻ Apagar en 30'</button>
-<button onclick="cmd('cancela el apagado')">↩ Cancela apagado</button>
-<button onclick="cmd('simula presencia')">🏠 Presencia</button>
-<button onclick="cmd('dame las noticias')">📰 Noticias</button>
-<button onclick="cmd('muestrame los ultimos gastos')">💶 Gastos</button>
-<button onclick="verAvisos()">📥 Avisos</button>
-<button onclick="cmd('dame el informe')">🌅 Informe</button>
-<button onclick="cmd('que esta sonando')">🎵 Qué suena</button>
-<button onclick="cmd('vigila la red')">🔔 Vigila red</button>
-<button onclick="cmd('donde esta mi telefono')">📲 Teléfono</button>
-<button onclick="cmd('modo invitado')">🛡 Invitado</button>
-<button onclick="cmd('modo gaming')">🎮 Gaming</button>
-<button onclick="cmd('salud del pc')">🩺 Salud</button>
-<button onclick="cmd('muestrame la lista de la compra')">🛒 Compra</button>
-<button onclick="cmd('diagnostica el pc')">🛠 Diagnóstico</button>
-<button onclick="cmd('escanea un documento')">🖨 Escanear</button>
-<button onclick="probarIa()">🧠 Probar IA</button>
-</div></div>
-<div class="card"><div class="g">
-<input id="txt" placeholder="Escribe una orden a Jarvis...">
-<button onclick="cmd(document.getElementById('txt').value)">Enviar</button>
-</div></div>
-<div class="card"><div id="log">Listo, señor.</div></div>
-<div class="card"><div id="avisos"></div></div>
-<script>
-function token(){return localStorage.getItem('jarvis_pin')||'';}
-(function(){var q=new URLSearchParams(location.search);if(q.get('token'))localStorage.setItem('jarvis_pin',q.get('token'));})();
-function guardarPin(){var p=document.getElementById('pin').value.trim();if(p)localStorage.setItem('jarvis_pin',p);}
-function log(t){var l=document.getElementById('log');l.textContent=t+'\n'+(l.textContent==='Listo, señor.'?'':l.textContent);}
-async function cmd(texto){
-  texto=(texto||'').trim();if(!texto)return;log('Señor: '+texto);
-  try{var r=await fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({texto:texto,token:token()})});var j=await r.json();log('Jarvis: '+(j.respuesta||j.error||'?'));
-  }catch(e){log('Error: '+e.message);}
-}
-async function verAvisos(){
-  try{var r=await fetch('/avisos?token='+encodeURIComponent(token()));var j=await r.json();
-    var a=document.getElementById('avisos');a.innerHTML='';
-    (j.avisos||[]).forEach(function(m){var d=document.createElement('div');d.className='item';d.textContent=m;a.appendChild(d);});
-  }catch(e){log('Error: '+e.message);}
-}
-async function probarIa(){
-  log('🧠 Probando proveedores de IA (puede tardar unos segundos)...');
-  try{var r=await fetch('/probar_ia',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:token()})});var j=await r.json();
-    if(j.proveedores){var msgs=j.proveedores.map(function(p){return (p.ok?'✓':'✗')+' '+p.nombre+' ('+(p.respuesta||p.error||'?')+')';});
-      log('IA: '+msgs.join(' | '));}else{log('IA: '+(j.error||'?'));}
-  }catch(e){log('Error: '+e.message);}
-}
-</script></body></html>"""
-    return render_template_string(html)
-
-
-# ── PROBAR IA (Validate estilo Admin UI de Free Claude Code) ───────────────
 @app.route('/probar_ia', methods=['POST'])
 def probar_ia():
     if not _auth_ok(_req_token()):
@@ -2332,24 +2279,9 @@ def _ultron(ruta: str, metodo: str = 'GET', cuerpo=None, timeout: float = 120.0)
         return False, {'error': str(e)[:200]}
 
 
-@app.route('/nexus')
-def nexus_html():
-    resp = send_from_directory('.', 'nexus.html')
-    resp.headers['Cache-Control'] = 'no-store'
-    return resp
-
-
-@app.route('/aeon')
-def aeon_html():
-    """AEON: la interfaz de gala. Mismo backend que /nexus, otra piel."""
-    resp = send_from_directory('.', 'aeon.html')
-    resp.headers['Cache-Control'] = 'no-store'
-    return resp
-
-
 @app.route('/modulos.js')
 def modulos_js():
-    """Los modulos los comparten /nexus y /aeon: una sola copia del codigo."""
+    """Los modulos de ORIGEN (sistema, ciencias, 3D, correo…): una sola copia."""
     resp = send_from_directory('.', 'modulos.js', mimetype='application/javascript')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -2427,13 +2359,6 @@ def api_nexus_cmd():
 # Todo lo que el asistente sabe hacer estaba solo detras de una frase hablada.
 # Aqui se ve y se maneja: estado de cada subsistema, deshacer, perfiles, indice,
 # seguridad, habilidades pendientes y rendimiento.
-@app.route('/panel')
-def panel_html():
-    resp = send_from_directory('.', 'panel.html')
-    resp.headers['Cache-Control'] = 'no-store'
-    return resp
-
-
 @app.route('/api/nexus/u/<path:ruta>', methods=['GET', 'POST'])
 def api_nexus_ultron(ruta):
     """Pasarela a CUALQUIER endpoint de ULTRON desde el mismo origen.
@@ -2690,7 +2615,7 @@ if __name__ == '__main__':
     print(f"  Local:   http://127.0.0.1:{_port}")
     print(f"  Red:     http://{_ip}:{_port}")
     print(f"  Móvil:   http://{_ip}:{_port}/mobile")
-    print(f"  QR:      http://{_ip}:{_port}/pair")
+    print(f"  QR:      http://{_ip}:{_port}/pair   (ábrelo en el PC)")
     print(f"  Token:   {AUTH_TOKEN}")
     for _otra in (_preparado.get("ips") or [])[1:]:
         print(f"  (o por  http://{_otra['ip']}:{_port}/mobile  vía {_otra['interfaz']})")

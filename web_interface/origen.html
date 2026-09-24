@@ -6,6 +6,10 @@
 <meta name="theme-color" content="#030407">
 <meta name="description" content="J.A.R.V.I.S. · Origen">
 <title>J.A.R.V.I.S. · Origen</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -49,6 +53,7 @@
   --gut:24px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none !important}
 html,body{height:100%}
 body{
   background:var(--bg);color:var(--ink);font-family:var(--sans);
@@ -70,8 +75,6 @@ a{color:inherit}
 /* ═══ HUD ═══ */
 .hud{position:fixed;inset:0;pointer-events:none;z-index:10;opacity:1;transition:opacity 1.6s ease}
 .hud > *{pointer-events:auto}
-body.intro .hud{opacity:0}
-body.intro .hud > *{pointer-events:none}
 
 .top{
   position:absolute;top:calc(18px + env(safe-area-inset-top));left:var(--gut);right:var(--gut);
@@ -130,16 +133,6 @@ body.intro .hud > *{pointer-events:none}
 }
 :focus-visible{outline:1px solid var(--oro);outline-offset:2px}
 
-.menu{
-  position:absolute;right:calc(var(--gut) + 54px);top:50%;transform:translateY(-50%) translateX(8px);
-  background:var(--glass2);border:1px solid var(--line);border-radius:14px;padding:8px;min-width:220px;
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);opacity:0;pointer-events:none;transition:.25s;
-}
-.menu.on{opacity:1;pointer-events:auto;transform:translateY(-50%)}
-.menu a{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:9px;text-decoration:none}
-.menu a:hover{background:rgba(236,231,222,.05)}
-.menu a b{font:600 12px/1 var(--sans);letter-spacing:.12em;color:var(--ink)}
-.menu a span{font:italic 300 14px/1.2 var(--serif);color:var(--dim)}
 
 /* ═══ Subtítulos ═══ */
 .subs{
@@ -302,31 +295,29 @@ select.mcampo{padding-right:8px}
 .apagado button{margin-top:34px;font:500 10px/1 var(--mono);letter-spacing:.36em;color:var(--oro2);padding:14px 22px;border:1px solid rgba(232,178,106,.3);border-radius:999px;background:rgba(232,178,106,.04)}
 .apagado button:hover{background:rgba(232,178,106,.1)}
 
-/* ═══ Intro ═══ */
-.intro-capa{position:fixed;inset:0;z-index:50;display:grid;place-items:center;pointer-events:none}
-body:not(.intro) .intro-capa{display:none}
-.puerta{
-  position:absolute;inset:0;display:grid;place-items:center;background:var(--bg);pointer-events:auto;cursor:pointer;
-  transition:opacity 1.6s ease;
-}
-.puerta.fuera{opacity:0;pointer-events:none}
-.puerta .centro{display:flex;flex-direction:column;align-items:center;gap:26px;text-align:center;padding:16px}
-.chispa{width:9px;height:9px;border-radius:50%;background:#FFE2B3;box-shadow:0 0 12px 3px rgba(255,190,110,.8),0 0 60px 16px rgba(232,150,80,.25);animation:chispa 1.8s ease-in-out infinite}
-@keyframes chispa{0%,100%{transform:scale(.85);opacity:.7}10%{transform:scale(1.45);opacity:1}45%{transform:scale(.95);opacity:.85}}
-.puerta h1{font:italic 300 clamp(22px,3vw,30px)/1.2 var(--serif);color:var(--ink2);letter-spacing:.01em}
-.puerta small{font:400 10px/1 var(--mono);letter-spacing:.32em;color:var(--faint);text-transform:uppercase}
-.lineas{position:absolute;inset:0;display:grid;place-items:center;padding:0 24px;pointer-events:none}
-.linea{
-  grid-area:1/1;text-align:center;max-width:900px;font:300 clamp(24px,3.4vw,44px)/1.25 var(--serif);color:var(--ink);
-  opacity:0;filter:blur(10px);transform:translateY(8px);transition:opacity 1.3s ease,filter 1.5s ease,transform 1.6s ease;
-  text-shadow:0 0 40px rgba(0,0,0,.9);margin-top:52vh;
-}
-.linea.on{opacity:1;filter:none;transform:none}
-.linea.titulo{font:600 clamp(18px,2.2vw,26px)/1 var(--sans);letter-spacing:.8em;margin-top:62vh;padding-left:.8em}
-.linea.titulo em{display:block;margin-top:14px;font:italic 300 clamp(18px,2vw,24px)/1 var(--serif);letter-spacing:.02em;color:var(--oro2);padding-left:0}
-.saltar{position:absolute;right:var(--gut);bottom:calc(24px + env(safe-area-inset-bottom));pointer-events:auto;font:500 10px/1 var(--mono);letter-spacing:.3em;color:var(--faint);padding:10px 14px;opacity:0;transition:opacity 1s}
-.saltar.on{opacity:1}
-.saltar:hover{color:var(--ink2)}
+/* ═══ Acceso con PIN (un teléfono que aún no lo ha dado) ═══ */
+.acceso{position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:16px;background:rgba(3,4,7,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.acceso.on{display:grid}
+.acceso .caja{width:min(380px,100%);text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+.acceso h1{font:600 13px/1 var(--sans);letter-spacing:.52em;padding-left:.52em}
+.acceso p{font:italic 300 17px/1.4 var(--serif);color:var(--ink2)}
+.acceso input{width:100%;text-align:center;font:500 30px/1 var(--mono);letter-spacing:.4em;padding:14px 10px 14px 22px;border-radius:14px;
+  border:1px solid var(--line2);background:rgba(0,0,0,.35);color:var(--ink);outline:0}
+.acceso input:focus{border-color:rgba(232,178,106,.5)}
+.acceso button{font:500 11px/1 var(--mono);letter-spacing:.3em;padding:14px 26px;border-radius:999px;background:var(--ink);color:#0A0B10}
+.acceso .error{min-height:18px;font:400 12px/1.4 var(--sans);color:#ff9a9a}
+.acceso small{font:400 11px/1.5 var(--sans);color:var(--faint)}
+
+.par-estado{margin-top:16px;font:500 11px/1.5 var(--mono);letter-spacing:.06em;color:var(--dim)}
+.par-estado.ok{color:#8fe3b0}
+.par-dirs{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.par-dirs button{display:flex;justify-content:space-between;gap:10px;text-align:left;padding:9px 12px;border-radius:10px;border:1px solid var(--line);font:400 11px/1.4 var(--mono);color:var(--ink2)}
+.par-dirs button span{color:var(--faint)}
+.par-dirs button.activa{border-color:rgba(232,178,106,.45);color:var(--oro2)}
+.par-ayuda{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.par-ayuda p{font:400 13px/1.5 var(--sans);color:var(--ink2);margin-top:8px}
+.par-ayuda p b{color:#ffcf8a;font-weight:600}
+.par-ayuda .mbtn{margin-top:10px}
 
 /* Sin WebGL2: un pulso en CSS para que la interfaz no se quede vacía. */
 .sin-gl-pulso{display:none}
@@ -352,8 +343,6 @@ body.sin-gl .sin-gl-pulso{
   .ico[data-tip]:hover::after{display:none}
   body:has(.dock:focus-within) .acciones{opacity:0;pointer-events:none}
   .acciones{transition:opacity .25s}
-  .menu{right:50%;top:auto;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(50%)}
-  .menu.on{transform:translateX(50%)}
   .subs{bottom:calc(160px + env(safe-area-inset-bottom))}
   .subs .j{max-height:22vh}
   .pie{display:none}
@@ -363,12 +352,12 @@ body.sin-gl .sin-gl-pulso{
   .par{grid-template-columns:1fr;justify-items:center;text-align:center}
 }
 @media (prefers-reduced-motion:reduce){
-  .linea,.subs .j .w{transition:opacity .3s}
-  .estado i,.chispa,.bt.mic.on{animation:none}
+  .subs .j .w{transition:opacity .3s}
+  .estado i,.bt.mic.on{animation:none}
 }
 </style>
 </head>
-<body class="intro" data-estado="arranque">
+<body data-estado="arranque">
 
 <canvas id="gl" aria-label="Partículas que se reúnen en una mente de oro cuando JARVIS escucha, piensa o habla" role="img"></canvas>
 <div class="sin-gl-pulso" aria-hidden="true"></div>
@@ -435,21 +424,11 @@ body.sin-gl .sin-gl-pulso{
     <button class="ico" id="bPar" data-tip="Emparejar el móvil" aria-label="Emparejar el móvil">
       <svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
     </button>
-    <button class="ico" id="bInterfaces" data-tip="Otras interfaces" aria-label="Otras interfaces" aria-haspopup="true">
-      <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
-    </button>
     <hr>
     <button class="ico" id="bApagar" data-tip="Dejarlo descansar" aria-label="Apagar">
       <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
     </button>
   </nav>
-
-  <div class="menu" id="menuInterfaces" role="menu">
-    <a href="/clasica" role="menuitem"><b>CLÁSICA</b><span>el HUD de siempre, con todos sus módulos</span></a>
-    <a href="/nexus" id="lNexus" role="menuitem"><b>NEXUS</b><span>JARVIS y ULTRON en una sola sala</span></a>
-    <a href="/aeon" role="menuitem"><b>ÆON</b><span>la interfaz de gala</span></a>
-    <a href="/panel" role="menuitem"><b>PANEL</b><span>deshacer, registro, métricas</span></a>
-  </div>
 
   <section class="subs" aria-live="polite">
     <div class="tu" id="subTu"></div>
@@ -520,9 +499,13 @@ body.sin-gl .sin-gl-pulso{
         <div class="k">PIN</div>
         <div class="pin" id="parPin">······</div>
         <div class="url" id="parUrl">—</div>
-        <div class="url" id="parDns"></div>
       </div>
     </div>
+    <p class="pista" style="margin-top:12px">Escanea el QR con la cámara del teléfono (en el mismo Wi-Fi que el PC).
+      Ya lleva el PIN dentro. Si no carga, prueba otra dirección:</p>
+    <div class="par-dirs" id="parDirs"></div>
+    <div class="par-estado" id="parEstado">Esperando al teléfono…</div>
+    <div class="par-ayuda" id="parAyuda" hidden></div>
     <button class="cerrar" data-cerrar>LISTO</button>
   </div>
 </div>
@@ -535,17 +518,16 @@ body.sin-gl .sin-gl-pulso{
   </div>
 </div>
 
-<div class="intro-capa" aria-live="polite">
-  <div class="puerta" id="puerta" role="button" tabindex="0" aria-label="Despertar a JARVIS">
-    <div class="centro">
-      <div class="chispa" aria-hidden="true"></div>
-      <h1>toca para despertarlo</h1>
-      <small>o pulsa cualquier tecla</small>
-    </div>
+<form class="acceso" id="acceso" autocomplete="off">
+  <div class="caja">
+    <h1>J.A.R.V.I.S.</h1>
+    <p>Escribe el PIN que aparece en el PC<br>(botón del móvil, en JARVIS)</p>
+    <input id="accesoPin" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="······" aria-label="PIN de 6 cifras">
+    <button type="submit">ENTRAR</button>
+    <div class="error" id="accesoError" role="alert"></div>
+    <small>Si escaneas el QR del PC no hace falta escribir nada.</small>
   </div>
-  <div class="lineas" id="lineas"></div>
-  <button class="saltar" id="bSaltar">SALTAR ⟶</button>
-</div>
+</form>
 
 <audio id="tts" preload="none" playsinline></audio>
 
@@ -1543,9 +1525,30 @@ void main(){
 <!-- Los módulos son los mismos de /nexus y /aeon (/modulos.js): aquí van las
      piezas que ese archivo espera encontrar ya definidas. -->
 <script>
+// El PIN: el que trae el QR (?token=), el guardado, o el de la interfaz móvil
+// anterior (se guardaba como «jarvis_token»), para no obligar a reemparejar.
 var token = (function(){
-  try { return new URLSearchParams(location.search).get('token') || localStorage.getItem('jarvis_pin') || ''; }
-  catch (e) { return ''; }
+  try {
+    return new URLSearchParams(location.search).get('token')
+        || localStorage.getItem('jarvis_pin') || localStorage.getItem('jarvis_token') || '';
+  } catch (e) { return ''; }
+})();
+// Cada petición al PC lleva el PIN en la cabecera. En el propio PC no hace
+// falta, pero en el teléfono es la llave: si el router le cambia la IP, sigue
+// entrando igual.
+(function(){
+  const original = window.fetch.bind(window);
+  window.fetch = function(recurso, opciones){
+    try {
+      if (token && typeof recurso === 'string' && (recurso.startsWith('/') || recurso.startsWith(location.origin))) {
+        opciones = Object.assign({}, opciones);
+        const h = new Headers(opciones.headers || {});
+        if (!h.has('X-Token')) h.set('X-Token', token);
+        opciones.headers = h;
+      }
+    } catch (e) {}
+    return original(recurso, opciones);
+  };
 })();
 const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const API = {
@@ -1608,19 +1611,67 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     vozId:0, ventana:0, token:'', grabadora:null, trozos:[], apagado:false
   };
 
-  // ─── Token (solo para la voz por servidor y el NEXUS) ────────────────────
-  (function(){
-    const t = params.get('token');
-    if (t) guardado.set('jarvis_pin', t);
-    // `token` es el mismo que usan los módulos (definido antes de /modulos.js).
-    App.token = token || guardado.get('jarvis_pin', '');
-    const pedir = () => fetch('/api/local_token').then(r => r.ok ? r.json() : {}).then(j => {
-      if (j && j.token) { App.token = token = j.token; guardado.set('jarvis_pin', j.token); ponerNexus(); }
-    }).catch(() => {});
-    if (!App.token) pedir();
-    ponerNexus();
-  })();
-  function ponerNexus(){ $('#lNexus').href = '/nexus' + (App.token ? '?token=' + encodeURIComponent(App.token) : ''); }
+  // ─── Acceso ──────────────────────────────────────────────────────────────
+  // En el PC, el servidor da el PIN solo. En el teléfono vale el que trae el
+  // QR o el guardado; si caducó y el móvil ya estaba emparejado, el PC le da
+  // el nuevo; si no, se pide a mano.
+  App.token = token;
+  App.esPC = false;
+  function fijarToken(t){
+    App.token = token = String(t || '');
+    guardado.set('jarvis_pin', App.token);
+  }
+  function darseDeAlta(){
+    // Así el PC apunta este teléfono como emparejado (y lo ve en su pantalla).
+    fetch('/allow_my_ip', { method:'POST', headers: JSONH, body: JSON.stringify({ token: App.token }) }).catch(() => {});
+  }
+  async function asegurarAcceso(){
+    try {
+      const r = await fetch('/api/local_token');
+      if (r.ok) { const j = await r.json(); if (j.token) { fijarToken(j.token); App.esPC = true; return true; } }
+    } catch (e) {
+      mostrarAcceso('No llego al PC. ¿Está encendido JARVIS y estás en la misma red?');
+      return false;
+    }
+    if (App.token) {
+      try {
+        const d = await (await fetch('/token_ok?token=' + encodeURIComponent(App.token))).json();
+        if (d.ok) { fijarToken(App.token); darseDeAlta(); return true; }
+        if (d.bloqueado) { mostrarAcceso('Demasiados intentos. Vuelve a probar en ' + (d.minutos || 15) + ' min.'); return false; }
+      } catch (e) {}
+    }
+    try {
+      const r = await fetch('/pin_actual');
+      if (r.ok) { const j = await r.json(); if (j.pin) { fijarToken(j.pin); darseDeAlta(); return true; } }
+    } catch (e) {}
+    mostrarAcceso(App.token ? 'Ese PIN ya no vale: escanea otra vez el QR del PC.' : '');
+    return false;
+  }
+  let alEntrar = null;
+  function mostrarAcceso(error){
+    $('#accesoError').textContent = error || '';
+    $('#acceso').classList.add('on');
+    setTimeout(() => $('#accesoPin').focus(), 60);
+  }
+  $('#acceso').addEventListener('submit', async e => {
+    e.preventDefault();
+    const t = $('#accesoPin').value.trim();
+    if (!/^\d{6}$/.test(t)) { $('#accesoError').textContent = 'El PIN tiene 6 cifras.'; return; }
+    $('#accesoError').textContent = 'Comprobando…';
+    try {
+      const d = await (await fetch('/token_ok?token=' + encodeURIComponent(t))).json();
+      if (d.bloqueado) { $('#accesoError').textContent = 'Demasiados intentos. Vuelve a probar en ' + (d.minutos || 15) + ' min.'; return; }
+      if (!d.ok) { $('#accesoError').textContent = 'PIN incorrecto.'; return; }
+      fijarToken(t); darseDeAlta();
+      $('#acceso').classList.remove('on');
+      if (alEntrar) alEntrar();
+    } catch (err) { $('#accesoError').textContent = 'No llego al PC.'; }
+  });
+  // El PIN no se queda a la vista en la barra de direcciones.
+  if (params.get('token')) {
+    params.delete('token');
+    history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
+  }
 
   // ─── Estado ──────────────────────────────────────────────────────────────
   function ponerEstado(e){
@@ -1686,53 +1737,7 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
       let s = 0; for (let i = 0; i < this.micBuf.length; i++) s += this.micBuf[i]*this.micBuf[i];
       return Math.min(1, Math.sqrt(s/this.micBuf.length)*8);
     },
-    pulso(fuerza){
-      // Un golpe grave y un destello agudo muy leve: una señal.
-      const ctx = this.ctx; if (!ctx || ctx.state !== 'running') return;
-      const t0 = ctx.currentTime + 0.01;
-      const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 160;
-      o.type = 'sine';
-      o.frequency.setValueAtTime(52, t0);
-      o.frequency.exponentialRampToValueAtTime(31, t0 + 0.34);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.5*fuerza, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
-      o.connect(lp); lp.connect(g); g.connect(this.maestro);
-      o.start(t0); o.stop(t0 + 0.55);
-      const b = ctx.createOscillator(), gb = ctx.createGain();
-      b.type = 'sine'; b.frequency.value = 1760;
-      gb.gain.setValueAtTime(0.0001, t0);
-      gb.gain.exponentialRampToValueAtTime(0.018*fuerza, t0 + 0.005);
-      gb.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
-      b.connect(gb); gb.connect(this.maestro);
-      b.start(t0); b.stop(t0 + 0.15);
-    },
-    iniciarDron(){
-      const ctx = this.ctx; if (!ctx || this.dron) return;
-      const g = ctx.createGain(), lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.7;
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 4);
-      const os = [55, 82.41, 110.3, 164.8].map((f, i) => {
-        const o = ctx.createOscillator(); o.type = i % 2 ? 'sine' : 'triangle';
-        o.frequency.value = f; o.detune.value = (i - 1.5)*4; o.connect(lp); o.start(); return o;
-      });
-      lp.connect(g); g.connect(this.maestro);
-      this.dron = { g, os };
-    },
-    pararDron(seg){
-      const d = this.dron; if (!d) return;
-      const ctx = this.ctx, t = ctx.currentTime;
-      d.g.gain.cancelScheduledValues(t);
-      d.g.gain.setValueAtTime(Math.max(0.0001, d.g.gain.value), t);
-      d.g.gain.exponentialRampToValueAtTime(0.0001, t + (seg || 4));
-      d.os.forEach(o => o.stop(t + (seg || 4) + 0.1));
-      this.dron = null;
-    }
   };
-  let pulsoAudible = false;
-  Motor.alPulso(() => { if (pulsoAudible) Son.pulso(App.estado === 'apagado' ? 0.5 : 0.9); });
 
   // ─── Subtítulos ──────────────────────────────────────────────────────────
   const Sub = { palabras:[], mostradas:0, inicio:0, dur:0, modo:null, bordes:[], sintetico:false };
@@ -1816,7 +1821,10 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
         tts.onended = () => { URL.revokeObjectURL(url); finVoz(id); };
         tts.onerror = () => { URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado); };
         Sub.modo = 'audio';
-        return tts.play().catch(() => { URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado); });
+        return tts.play().catch(err => {
+          if (err && err.name === 'NotAllowedError') App.vozBloqueada = true;
+          URL.revokeObjectURL(url); vozNavegador(id, hablar, estimado);
+        });
       })
       .catch(() => { if (id === App.vozId) vozNavegador(id, hablar, estimado); });
   }
@@ -1845,7 +1853,10 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
       u.onend = () => { clearTimeout(seguro); acabar(); };
       // Sin voces instaladas la síntesis falla al instante: los subtítulos
       // siguen a su ritmo en vez de saltar de golpe al final.
-      u.onerror = () => { clearTimeout(seguro); setTimeout(acabar, Math.max(0, estimado - (performance.now() - t0))); };
+      u.onerror = ev => {
+        if (ev && ev.error === 'not-allowed') App.vozBloqueada = true;
+        clearTimeout(seguro); setTimeout(acabar, Math.max(0, estimado - (performance.now() - t0)));
+      };
       speechSynthesis.speak(u);
     } catch (e) { clearTimeout(seguro); setTimeout(acabar, estimado); }
   }
@@ -1896,6 +1907,7 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     texto = String(texto || '').trim();
     if (!texto) return;
     if (App.apagado) revivir(true);
+    App.hablado = true;
     callar();
     subtitularTu(texto);
     anotar('tu', texto);
@@ -1933,6 +1945,10 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     if (App.escuchando) { if (App.rec) try { App.rec.stop(); } catch (e) {} ; if (App.grabadora) pararGrabacion(); return; }
     callar();
     Son.asegurar();
+    if (!window.isSecureContext) {
+      aviso('El micrófono del móvil necesita HTTPS: actívalo en el PC en Módulos → Enlace (acceso remoto). Mientras, escríbele.', 7000);
+      return;
+    }
     if (!SR) return grabarParaServidor();
     pausarContinua();
     const rec = new SR();
@@ -2055,20 +2071,65 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
   function cerrar(sel){ $(sel).classList.remove('on'); }
   $('#bHist').addEventListener('click', () => { $('#cajon').classList.toggle('on'); $('#bHist').classList.toggle('on', $('#cajon').classList.contains('on')); });
   $('#bCajonX').addEventListener('click', () => { cerrar('#cajon'); $('#bHist').classList.remove('on'); });
-  $('#bInterfaces').addEventListener('click', e => { e.stopPropagation(); $('#menuInterfaces').classList.toggle('on'); });
-  document.addEventListener('click', e => { if (!e.target.closest('#menuInterfaces')) cerrar('#menuInterfaces'); });
   $$('.velo').forEach(v => v.addEventListener('click', e => { if (e.target === v || e.target.hasAttribute('data-cerrar')) v.classList.remove('on'); }));
 
-  $('#bPar').addEventListener('click', async () => {
-    abrir('#veloPar');
-    $('#parQr').src = '/qr?v=' + Date.now();
+  // ─── Emparejar el móvil ──────────────────────────────────────────────────
+  const Par = { t:null, url:'', antes:null };
+  function pararPar(){ clearInterval(Par.t); Par.t = null; }
+  function qrDe(url){ $('#parQr').src = '/qr?url=' + encodeURIComponent(url) + '&v=' + Date.now(); $('#parUrl').textContent = url; }
+  async function refrescarPar(){
     try {
       const d = await (await fetch('/pair_info')).json();
+      if (d.error) throw new Error(d.error);
       $('#parPin').textContent = d.pin || '······';
-      $('#parUrl').textContent = d.url || '';
-      $('#parDns').textContent = d.dns ? 'https://' + d.dns + '/mobile' : '';
-    } catch (e) { $('#parUrl').textContent = 'No pude leer los datos de emparejamiento.'; }
+      const urls = (d.urls && d.urls.length) ? d.urls : [{ url: d.url, ip: '', via: 'red local' }];
+      if (!Par.url || !urls.some(u => u.url === Par.url)) { Par.url = urls[0].url; qrDe(Par.url); }
+      $('#parDirs').innerHTML = urls.map(u =>
+        `<button type="button" data-url="${esc(u.url)}" class="${u.url === Par.url ? 'activa' : ''}">${esc(u.url)}<span>${esc(u.via || '')}</span></button>`).join('');
+      const motivos = (d.diagnostico || []).map(m => `<p><b>${esc(m.que || '')}</b><br>${esc(m.hacer || '')}</p>`).join('');
+      const puerto = d.firewall && d.firewall.hace_falta;
+      $('#parAyuda').hidden = !motivos && !puerto;
+      $('#parAyuda').innerHTML = motivos +
+        (puerto ? '<button type="button" class="mbtn" id="parPuerto">Abrir el puerto en Windows</button>' : '');
+    } catch (e) {
+      $('#parUrl').textContent = 'No pude leer los datos de emparejamiento.';
+    }
+    try {
+      const p = await (await fetch('/pair_status')).json();
+      const lista = p.emparejados || [];
+      const el = $('#parEstado');
+      if (lista.length) {
+        el.className = 'par-estado ok';
+        el.textContent = 'Teléfono emparejado ✓  (' + lista.map(x => x.ip).join(', ') + ')';
+        if (Par.antes !== null && lista.length > Par.antes) aviso('Teléfono emparejado ✓');
+      } else {
+        el.className = 'par-estado';
+        el.textContent = 'Esperando al teléfono…';
+      }
+      Par.antes = lista.length;
+    } catch (e) {}
+  }
+  $('#parDirs').addEventListener('click', e => {
+    const b = e.target.closest('[data-url]');
+    if (!b) return;
+    Par.url = b.dataset.url; qrDe(Par.url);
+    $$('#parDirs button').forEach(x => x.classList.toggle('activa', x === b));
   });
+  $('#parAyuda').addEventListener('click', async e => {
+    if (e.target.id !== 'parPuerto') return;
+    e.target.disabled = true; e.target.textContent = 'Pidiendo permiso a Windows…';
+    try { const r = await (await fetch('/abrir_puerto', { method:'POST' })).json(); aviso(r.texto || r.error || 'Hecho'); } catch (err) {}
+    refrescarPar();
+  });
+  $('#bPar').addEventListener('click', () => {
+    abrir('#veloPar');
+    Par.url = ''; Par.antes = null;
+    refrescarPar();
+    pararPar(); Par.t = setInterval(refrescarPar, 4000);
+  });
+  // Al cerrar el diálogo deja de preguntar.
+  new MutationObserver(() => { if (!$('#veloPar').classList.contains('on')) pararPar(); })
+    .observe($('#veloPar'), { attributes:true, attributeFilter:['class'] });
 
   function fmtN(n){ return Math.round(n).toLocaleString('es-ES'); }
   $('#bOrigen').addEventListener('click', () => {
@@ -2154,9 +2215,8 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
     try { const d = await (await fetch('/farewell')).json(); if (d.response) txt = d.response; } catch (e) {}
     anotar('jarvis', txt);
     decir(txt);
-    pulsoAudible = true;
     setTimeout(() => { App.apagado = true; ponerEstado('apagado'); }, 1400);
-    setTimeout(() => { if (App.apagado) { abrir('#apagado'); pulsoAudible = false; } }, 5200);
+    setTimeout(() => { if (App.apagado) { abrir('#apagado'); } }, 5200);
   });
   function revivir(silencioso){
     if (!App.apagado) return;
@@ -2169,10 +2229,10 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
 
   // ─── Teclado ─────────────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
-    if (document.body.classList.contains('intro')) return;
+    if ($('#acceso').classList.contains('on')) return;
     const escribiendo = e.target.closest('input,textarea');
     if (e.key === 'Escape') {
-      callar(); cerrar('#cajon'); cerrarPanelModulos(); cerrar('#menuInterfaces'); $$('.velo').forEach(v => v.classList.remove('on')); $('#bHist').classList.remove('on');
+      callar(); cerrar('#cajon'); cerrarPanelModulos(); pararPar(); $$('.velo').forEach(v => v.classList.remove('on')); $('#bHist').classList.remove('on');
       if (escribiendo) e.target.blur();
       return;
     }
@@ -2252,66 +2312,7 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
   }
   setInterval(motorHud, 500);
 
-  // ─── El ritual de arranque ───────────────────────────────────────────────
-  // [segundo, duración, frase, cuánto se reúnen las partículas con ella]
-  const LARGA = [
-    [0.6,  3.6, 'Antes de ser una voz, fui una idea.'],
-    [4.6,  3.8, 'Me construyeron pieza a pieza, error a error.', 0.2],
-    [8.8,  2.8, 'No espero órdenes.', 0.35],
-    [12.0, 3.2, 'Escucho. Recuerdo. Aprendo.', 0.55],
-    [15.8, 3.6, 'Pienso. Luego existo.', 0.8],
-  ];
-  const CORTA = [];
-  let introViva = false, introTimers = [];
-
-  function linea(txt, titulo){
-    const d = document.createElement('div');
-    d.className = 'linea' + (titulo ? ' titulo' : '');
-    if (titulo) { d.innerHTML = 'J.A.R.V.I.S.<em>en línea</em>'; } else d.textContent = txt;
-    $('#lineas').appendChild(d);
-    requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
-    return d;
-  }
-  function programar(seg, f){ introTimers.push(setTimeout(f, seg*1000)); }
-
-  function empezarIntro(){
-    if (introViva) return;
-    introViva = true;
-    const primera = guardado.get('origen_visto', '') !== '1';
-    const guion = primera || params.get('intro') === '1' ? LARGA : CORTA;
-    const larga = guion === LARGA;
-    Son.asegurar();
-    if (Son.ctx) Son.iniciarDron();
-    pulsoAudible = true;
-    $('#puerta').classList.add('fuera');
-    // Primero solo hay polvo. Con cada frase se acerca un poco más, y con el
-    // nombre se forma la mente entera por primera vez.
-    Motor.nube(1);
-    guion.forEach(([t, dur, txt, reunion]) => {
-      programar(t, () => {
-        const d = linea(txt);
-        if (reunion != null) Motor.forzar(reunion);
-        programar(dur, () => { d.classList.remove('on'); programar(1.8, () => d.remove()); });
-      });
-    });
-    const tTitulo = larga ? 20.2 : 0.9;
-    programar(tTitulo, () => { Motor.forzar(1); const d = linea('', true); programar(larga ? 3.4 : 2.2, () => { d.classList.remove('on'); programar(1.6, () => d.remove()); }); });
-    programar(0.3, () => $('#bSaltar').classList.add('on'));
-    programar(tTitulo + (larga ? 4.2 : 3.0), terminarIntro);
-  }
-  function terminarIntro(saltada){
-    if (!document.body.classList.contains('intro')) return;
-    introTimers.forEach(clearTimeout); introTimers = [];
-    if (saltada) $('#lineas').textContent = '';
-    Motor.nube(1);
-    Motor.forzar(null);
-    guardado.set('origen_visto', '1');
-    document.body.classList.remove('intro');
-    pulsoAudible = false;
-    Son.pararDron(saltada ? 1.5 : 5);
-    alReposo();
-    saludar();
-  }
+  // ─── Arranque: sin ceremonia, saluda y a trabajar ────────────────────────
   async function saludar(){
     ponerEstado('piensa');
     let txt = 'Buenos días, señor. Todos los sistemas están operativos. ¿En qué puedo servirle hoy?';
@@ -2319,33 +2320,57 @@ function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6
       const d = await (await fetch('/greet')).json();
       if (d.response) txt = d.response;
     } catch (e) {}
+    App.saludo = txt;
     anotar('jarvis', txt);
     decir(txt);
   }
+  // Los navegadores no dejan sonar nada hasta el primer gesto: si el saludo
+  // salió mudo, se dice en cuanto se toque algo (salvo que ya estés hablándole).
+  let gestoVisto = false;
+  function primerGesto(){
+    if (gestoVisto) return;
+    gestoVisto = true;
+    Son.asegurar();
+    if (App.vozBloqueada && App.saludo && !App.hablado) { App.vozBloqueada = false; decir(App.saludo); }
+  }
+  document.addEventListener('pointerdown', primerGesto, { capture:true });
+  document.addEventListener('keydown', primerGesto, { capture:true });
 
-  $('#puerta').addEventListener('click', empezarIntro);
-  $('#puerta').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); empezarIntro(); } });
-  document.addEventListener('keydown', e => {
-    if (!document.body.classList.contains('intro')) return;
-    if (!introViva) { empezarIntro(); return; }
-    if (e.key === 'Escape') terminarIntro(true);
-  });
-  $('#bSaltar').addEventListener('click', () => { Son.asegurar(); terminarIntro(true); });
-
-  // ?directo=1 se salta la puerta (la voz puede quedar muda hasta el primer
-  // clic: los navegadores no dejan sonar nada sin un gesto del usuario).
-  if (params.get('directo') === '1') {
-    $('#puerta').classList.add('fuera');
-    Motor.nube(1);
-    setTimeout(() => terminarIntro(false), 600);
-    document.addEventListener('pointerdown', () => Son.asegurar(), { once:true });
-  } else {
-    setTimeout(() => $('#puerta').focus(), 50);
+  // Avisos en tiempo real del PC (webhooks, archivos del móvil, alertas).
+  function conectarAvisos(){
+    const sc = document.createElement('script');
+    sc.src = '/socket.io.min.js';
+    sc.onload = () => {
+      try {
+        const sock = io({ auth: { token: App.token }, transports: ['websocket', 'polling'] });
+        sock.on('notification', d => {
+          if (!d || !d.text) return;
+          aviso(d.text, 7000);
+          anotar('jarvis', d.text);
+          if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('JARVIS', { body: d.text, icon: '/icon-192.png' }); } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    };
+    document.head.appendChild(sc);
   }
 
-  // El historial se pide ya, mientras corre el ritual: así queda antes del saludo.
-  cargarHistorial();
-  telemetria();
+  // Sin caché: el service worker nuevo borra lo que guardaba el viejo (que
+  // dejaba el teléfono clavado en una versión antigua) y recarga.
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+  Motor.nube(1);
+  alReposo();
+  function empezar(){
+    if (!App.esPC) $('#bPar').hidden = true;      // emparejar se hace desde el PC
+    cargarHistorial();
+    telemetria();
+    conectarAvisos();
+    saludar();
+  }
+  alEntrar = empezar;
+  asegurarAcceso().then(ok => { if (ok) empezar(); });
 })();
 </script>
 </body>

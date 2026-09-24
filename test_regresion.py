@@ -870,19 +870,13 @@ def test_interfaz_web():
     _check(r.status_code == 400, "un mando desconocido se rechaza",
            f"-> {r.status_code}")
 
-    # 5. El NEXUS: la interfaz unificada se sirve y su API exige PIN.
-    r = cliente.get("/nexus")
-    _check(r.status_code == 200 and b"NEXUS" in r.data,
-           "«/nexus» sirve la interfaz unificada", f"-> {r.status_code}")
+    # 5. La API del NEXUS (la usan los módulos) sigue exigiendo PIN.
     r = cliente.post("/api/nexus/cmd", json={"agente": "jarvis", "texto": "hola"})
     _check(r.status_code == 403, "el mando del NEXUS exige PIN")
     r = cliente.get("/api/nexus/estado")
     _check(r.status_code == 403, "el estado del NEXUS exige PIN")
 
-    # 5b. AEON: la interfaz de gala y los modulos que comparte con el NEXUS.
-    r = cliente.get("/aeon")
-    _check(r.status_code == 200 and b'data-modo="jarvis"' in r.data,
-           "«/aeon» sirve la interfaz nueva", f"-> {r.status_code}")
+    # 5b. Los módulos compartidos se sirven.
     r = cliente.get("/modulos.js")
     _check(r.status_code == 200 and b"MODULOS" in r.data,
            "«/modulos.js» sirve los modulos compartidos", f"-> {r.status_code}")
@@ -893,12 +887,39 @@ def test_interfaz_web():
            "«/» sirve la interfaz ORIGEN", f"-> {r.status_code}")
     _check(b"/process_text" in r.data and b"/api/speak" in r.data,
            "ORIGEN habla con el núcleo y con la voz del servidor")
-    r = cliente.get("/clasica")
-    _check(r.status_code == 200 and b"<title>JARVIS</title>" in r.data,
-           "«/clasica» conserva el HUD de siempre", f"-> {r.status_code}")
+    # Las interfaces antiguas ya no existen: sus direcciones llevan a ORIGEN.
+    for vieja in ("/clasica", "/nexus", "/aeon", "/panel", "/dashboard", "/centro"):
+        r = cliente.get(vieja)
+        _check(r.status_code == 302 and r.headers.get("Location", "").endswith("/"),
+               f"«{vieja}» lleva a ORIGEN", f"-> {r.status_code}")
+    r = cliente.get("/mobile")
+    _check(r.status_code == 200 and b'data-interfaz="origen"' in r.data,
+           "el teléfono (/mobile) usa ORIGEN")
+    r = cliente.get("/sw.js")
+    _check(r.status_code == 200 and b"caches.delete" in r.data and b"addAll" not in r.data,
+           "el service worker ya no guarda páginas viejas (y borra las que guardó)")
+
+    # 5e. Emparejamiento: el PIN y el QR solo se ven desde el PC. Antes /pair y
+    # /qr los enseñaban a cualquiera del WiFi, y sin ningún móvil emparejado
+    # toda la API quedaba abierta a la red.
+    fuera = {"REMOTE_ADDR": "203.0.113.9"}          # rango de documentación: nunca es el PC
+    for ruta in ("/pair", "/qr", "/pair_info", "/api/local_token"):
+        r = cliente.get(ruta, environ_base=fuera)
+        _check(r.status_code == 403, f"«{ruta}» no se ve desde otro aparato sin PIN",
+               f"-> {r.status_code}")
+    r = cliente.post("/process_text", json={"text": "hola"}, environ_base=fuera)
+    _check(r.status_code == 403, "otro aparato sin PIN no puede hablar con JARVIS",
+           f"-> {r.status_code}")
+    r = cliente.get("/", environ_base=fuera)
+    _check(r.status_code == 200, "la interfaz sí carga (para pedir el PIN)")
+    r = cliente.get("/pair_status", environ_base=fuera, headers={"X-Token": pin})
+    _check(r.status_code == 200, "con el PIN, el teléfono entra aunque cambie de IP")
+    r = cliente.get("/api/local_token")
+    _check(r.status_code == 200 and (r.get_json() or {}).get("token") == pin,
+           "el propio PC recibe el PIN sin teclearlo")
     r = cliente.get("/")
     _check(b'src="/modulos.js"' in r.data,
-           "ORIGEN carga los mismos módulos que /nexus y /aeon")
+           "ORIGEN carga los módulos compartidos")
     r = cliente.get("/modulos.js")
     _check(all(m in r.data for m in (b"correo:{", b"demos:{", b"llamadas:{", b"consejo:{",
                                      b"ciencias:{", b"modelado3d:{", b"cerebro:{")),
