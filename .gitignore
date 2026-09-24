@@ -28,6 +28,11 @@ token.pickle
 
 # Temp files
 _*
+# ...pero los __init__.py y __main__.py son código. Con «_*» a secas ninguno
+# llegaba a GitHub, y paquetes como cognition (CognitionHub) o skills.plugins
+# (el registro de plugins) solo existían en el PC donde se escribieron.
+!__init__.py
+!__main__.py
 *.tmp
 *.bak
 

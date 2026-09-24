@@ -273,7 +273,8 @@ def crear_demo(nombre: str, industria: str = "", descripcion: str = "",
             from storage import get_storage
             get_storage(log=log).registrar_evento(
                 "webdemo", f"Demo creada: {nombre}",
-                f"URL: {resultado.get('url')}", gravedad="info")
+                f"URL: {resultado.get('url')}", gravedad="info",
+                datos=str(resultado.get("url") or ""))
         except Exception:
             pass
     else:
@@ -283,10 +284,19 @@ def crear_demo(nombre: str, industria: str = "", descripcion: str = "",
 
 
 def listar_demos(log=print) -> list:
-    """Lista demos creadas (guardadas en storage)."""
+    """Demos creadas, las más recientes primero: [{nombre, url, ts}].
+
+    Storage no tiene `obtener_eventos` (con ese nombre la lista salía siempre
+    vacía): los eventos se leen con `eventos_recientes`.
+    """
     try:
         from storage import get_storage
-        eventos = get_storage(log=log).obtener_eventos("webdemo", limite=20)
-        return eventos or []
+        eventos = get_storage(log=log).eventos_recientes(limite=20, tipo="webdemo")
     except Exception:
         return []
+    demos = []
+    for e in eventos or []:
+        url = (e.get("datos") or "").strip() or (e.get("detalle") or "").replace("URL:", "").strip()
+        demos.append({"nombre": (e.get("titulo") or "").replace("Demo creada:", "").strip(),
+                      "url": url, "ts": e.get("ts", "")})
+    return demos

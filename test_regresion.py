@@ -896,6 +896,32 @@ def test_interfaz_web():
     r = cliente.get("/clasica")
     _check(r.status_code == 200 and b"<title>JARVIS</title>" in r.data,
            "«/clasica» conserva el HUD de siempre", f"-> {r.status_code}")
+    r = cliente.get("/")
+    _check(b'src="/modulos.js"' in r.data,
+           "ORIGEN carga los mismos módulos que /nexus y /aeon")
+    r = cliente.get("/modulos.js")
+    _check(all(m in r.data for m in (b"correo:{", b"demos:{", b"llamadas:{", b"consejo:{",
+                                     b"ciencias:{", b"modelado3d:{", b"cerebro:{")),
+           "los módulos traen correo, demos, llamadas, consejo, ciencias, 3D y cerebro")
+
+    # 5d. Demos web: la lista salía siempre vacía (storage no tiene «obtener_eventos»).
+    import jarvis_webdemo
+    import storage as _almacen
+
+    class _Falso:
+        def eventos_recientes(self, limite=20, tipo=""):
+            return [{"titulo": "Demo creada: Sol", "detalle": "URL: https://sol.vercel.app",
+                     "datos": "", "ts": "2026-09-24 16:00:00"}]
+
+    real = _almacen.get_storage
+    _almacen.get_storage = lambda log=print: _Falso()
+    try:
+        demos = jarvis_webdemo.listar_demos(log=lambda *a: None)
+    finally:
+        _almacen.get_storage = real
+    _check(bool(demos) and demos[0].get("url") == "https://sol.vercel.app"
+           and demos[0].get("nombre") == "Sol",
+           "las demos web publicadas se listan con su nombre y su dirección")
 
     # 6. La caducidad del PIN y del emparejamiento están puestas.
     _check(servidor.PIN_DIAS > 0, "el PIN caduca")

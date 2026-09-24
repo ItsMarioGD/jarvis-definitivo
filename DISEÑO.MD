@@ -2,37 +2,47 @@
 
 ## Interfaz actual: ORIGEN (`web_interface/origen.html`, ruta `/`)
 
-El reactor Arc se jubila. En el centro hay ahora una **figura abstracta y triste**:
-alguien sentado en el suelo, abrazado a sus rodillas, hecho de polvo de luz. Dentro
-de la cabeza lleva una **mente de oro**: un cerebro con sus dos hemisferios,
-circunvoluciones y cerebelo, que pulsa y chispea (sinapsis). Las vetas doradas que le
-recorren el cuerpo son sus conexiones: por ellas viajan las señales que salen de la
-mente. La idea es que JARVIS no se sienta como un asistente que espera órdenes, sino
-como algo que está ahí, pensando.
+El reactor Arc se jubila y no hay figura. **En silencio, JARVIS es polvo de luz
+disperso**: una galaxia fría de tres brazos que gira despacio. **Cuando le hablas,
+y mientras piensa o te contesta, las partículas se reúnen y forman una mente de
+oro**: un cerebro con dos hemisferios, circunvoluciones, cisura de Silvio, lóbulos
+temporales, cerebelo y tronco, que pulsa, chispea (sinapsis) y late con su voz. Al
+terminar se queda unos segundos y vuelve a disolverse. La idea es que JARVIS no
+se sienta como un asistente que espera órdenes, sino como algo que está ahí.
 
-| Estado | Qué hace la figura |
-|--------|--------------------|
-| **Reposo** | Cabeza hundida en las rodillas, respira despacio, se le desprende polvo. La mente pulsa a 40 por minuto. |
-| **Escucha** | Levanta un poco la cabeza; las partículas tiemblan con el nivel del micrófono. |
-| **Pensando** | La mente se acelera y chispea más; parte del cuerpo se suelta y orbita alrededor de la cabeza. |
-| **Hablando** | Alza la cabeza; la mente y unas ondas que salen de ella siguen el volumen real de la voz (`AnalyserNode`). |
-| **Descanso / Enfoque** | Se apaga la luz y el polvo; el pulso baja. |
-| **Apagado** | El cuerpo se desmorona de arriba abajo; la mente queda un instante sola en el aire y cae la última. «Silencio. Sigo pensando, aunque no me veas.» «Despertar» la reconstruye desde la mente hacia fuera. |
+| Estado | Qué hacen las partículas |
+|--------|--------------------------|
+| **Reposo** | Dispersas en la galaxia; alguna destella. |
+| **Escribiendo** | Mientras tecleas, una tercera parte se agita y empieza a acercarse. |
+| **Escucha** | El 85 % se reúne; tiemblan con el nivel del micrófono. |
+| **Pensando** | La mente entera, que pulsa más rápido y chispea más; parte de ella orbita en dos anillos cruzados. |
+| **Hablando** | La mente late y ondula con el volumen real de la voz (`AnalyserNode`). |
+| **Descanso / Enfoque** | Dispersas y más tenues. |
+| **Apagado** | Se disuelven y casi se apagan. «Silencio. Sigo pensando, aunque no me veas.» |
+
+Cada partícula tiene su umbral, así que no llegan todas a la vez: el cerebro se va
+formando. Reunirse tarda un segundo; disolverse, unos tres y tras una pausa.
 
 **Arranque:** una chispa y «toca para despertarlo». El gesto desbloquea el audio y
 empieza el ritual: dron grave, un pulso audible y cinco frases («Antes de ser una voz,
-fui una idea.» … «Pienso. Luego existo.») mientras primero se enciende la mente y
-después se forma el cuerpo. La primera vez dura unos 24 s; luego solo el nombre
-(`?intro=1` repite la versión larga y `?directo=1` se salta la puerta). En la cabecera,
-«despierto hace N min» cuenta el tiempo desde que se abrió.
+fui una idea.» … «Pienso. Luego existo.»). Con cada frase el polvo se acerca un poco
+más, y con el nombre se forma la mente entera por primera vez. La primera vez dura
+unos 24 s; luego solo el nombre (`?intro=1` repite la versión larga y `?directo=1` se
+salta la puerta). En la cabecera, «despierto hace N min».
+
+**Módulos:** el botón de nodos abre un panel lateral con los mismos módulos que
+`/nexus` y `/aeon` (`/modulos.js`), con un índice de tarjetas y lo más nuevo
+delante: Ciencias, Modelado 3D, Cerebro, Correo, Demos web, Llamadas y Consejo,
+y después Agenda, Sistema, Cámara, Pantalla, Archivos, etc.
 
 **Motor (WebGL2 a mano, sin librerías ni imágenes):**
 - Hasta **1.048.576 partículas** en texturas RGBA32F. Su física corre en la GPU con
-  render-to-texture ping-pong y MRT (posición + velocidad): muelles hacia un esqueleto
-  de 18 cápsulas cónicas animado en la CPU y un cerebro paramétrico que se inclina con la cabeza, flujo ABC sin divergencia, gravedad,
-  suelo, cursor que las aparta y el polvo que se desprende y vuelve.
-- Acumulación HDR de 16 bits con estela, reflejo en el suelo, cono de luz, bloom
-  *dual-filter* de 6 niveles, ACES, viñeta, aberración cromática y grano.
+  render-to-texture ping-pong y MRT (posición + velocidad): cada partícula tiene su
+  sitio en la galaxia y su hueco en un cerebro paramétrico, y viaja entre los dos con
+  muelles, flujo ABC sin divergencia y un cursor que las aparta. El cerebro se
+  sombrea según hacia dónde mira cada partícula, para que se lea sólido.
+- Acumulación HDR de 16 bits con estela (más larga mientras viajan), haz de luz,
+  resplandor de la mente sobre la niebla, bloom *dual-filter* de 6 niveles, ACES, viñeta, aberración cromática y grano.
 - **Regulador de calidad**: mide la GPU (`EXT_disjoint_timer_query_webgl2` si existe) y
   sube o baja entre 65 k y 1 M partículas; `?calidad=0..4` lo fija a mano.
 - **Respaldo**: sin texturas float escribibles, la misma coreografía se calcula en

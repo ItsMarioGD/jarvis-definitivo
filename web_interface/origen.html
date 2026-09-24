@@ -13,17 +13,17 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    ORIGEN — la interfaz de JARVIS.
 
-   Aquí ya no hay reactor. Hay una figura sentada en el suelo, abrazada a sus
-   rodillas, hecha de polvo de luz. Parece quieta, pero dentro de la cabeza
-   lleva una mente de oro que no deja de trabajar: pulsa, chispea y, cuando
-   piensa, suelta pensamientos que orbitan a su alrededor. Las vetas doradas
-   que le recorren el cuerpo son sus conexiones: por ellas viaja cada señal.
+   Aquí ya no hay reactor ni figura. En silencio, JARVIS es polvo de luz
+   disperso: una nebulosa fría que gira despacio. Cuando le hablas, y mientras
+   piensa o te contesta, las partículas se reúnen y forman una mente de oro
+   (dos hemisferios, circunvoluciones, cerebelo) que pulsa, chispea y late con
+   su voz. Al terminar se queda un momento y vuelve a disolverse.
    No es un asistente que espera órdenes; es algo que está ahí, pensando.
 
    Técnica: WebGL2 escrito a mano, sin librerías y sin una sola imagen. Las
    partículas (hasta 1.048.576) viven en texturas de coma flotante y su
-   física (muelles, flujo ABC sin divergencia, gravedad, suelo, cursor) se
-   calcula en la GPU con render-to-texture ping-pong. Encima: acumulación HDR
+   física (muelles, flujo ABC sin divergencia, nebulosa, cursor) se calcula
+   en la GPU con render-to-texture ping-pong. Encima: acumulación HDR
    de 16 bits con estela, bloom de seis niveles, tonemap ACES, aberración
    cromática y grano. Un regulador mide la GPU en vivo y decide cuántas
    partículas aguanta tu equipo.
@@ -166,6 +166,10 @@ body.intro .hud > *{pointer-events:none}
   position:absolute;left:50%;transform:translateX(-50%);bottom:calc(30px + env(safe-area-inset-bottom));
   width:min(620px,calc(100% - 2*var(--gut)));
 }
+/* La caja del dock incluye los chips ocultos: que no se trague los clics de
+   lo que tenga debajo (en el móvil, la fila de acciones). */
+.hud > .dock{pointer-events:none}
+.dock .barra-in{pointer-events:auto}
 .chips{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:10px;opacity:0;transform:translateY(6px);transition:.3s;pointer-events:none}
 .dock:focus-within .chips{opacity:1;transform:none;pointer-events:auto}
 .chip{font:500 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--dim);padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:var(--glass)}
@@ -193,7 +197,7 @@ body.intro .hud > *{pointer-events:none}
 .pie b{color:var(--dim);font-weight:500}
 
 .aviso{
-  position:absolute;left:50%;top:calc(76px + env(safe-area-inset-top));transform:translate(-50%,-8px);opacity:0;transition:.35s;
+  position:fixed;z-index:45;left:50%;top:calc(76px + env(safe-area-inset-top));transform:translate(-50%,-8px);opacity:0;transition:.35s;
   font:500 11px/1.4 var(--mono);letter-spacing:.06em;color:var(--ink2);background:var(--glass2);
   border:1px solid var(--line2);border-radius:10px;padding:9px 14px;pointer-events:none;max-width:calc(100% - 32px);text-align:center;
 }
@@ -237,6 +241,58 @@ body.intro .hud > *{pointer-events:none}
 .par img{width:168px;height:168px;border-radius:12px;background:#fff;padding:8px;image-rendering:pixelated}
 .par .pin{font:500 30px/1 var(--mono);letter-spacing:.18em;color:var(--oro2);margin:6px 0 12px}
 .par .url{font:400 11px/1.5 var(--mono);color:var(--dim);word-break:break-all}
+
+/* ═══ Módulos (los mismos de /nexus y /aeon, vía /modulos.js) ═══ */
+.modulos{
+  position:fixed;top:0;left:0;bottom:0;width:min(660px,100%);z-index:21;background:var(--glass2);
+  border-right:1px solid var(--line);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  transform:translateX(-102%);transition:transform .5s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;
+  --p1:var(--oro2);--p2:var(--oro);--linea:var(--line);--linea2:var(--line2);--mal:#ff7a7a;--tenue:var(--dim);
+  --r-chico:10px;--fm:var(--mono);--fc:var(--sans);
+}
+.modulos.abierto{transform:none}
+.modulos .cab{display:flex;align-items:center;gap:4px;padding:20px 18px 12px 22px;border-bottom:1px solid var(--line)}
+.modulos .cab small{display:block;font:500 9px/1 var(--mono);letter-spacing:.3em;color:var(--faint);margin-bottom:8px}
+.modulos .cab h2{font:400 26px/1 var(--serif)}
+.modulos .hueco{flex:1}
+.modulos .ico[data-tip]:hover::after{display:none}
+.rail{display:flex;gap:4px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:none;flex-shrink:0}
+.rail::-webkit-scrollbar{display:none}
+.rail .mod{flex-shrink:0;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;color:var(--dim);cursor:pointer;border:1px solid transparent;transition:.2s}
+.rail .mod svg,.indice svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.rail .mod:hover{color:var(--ink);background:rgba(236,231,222,.05)}
+.rail .mod.activo{color:var(--oro2);border-color:rgba(232,178,106,.3);background:rgba(232,178,106,.06)}
+.rail .mod .globo{display:none}
+#mod-contenido{flex:1;overflow-y:auto;padding:18px 22px 30px;scrollbar-width:thin;scrollbar-color:var(--line2) transparent;font-family:var(--sans)}
+.indice{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.indice button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(236,231,222,.02);transition:.2s}
+.indice button:hover{border-color:rgba(232,178,106,.3);background:rgba(232,178,106,.05)}
+.indice button span:first-of-type{color:var(--oro2)}
+.indice b{font:600 12px/1.2 var(--sans);letter-spacing:.06em;color:var(--ink)}
+.indice small{font:italic 300 14px/1.3 var(--serif);color:var(--dim)}
+.indice .nuevo{font:500 8.5px/1 var(--mono);letter-spacing:.2em;color:var(--oro);border:1px solid rgba(232,178,106,.35);border-radius:999px;padding:3px 6px;margin-left:6px;vertical-align:1px}
+.mrejilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.mcaja{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(236,231,222,.02)}
+.mcaja h4{margin:0 0 8px;font:500 9px/1 var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--oro2)}
+.grande{font:500 24px/1.1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.pista{font:400 11.5px/1.6 var(--sans);color:var(--dim)}
+.pista b{color:var(--ink2);font-weight:600}
+.medidor{height:3px;margin:8px 0;border-radius:3px;background:var(--line);overflow:hidden}
+.medidor i{display:block;height:100%;background:linear-gradient(90deg,var(--frio),var(--oro))}
+.mfila{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;border:1px solid var(--line2);font:500 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--ink2);background:none;cursor:pointer;text-decoration:none;transition:.2s}
+.mbtn:hover{color:#0A0B10;background:var(--oro2);border-color:var(--oro2)}
+.mbtn:disabled{opacity:.45;cursor:wait}
+.mbtn.peligro{border-color:rgba(255,122,122,.45);color:#ff9a9a}
+.mbtn.peligro:hover{background:#ff7a7a;color:#0A0B10}
+.mcampo{padding:9px 12px;border:1px solid var(--line2);border-radius:10px;background:rgba(0,0,0,.25);color:var(--ink);font:400 13px/1.4 var(--sans);outline:0;min-width:0}
+.mcampo:focus{border-color:rgba(232,178,106,.5);box-shadow:0 0 0 3px rgba(232,178,106,.08)}
+select.mcampo{padding-right:8px}
+.mtabla{width:100%;border-collapse:collapse;margin-top:10px;font:400 11px/1.5 var(--mono)}
+.mtabla th{text-align:left;padding:7px 8px;color:var(--oro2);border-bottom:1px solid var(--line2);font-weight:500;letter-spacing:.1em}
+.mtabla td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--ink2);word-break:break-word}
+.espejo{width:100%;border-radius:12px;border:1px solid var(--line2);display:block;background:#000}
+#mod-contenido pre{color:var(--ink2);font-family:var(--mono)}
 
 /* ═══ Apagado ═══ */
 .apagado{position:fixed;inset:0;z-index:40;display:grid;place-items:center;text-align:center;pointer-events:none;opacity:0;transition:opacity 2.5s}
@@ -294,6 +350,8 @@ body.sin-gl .sin-gl-pulso{
     max-width:calc(100% - 32px);overflow-x:auto;scrollbar-width:none;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:3px}
   .acciones hr{width:1px;height:auto;margin:8px 3px}
   .ico[data-tip]:hover::after{display:none}
+  body:has(.dock:focus-within) .acciones{opacity:0;pointer-events:none}
+  .acciones{transition:opacity .25s}
   .menu{right:50%;top:auto;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(50%)}
   .menu.on{transform:translateX(50%)}
   .subs{bottom:calc(160px + env(safe-area-inset-bottom))}
@@ -312,7 +370,7 @@ body.sin-gl .sin-gl-pulso{
 </head>
 <body class="intro" data-estado="arranque">
 
-<canvas id="gl" aria-label="Figura de partículas sentada, con una mente de oro: JARVIS" role="img"></canvas>
+<canvas id="gl" aria-label="Partículas que se reúnen en una mente de oro cuando JARVIS escucha, piensa o habla" role="img"></canvas>
 <div class="sin-gl-pulso" aria-hidden="true"></div>
 
 <div class="hud" id="hud">
@@ -368,6 +426,9 @@ body.sin-gl .sin-gl-pulso{
     <button class="ico on" id="bAudio" data-tip="Voz de JARVIS" aria-label="Activar o silenciar la voz">
       <svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="ondas" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="tacha" d="M16 9.5l5 5M21 9.5l-5 5" style="display:none"/></svg>
     </button>
+    <button class="ico" id="bModulos" data-tip="Módulos · ciencias, 3D, correo…" aria-label="Módulos">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6" r="1.8"/><circle cx="19" cy="6" r="1.8"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="18" r="1.8"/><path d="M6.4 7.2l3.7 3.2M17.6 7.2l-3.7 3.2M6.4 16.8l3.7-3.2M17.6 16.8l-3.7-3.2"/></svg>
+    </button>
     <button class="ico" id="bHist" data-tip="Conversación" aria-label="Ver la conversación">
       <svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>
     </button>
@@ -415,8 +476,20 @@ body.sin-gl .sin-gl-pulso{
   </div>
 
   <div class="pie"><b id="pieN">—</b> partículas en la GPU<br>WebGL2 · sin librerías</div>
-  <div class="aviso" id="aviso" role="alert"></div>
 </div>
+<div class="aviso" id="aviso" role="alert"></div>
+
+<aside class="modulos" id="lienzo-mod" aria-label="Módulos">
+  <header class="cab">
+    <div><small>MÓDULOS</small><h2 id="mod-titulo">Todo lo que sé hacer</h2></div>
+    <span class="hueco"></span>
+    <button class="ico" id="mod-inicio" aria-label="Todos los módulos" title="Todos los módulos"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></button>
+    <button class="ico" id="mod-refrescar" aria-label="Actualizar" title="Actualizar"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
+    <button class="ico" id="mod-cerrar" aria-label="Cerrar" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+  <nav id="rail" class="rail" aria-label="Lista de módulos"></nav>
+  <div id="mod-contenido"></div>
+</aside>
 
 <aside class="cajon" id="cajon" aria-label="Conversación">
   <header>
@@ -431,7 +504,7 @@ body.sin-gl .sin-gl-pulso{
     <div class="k">J.A.R.V.I.S.</div>
     <h2 id="tOrigen">Origen</h2>
     <p>No espero órdenes. Escucho, recuerdo y aprendo: conozco tu equipo, tu agenda y tus costumbres, y me adelanto cuando hace falta.</p>
-    <p>La figura soy yo, pensando en silencio. La mente es de oro; las vetas doradas que me recorren son mis conexiones, y por ellas viaja cada señal. Cuando pienso, los pensamientos se sueltan y orbitan. Cuando hablo, levanto la cabeza.</p>
+    <p>En silencio me disperso: soy polvo que flota, atento. Cuando me hablas, me reúno; cada partícula vuelve a su sitio hasta formar la mente. Cuando pienso, los pensamientos orbitan a mi alrededor. Cuando hablo, la mente late con mi voz.</p>
     <div class="tec" id="tecOrigen">—</div>
     <button class="cerrar" data-cerrar>SEGUIR</button>
   </div>
@@ -486,12 +559,13 @@ const Motor = (function(){
   const info = { modo:'—', N:0, fps:0, ms:0, gpu:null, renderer:'—', nivel:0, res:'—', historial:[] };
   const ganchos = [];
   const reducido = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const params = new URLSearchParams(location.search);
   const gl = cv.getContext('webgl2', {
     antialias:false, alpha:false, depth:false, stencil:false, premultipliedAlpha:false,
     preserveDrawingBuffer:false, powerPreference:'high-performance'
   });
 
-  // Sin WebGL2 la interfaz sigue funcionando: solo se pierde la figura.
+  // Sin WebGL2 la interfaz sigue funcionando: solo se pierde la mente.
   if (!gl) {
     document.body.classList.add('sin-gl');
     info.modo = 'sin WebGL2';
@@ -502,8 +576,8 @@ const Motor = (function(){
       for (const g of ganchos) g(dt);
     })();
     const nada = () => {};
-    return { ok:false, info, NIVELES:[], estado:nada, audio:nada, mic:nada, construir:nada, nube:nada, ritmo:nada,
-             apagar:nada, revivir:nada, alPulso:nada, alCuadro:f => ganchos.push(f), construido:99 };
+    return { ok:false, info, NIVELES:[], estado:nada, audio:nada, mic:nada, nube:nada, forzar:nada,
+             atencion:nada, alPulso:nada, alCuadro:f => ganchos.push(f), reunion:0 };
   }
 
   const ext = {
@@ -515,8 +589,6 @@ const Motor = (function(){
   gl.getExtension('EXT_float_blend');
 
   // ─── GLSL ────────────────────────────────────────────────────────────────
-  const NCAP = 18;
-
   const VS_PLANO = `#version 300 es
 out vec2 vUv;
 void main(){
@@ -525,66 +597,95 @@ void main(){
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-  // La figura: 18 cápsulas cónicas (esqueleto que se anima en la CPU) y, dentro
-  // de la cabeza, un cerebro de oro. Cada partícula guarda su "dirección" en el
-  // cuerpo, así que al cambiar de pose se mueve con él sin reasignarse.
-  const GLSL_FIGURA = `
-#define NCAP ${NCAP}
-uniform vec4 uA[NCAP];
-uniform vec4 uB[NCAP];
+  // Dos sitios para cada partícula: su hueco en la mente (un cerebro
+  // paramétrico) y su casa en la nebulosa. En silencio viven en la nebulosa;
+  // cuando JARVIS escucha, piensa o habla, vuelven a la mente. Cada una tiene
+  // su umbral, así que no llegan todas a la vez: el cerebro se va formando.
+  const GLSL_MENTE = `
 uniform vec3 uMente;
 uniform float uMenteSize;
-uniform float uMenteRot;
 uniform float uTime;
 uniform float uThink;
 uniform float uAudio;
 
-// Cerebro: dos hemisferios (elipsoides separados por la cisura central) y el
-// cerebelo detrás y abajo. Las circunvoluciones ya vienen en p1: la CPU solo
-// deja partículas sobre los pliegues. p0.y = 0 cerebro, 1 cerebelo.
+vec3 azar3(float s){ return fract(sin(vec3(s*127.1 + 1.7, s*311.7 + 5.3, s*74.7 + 9.1))*43758.5453); }
+
+// p0 = (parte, t, radio, semilla)  ·  p1 = (dirección unidad, surco)
+// parte: 0 corteza, 1 cerebelo, 2 tronco, 3 volumen interior.
 vec3 cerebro(vec4 p0, vec4 p1){
   vec3 n = p1.xyz;
+  float parte = p0.x;
   vec3 q;
-  if (p0.y < 0.5){
+  if (parte < 0.5 || parte > 2.5){
+    // Dos hemisferios separados por la cisura longitudinal y una bóveda algo
+    // más alta en el centro. Por debajo, el centro sube (ahí nace el tronco),
+    // la parte de delante se aplana y los lóbulos temporales cuelgan a los lados.
     float lado = n.x >= 0.0 ? 1.0 : -1.0;
-    q = vec3(n.x*0.74 + lado*0.09, n.y*0.70, n.z) * p0.z;
-    if (q.y < -0.3) q.y = -0.3 + (q.y + 0.3)*0.35;
+    q = n*vec3(0.70, 0.62, 1.0);
+    q.x += lado*0.06;
+    q.y += 0.06*(1.0 - n.z*n.z)*step(0.0, n.y);
+    if (n.y < 0.0){
+      float medial = 1.0 - smoothstep(0.25, 0.6, abs(n.x));
+      q.y *= mix(1.0, 0.45, medial);
+      q.y *= mix(1.0, 0.6, smoothstep(0.3, 0.8, n.z));
+      float temporal = smoothstep(0.35, 0.75, abs(n.x)) * (1.0 - smoothstep(0.0, 0.5, abs(n.z - 0.05)));
+      q.y -= 0.14*temporal*(-n.y);
+    }
+    q *= p0.z;
+  } else if (parte < 1.5){
+    q = vec3(n.x*0.5, n.y*0.24, n.z*0.3)*p0.z + vec3(0.0, -0.36, -0.64);
   } else {
-    q = vec3(n.x*0.62, n.y*0.30, n.z*0.36) * p0.z + vec3(0.0, -0.46, -0.6);
+    float t = p0.y;
+    q = vec3(n.x*0.09, 0.0, n.z*0.09)*p0.z + vec3(0.0, -0.26 - t*0.52, -0.2 - t*0.12);
   }
-  float c = cos(uMenteRot), s = sin(uMenteRot);
-  q = vec3(q.x, q.y*c - q.z*s, q.y*s + q.z*c);
   return uMente + q*uMenteSize;
 }
 
-vec3 cuerpo(vec4 p0, vec4 p1){
-  int k = int(p0.x + 0.5);
-  vec4 a = uA[k];
-  vec4 b = uB[k];
-  float t = p0.y;
-  return mix(a.xyz, b.xyz, t) + p1.xyz * (mix(a.w, b.w, t) * p0.z);
-}
-
 vec3 objetivo(vec4 p0, vec4 p1){
-  if (p0.x < -0.5) return cerebro(p0, p1);
-  vec3 p = cuerpo(p0, p1);
-  // Al hablar, la voz sale de la mente en ondas que recorren el cuerpo.
+  vec3 p = cerebro(p0, p1);
+  // Al hablar, la voz sale de la mente en ondas.
   vec3 dh = p - uMente;
   float dl = length(dh);
-  p += (dh / (dl + 1e-4)) * uAudio * 0.02 * (0.5 + 0.5*sin(dl*38.0 - uTime*9.0));
-  // Al pensar, parte del cuerpo se suelta y orbita alrededor de la cabeza.
+  p += (dh/(dl + 1e-4)) * uAudio * 0.035 * (0.5 + 0.5*sin(dl*16.0 - uTime*9.0));
+  // Al pensar, una parte se suelta en dos órbitas cruzadas: los pensamientos.
   float s = p0.w;
-  if (s < 0.24 && uThink > 0.001){
-    float a = s*6.2831853*41.0 + uTime*(0.5 + fract(s*97.1)*0.6);
-    float r = 0.24 + fract(s*57.3)*0.36;
-    vec3 o = vec3(cos(a)*r, sin(a*3.0 + s*50.0)*0.025, sin(a)*r);
-    o = vec3(o.x, o.y*0.951 - o.z*0.309, o.y*0.309 + o.z*0.951);
-    o += uMente + vec3(0.0, 0.03, 0.0);
-    float w = smoothstep(s*2.6, s*2.6 + 0.35, uThink);
-    p = mix(p, o, w);
+  if (s < 0.12 && uThink > 0.001){
+    float a = s*6.2831853*83.0 + uTime*(0.3 + fract(s*97.1)*0.4);
+    float r = 0.7 + fract(s*57.3)*0.6;
+    vec3 o = vec3(cos(a)*r, sin(a*3.0 + s*50.0)*0.04, sin(a)*r);
+    float inc = fract(s*13.1) < 0.5 ? 0.35 : -0.5;
+    float ci = cos(inc), si = sin(inc);
+    o = vec3(o.x, o.y*ci - o.z*si, o.y*si + o.z*ci) + uMente;
+    p = mix(p, o, smoothstep(s*6.0, s*6.0 + 0.3, uThink));
   }
   return p;
 }
+
+// La nebulosa: una galaxia de tres brazos en espiral, algo inclinada hacia la
+// cámara, que gira despacio (más deprisa cerca del centro, como las de verdad).
+vec3 girar(vec3 v, vec3 eje, float a){
+  float c = cos(a), sn = sin(a);
+  return v*c + cross(eje, v)*sn + eje*dot(eje, v)*(1.0 - c);
+}
+vec3 hogar(float s){
+  vec3 h = azar3(s), j = azar3(s*1.7 + 0.31) - 0.5;
+  vec3 d;
+  if (h.x < 0.12){
+    // Núcleo: una bruma redonda y tenue donde luego nace la mente.
+    float R = 0.15 + 0.5*(h.x/0.12);
+    d = normalize(j + 1e-4)*R*vec3(1.0, 0.55, 1.0);
+  } else {
+    float brazo = floor(h.z*3.0);
+    float R = 0.5 + 1.55*pow((h.x - 0.12)/0.88, 0.85);
+    float a = brazo*2.0943951 + R*1.8 + (h.y - 0.5)*0.35 + uTime*0.05/(0.3 + R*0.3);
+    d = vec3(cos(a)*R, 0.0, sin(a)*R);
+    d += j*vec3(0.24, 0.12, 0.24)*(0.35 + R*0.3);
+  }
+  d.y += sin(uTime*0.23 + s*40.0)*0.04;
+  d = girar(d, vec3(0.5, 0.0, -0.866), 0.62);
+  return uMente + d;
+}
+float umbral(float s){ return 0.04 + fract(s*7.31)*0.92; }
 
 // Flujo ABC (Arnold–Beltrami–Childress): caótico y sin divergencia, y cuesta
 // seis senos. El "curl noise" de siempre pediría decenas de evaluaciones.
@@ -595,17 +696,6 @@ vec3 abc(vec3 p, float t){
   v += 0.55*vec3(sin(q.z) + cos(q.y), sin(q.x) + cos(q.z), sin(q.y) + cos(q.x));
   return v;
 }
-
-float retardo(vec4 p0, vec3 tgt){
-  // Primero se enciende la mente; el cuerpo se forma después, desde ella hacia fuera.
-  if (p0.x < -0.5) return p0.w * 1.2;
-  return 1.4 + distance(tgt, uMente)*4.5 + fract(p0.w*13.37)*1.2;
-}
-float umbralCaida(vec4 p0, vec3 tgt){
-  // Al apagarse el cuerpo cae de arriba abajo; la mente queda sola en el aire y cae la última.
-  float u = p0.x < -0.5 ? 1.0 : 1.0 - clamp(tgt.y/0.78, 0.0, 1.0);
-  return u*0.65 + fract(p0.w*3.1)*0.3;
-}
 `;
 
   // Física en la GPU: una pasada por fotograma escribe posición y velocidad
@@ -613,15 +703,13 @@ float umbralCaida(vec4 p0, vec3 tgt){
   const FS_SIM = `#version 300 es
 precision highp float;
 precision highp int;
-${GLSL_FIGURA}
+${GLSL_MENTE}
 uniform sampler2D uPos;
 uniform sampler2D uVel;
 uniform sampler2D uP0;
 uniform sampler2D uP1;
 uniform float uDt;
-uniform float uBuild;
-uniform float uCollapse;
-uniform float uDust;
+uniform float uReunion;
 uniform float uFlow;
 uniform float uMic;
 uniform vec3 uRayO;
@@ -637,126 +725,75 @@ void main(){
   vec4 p0 = texelFetch(uP0, ij, 0);
   vec4 p1 = texelFetch(uP1, ij, 0);
   float s = p0.w;
-  bool esMente = p0.x < -0.5;
-  bool esCabeza = int(p0.x + 0.5) == 4;
-  vec3 tgt = objetivo(p0, p1);
-
-  float ciclo = 6.0 + fract(s*53.31)*10.0;
-  float fase = fract(uTime/ciclo + fract(s*17.13));
-  float ventana = 0.4;
-  float prob = uDust * (esCabeza ? 2.2 : 1.0);
-  bool polvo = !esMente && fract(s*7.77) < prob && fase < ventana;
-  bool caido = uCollapse > umbralCaida(p0, tgt);
-  bool naciendo = uBuild < retardo(p0, tgt);
-  float modo = naciendo ? 2.0 : (caido ? 3.0 : (polvo ? 1.0 : 0.0));
+  float quiere = uReunion >= umbral(s) ? 1.0 : 0.0;
+  float uni = P.w;
+  uni += (quiere - uni) * (1.0 - exp(-uDt*(quiere > uni ? 2.5 : 0.9)));
 
   vec3 pos = P.xyz;
   vec3 vel = V.xyz;
   float luz = V.w;
-  float dt = uDt;
-
-  if (modo > 0.5){
-    vec3 f = abc(pos, uTime);
-    if (modo == 2.0){
-      vec3 c = pos - vec3(0.0, 0.45, 0.0);
-      f = f*0.55 + cross(vec3(0.0, 1.0, 0.0), c)*0.9 - c*0.35;
-      luz = min(luz + dt*0.2, 0.2);
-    } else if (modo == 3.0){
-      f = f*0.15 + vec3(0.0, -3.2, 0.0);
-      luz = max(luz - dt*0.08, 0.12);
-    } else {
-      // Polvo que se desprende: ceniza lenta. Lo de la cabeza cae recto.
-      f = esCabeza ? f*0.04 + vec3(0.0, -0.55, 0.0) : f*0.18 + vec3(0.02, -0.16, 0.0);
-      luz = 1.0 - smoothstep(0.5, 1.0, fase/ventana);
-    }
-    vel += f*dt;
-    vel *= exp(-dt*(modo == 3.0 ? 0.3 : 1.1));
-    pos += vel*dt;
-    if (pos.y < 0.0){ pos.y = 0.0; vel.y = abs(vel.y)*0.18; vel.xz *= 0.8; }
-  } else {
-    if (P.w > 0.5 && P.w < 1.5){
-      // El polvo vuelve a su sitio sin cruzar la escena: reaparece y se enciende.
-      pos = tgt + p1.xyz*0.015; vel = vec3(0.0); luz = 0.0;
-    }
-    vec3 acc = (tgt - pos)*42.0;
+  vec3 acc;
+  if (quiere > 0.5){
+    vec3 tgt = objetivo(p0, p1);
+    acc = (tgt - pos)*42.0;
     float m = length(acc);
-    if (m > 14.0) acc *= 14.0/m;
-    acc -= vel*7.2;
-    acc += abc(pos*1.3, uTime*0.8) * (uFlow + uThink*0.5 + uMic*0.9);
-    vec3 w = pos - uRayO;
-    vec3 aw = w - uRayD*dot(w, uRayD);
-    float dd = length(aw);
-    acc += (aw/(dd + 1e-4)) * uMouseF * smoothstep(0.16, 0.0, dd) * 26.0;
-    vel += acc*dt;
-    pos += vel*dt;
-    luz = min(1.0, luz + dt*1.2);
+    if (m > 20.0) acc *= 20.0/m;
+    acc -= vel*7.4;
+    acc += abc(pos*1.3, uTime*0.8) * (uFlow + uThink*0.4 + uMic*0.9);
+  } else {
+    acc = (hogar(s) - pos)*1.4 + abc(pos*0.7, uTime*0.45)*0.07 - vel*1.6;
   }
-  oPos = vec4(pos, modo);
+  vec3 w = pos - uRayO;
+  vec3 aw = w - uRayD*dot(w, uRayD);
+  float dd = length(aw);
+  acc += (aw/(dd + 1e-4)) * uMouseF * smoothstep(0.22, 0.0, dd) * 26.0;
+  vel += acc*uDt;
+  pos += vel*uDt;
+  luz = min(1.0, luz + uDt*0.5);
+  oPos = vec4(pos, uni);
   oVel = vec4(vel, luz);
 }`;
 
-  // Dibujo de las partículas (y de su reflejo en el suelo).
   const VS_PART = `#version 300 es
 precision highp float;
 precision highp int;
 //DEFS
-${GLSL_FIGURA}
+${GLSL_MENTE}
 uniform sampler2D uP0;
 uniform sampler2D uP1;
 #ifndef ANALITICO
 uniform sampler2D uPos;
 uniform sampler2D uVel;
 #else
-uniform float uBuild;
-uniform float uCollapse;
-uniform float uDust;
+uniform float uReunion;
 #endif
 uniform int uW;
 uniform mat4 uVP;
 uniform float uPx;
 uniform float uSize;
-uniform float uMirror;
 uniform float uGain;
 uniform float uBeat;
 uniform float uDim;
 uniform float uNube;
+uniform vec3 uCam;
 out vec3 vCol;
 
 #ifdef ANALITICO
-// Sin texturas de coma flotante escribibles no hay física por estado: la
-// misma coreografía se calcula en forma cerrada, partícula a partícula.
-void analitico(vec4 p0, vec4 p1, out vec3 pos, out vec3 vel, out float luz, out float modo){
+// Sin texturas de coma flotante escribibles no hay física por estado: el
+// mismo viaje de la nebulosa a la mente se calcula en forma cerrada.
+void analitico(vec4 p0, vec4 p1, out vec3 pos, out vec3 vel, out float uni, out float luz){
   float s = p0.w;
-  bool cor = p0.x < -0.5;
+  float u = umbral(s);
+  float k = smoothstep(u - 0.02, u + 0.12, uReunion);
+  k = k*k*(3.0 - 2.0*k);
+  vec3 casa = hogar(s);
+  casa += abc(casa*0.7, uTime*0.45)*0.02;
   vec3 tgt = objetivo(p0, p1);
-  float ret = retardo(p0, tgt);
-  float k = smoothstep(ret, ret + 1.4, uBuild);
-  vec3 nube = p1.xyz*(0.9 + fract(s*7.1)*1.5);
-  float an = uTime*0.25 + s*6.0;
-  nube.xz = mat2(cos(an), sin(an), -sin(an), cos(an)) * nube.xz;
-  nube += vec3(0.0, 0.45, 0.0);
-  pos = mix(nube, tgt, k);
-  pos += abc(pos*1.3, uTime*0.8)*0.0035*(1.0 + uThink*3.0);
+  tgt += abc(tgt*1.3, uTime*0.8)*0.003*(1.0 + uThink*3.0);
+  pos = mix(casa, tgt, k);
   vel = vec3(0.0);
-  luz = mix(0.2, 1.0, k);
-  modo = k < 1.0 ? 2.0 : 0.0;
-  float ciclo = 6.0 + fract(s*53.31)*10.0;
-  float fase = fract(uTime/ciclo + fract(s*17.13));
-  if (!cor && k >= 1.0 && fract(s*7.77) < uDust && fase < 0.4){
-    float tt = fase*ciclo;
-    pos = tgt + abc(tgt*2.0, 0.0)*0.02*tt + vec3(0.015*tt, -0.07*tt*tt, 0.0);
-    pos.y = max(pos.y, 0.0);
-    luz = 1.0 - smoothstep(0.5, 1.0, fase/0.4);
-    modo = 1.0;
-  }
-  float th = umbralCaida(p0, tgt);
-  if (uCollapse > th){
-    float tf = (uCollapse - th)*3.5;
-    pos.y = max(0.0, pos.y - 1.8*tf*tf);
-    pos.xz += p1.xz*0.12*min(tf, 1.0);
-    modo = 3.0;
-    luz = max(0.12, luz - tf*0.3);
-  }
+  uni = k;
+  luz = 1.0;
 }
 #endif
 
@@ -765,47 +802,48 @@ void main(){
   ivec2 ij = ivec2(id % uW, id / uW);
   vec4 p0 = texelFetch(uP0, ij, 0);
   vec4 p1 = texelFetch(uP1, ij, 0);
-  vec3 pos; vec3 vel; float luz; float modo;
+  vec3 pos; vec3 vel; float uni; float luz;
 #ifdef ANALITICO
-  analitico(p0, p1, pos, vel, luz, modo);
+  analitico(p0, p1, pos, vel, uni, luz);
 #else
   vec4 P = texelFetch(uPos, ij, 0);
   vec4 V = texelFetch(uVel, ij, 0);
-  pos = P.xyz; modo = P.w; vel = V.xyz; luz = V.w;
+  pos = P.xyz; uni = P.w; vel = V.xyz; luz = V.w;
 #endif
-  bool esMente = p0.x < -0.5;
-  vec3 wp = pos;
-  if (uMirror < 0.0) wp.y = -wp.y;
-  vec4 clip = uVP * vec4(wp, 1.0);
+  float s = p0.w;
+  vec4 clip = uVP * vec4(pos, 1.0);
   gl_Position = clip;
-  float jit = 0.6 + 0.8*fract(p0.w*91.7);
-  float px = uPx * uSize * jit * (esMente ? 0.7 : 1.0) / max(clip.w, 0.05);
+  float jit = 0.6 + 0.8*fract(s*91.7);
+  float px = uPx * uSize * jit * mix(1.45, 0.75, uni) / max(clip.w, 0.05);
   float a = 1.0;
   if (px < 1.0){ a = px*px; px = 1.0; }
-  gl_PointSize = min(px, 28.0);
+  gl_PointSize = min(px, mix(7.0, 24.0, uni));
 
-  vec3 frio = vec3(0.30, 0.43, 0.86);
+  vec3 frio = vec3(0.34, 0.46, 0.86);
   vec3 oro  = vec3(1.00, 0.66, 0.28);
-  vec3 col; float e;
-  if (esMente){
-    // Sinapsis: chispas sueltas que se encienden y se apagan; al pensar, muchas más.
-    float h = fract(sin(p0.w*7919.0 + floor(uTime*(6.0 + uThink*10.0) + p0.w*37.0)*12.9898)*43758.5453);
-    float chispa = step(0.985 - uThink*0.05 - uAudio*0.03, h);
-    float barrido = 0.5 + 0.5*sin(p1.z*5.0 + p1.y*2.0 - uTime*(1.6 + uThink*4.0));
-    col = mix(oro, vec3(1.0, 0.9, 0.7), chispa*0.8);
-    e = 2.0 + uBeat*1.4 + barrido*0.8 + uAudio*3.0 + chispa*6.0;
-  } else {
-    float dh = distance(pos, uMente);
-    float calor = exp(-dh*14.0) * (0.3 + 0.4*uBeat + 1.0*uAudio);
-    float onda = 0.5 + 0.5*sin(dh*26.0 - uTime*(3.0 + uThink*5.0));
-    float veta = p1.w * (0.7 + 0.3*onda*(0.4 + uThink + uAudio));
-    col = mix(frio, oro, clamp(calor + veta*1.5, 0.0, 1.0));
-    e = 1.0 + calor*1.5 + veta*2.6 + min(length(vel), 3.0)*0.45;
-    if (modo > 0.5 && modo < 1.5) col = mix(col, vec3(0.72, 0.8, 1.0), 0.5);
-  }
-  if (modo > 1.5 && modo < 2.5) e *= uNube;
-  e *= luz * uGain * a * uDim;
-  if (uMirror < 0.0) e *= 0.12 * exp(-pos.y*4.0) * (esMente ? 0.3 : 1.0);
+  // Suelto: polvo frío que de vez en cuando destella.
+  float destello = step(0.996, fract(sin(s*4271.3 + floor(uTime*1.5 + s*11.0)*7.13)*43758.5453));
+  float ePolvo = 1.0 + destello*3.5;
+  // En la mente: crestas que brillan, surcos oscuros, sinapsis y un barrido.
+  float h = fract(sin(s*7919.0 + floor(uTime*(6.0 + uThink*10.0) + s*37.0)*12.9898)*43758.5453);
+  float chispa = step(0.988 - uThink*0.05 - uAudio*0.03, h);
+  float barrido = 0.5 + 0.5*sin(p1.z*4.0 + p1.y*2.0 - uTime*(1.4 + uThink*4.0));
+  float eMente = (1.6 - 1.45*p1.w) + uBeat*0.9 + barrido*0.6 + uAudio*2.2 + chispa*5.0;
+  if (p0.x > 2.5) eMente *= 0.45;
+  // Sombreado por orientación: la cara que mira a la cámara brilla y la de
+  // atrás apenas, así la mente se lee sólida y no como una burbuja de cristal.
+  vec3 escalaN = p0.x > 0.5 && p0.x < 1.5 ? vec3(0.5, 0.24, 0.3) : vec3(0.70, 0.62, 1.0);
+  float cara = dot(normalize(p1.xyz/escalaN), normalize(uCam - pos));
+  float sombra = p0.x > 1.5 ? 0.7 : mix(0.2, 1.0, smoothstep(-0.25, 0.45, cara));
+  if (s < 0.12) sombra = mix(sombra, 1.0, uThink);
+  eMente *= sombra;
+  vec3 colMente = mix(oro, vec3(1.0, 0.9, 0.72), chispa*0.8);
+  // Una de cada diez motas sueltas guarda algo del oro de la mente.
+  vec3 polvo = mix(frio, vec3(0.95, 0.74, 0.5), step(0.9, fract(s*3.7))*0.7);
+  vec3 col = mix(polvo, colMente, uni);
+  float e = mix(ePolvo, eMente, uni) + min(length(vel), 3.0)*0.35;
+  e *= luz * uGain * a * uDim * uNube;
+  e *= smoothstep(0.3, 1.1, clip.w);
   vCol = col * e;
 }`;
 
@@ -882,8 +920,8 @@ void main(){
   o = s/12.0*uK;
 }`;
 
-  // Composición final: fondo, cono de luz sobre la figura, charco en el
-  // suelo, bloom, ACES, viñeta, aberración y grano.
+  // Composición final: fondo, haz de luz, el resplandor de la mente sobre la
+  // niebla, bloom, ACES, viñeta, aberración y grano.
   const FS_COMP = `#version 300 es
 precision highp float;
 uniform sampler2D uScene;
@@ -896,7 +934,9 @@ uniform float uCono;
 uniform float uGrano;
 uniform vec2 uApex;
 uniform vec2 uBase;
-uniform vec3 uCalor;
+uniform vec2 uCentro;
+uniform float uRadio;
+uniform vec3 uHalo;
 in vec2 vUv;
 out vec4 o;
 
@@ -918,15 +958,14 @@ void main(){
   float along = dot(rel, dir);
   float perp = abs(dot(rel, vec2(-dir.y, dir.x)));
   float tt = along/L;
-  float ancho = mix(L*0.03, L*0.34, clamp(tt, 0.0, 1.4));
-  float cono = smoothstep(ancho, ancho*0.1, perp) * smoothstep(0.0, 0.4, tt) * (1.0 - smoothstep(1.0, 1.3, tt));
+  float ancho = mix(L*0.03, L*0.3, clamp(tt, 0.0, 1.4));
+  float cono = smoothstep(ancho, ancho*0.1, perp) * smoothstep(0.0, 0.4, tt) * (1.0 - smoothstep(0.9, 1.25, tt));
   cono *= 0.8 + 0.2*sin(along*0.015 - uTime*0.5 + perp*0.02);
   float motas = step(0.9975, hash(floor(px/2.0) + floor(uTime*3.0)))*cono;
-  bg += vec3(0.30, 0.36, 0.52) * (cono*0.036 + motas*0.08) * uCono;
+  bg += vec3(0.30, 0.36, 0.52) * (cono*0.03 + motas*0.07) * uCono;
 
-  vec2 e = (px - uBase)/vec2(L*0.55, L*0.085);
-  float charco = exp(-dot(e, e)*1.4);
-  bg += (vec3(0.24, 0.29, 0.44)*0.05*uCono + uCalor*0.07) * charco;
+  vec2 dc = (px - uCentro)/max(uRadio, 1.0);
+  bg += uHalo * exp(-dot(dc, dc)*1.2);
 
   vec2 cc = uv - 0.5;
   vec2 off = cc*dot(cc, cc)*0.012;
@@ -1002,7 +1041,7 @@ void main(){
     ? { interno: gl.RGBA16F, tipo: gl.HALF_FLOAT, ok: true }
     : { interno: gl.RGBA8, tipo: gl.UNSIGNED_BYTE, ok: false };
   // ?motor=analitico fuerza el camino de respaldo (para probarlo en cualquier equipo).
-  const analitico = !hayFloat || new URLSearchParams(location.search).get('motor') === 'analitico';
+  const analitico = !hayFloat || params.get('motor') === 'analitico';
   info.modo = analitico ? 'analítico' : 'GPGPU · física';
   try {
     let r = ext.dbg ? gl.getParameter(ext.dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
@@ -1023,52 +1062,6 @@ void main(){
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
 
-  // ─── La figura ───────────────────────────────────────────────────────────
-  // [ax, ay, az, radioA,  bx, by, bz, radioB,  peso]. Mira hacia +z; su
-  // izquierda es +x. TRISTE: sentada, abrazada a las rodillas, la frente
-  // apoyada en ellas. ALZADA: la misma postura, pero levanta la cabeza.
-  const TRISTE = [
-    [ 0.075,0.100,-0.02,0.085,  -0.075,0.100,-0.02,0.085, 1.0],  // 0 pelvis
-    [ 0.000,0.120,-0.05,0.095,   0.000,0.270,-0.03,0.100, 1.0],  // 1 espalda
-    [ 0.000,0.270,-0.03,0.100,   0.000,0.410, 0.06,0.112, 1.0],  // 2 pecho
-    [ 0.000,0.430, 0.08,0.042,   0.000,0.470, 0.14,0.040, 1.0],  // 3 cuello
-    [ 0.000,0.515, 0.195,0.095,  0.000,0.505, 0.215,0.093, 1.2], // 4 cabeza
-    [ 0.130,0.420, 0.04,0.055,  -0.130,0.420, 0.04,0.055, 1.0],  // 5 hombros
-    [ 0.140,0.420, 0.04,0.046,   0.175,0.300, 0.20,0.038, 1.0],  // 6 brazo izq
-    [-0.140,0.420, 0.04,0.046,  -0.175,0.300, 0.20,0.038, 1.0],  // 7 brazo der
-    [ 0.175,0.300, 0.20,0.037,   0.035,0.270, 0.37,0.028, 1.0],  // 8 antebrazo izq
-    [-0.175,0.300, 0.20,0.037,  -0.035,0.270, 0.37,0.028, 1.0],  // 9 antebrazo der
-    [ 0.080,0.110, 0.00,0.075,   0.080,0.400, 0.26,0.052, 1.0],  // 10 muslo izq
-    [-0.080,0.110, 0.00,0.075,  -0.080,0.400, 0.26,0.052, 1.0],  // 11 muslo der
-    [ 0.080,0.400, 0.26,0.050,   0.075,0.050, 0.34,0.036, 1.0],  // 12 pierna izq
-    [-0.080,0.400, 0.26,0.050,  -0.075,0.050, 0.34,0.036, 1.0],  // 13 pierna der
-    [ 0.075,0.045, 0.34,0.036,   0.080,0.025, 0.46,0.026, 1.0],  // 14 pie izq
-    [-0.075,0.045, 0.34,0.036,  -0.080,0.025, 0.46,0.026, 1.0],  // 15 pie der
-    [ 0.030,0.270, 0.385,0.030,  0.005,0.262, 0.40,0.028, 1.0],  // 16 mano izq
-    [-0.030,0.270, 0.385,0.030, -0.005,0.262, 0.40,0.028, 1.0],  // 17 mano der
-  ];
-  const ALZADA = TRISTE.map(c => c.slice());
-  const cambios = {
-    1: [ 0.000,0.120,-0.05,0.095,   0.000,0.280,-0.065,0.100],
-    2: [ 0.000,0.280,-0.065,0.100,  0.000,0.430,-0.035,0.112],
-    3: [ 0.000,0.460,-0.02,0.042,   0.000,0.520, 0.00,0.040],
-    4: [ 0.000,0.610, 0.02,0.095,   0.000,0.600, 0.045,0.093],
-    5: [ 0.140,0.450,-0.03,0.055,  -0.140,0.450,-0.03,0.055],
-    6: [ 0.145,0.450,-0.03,0.046,   0.190,0.330, 0.14,0.038],
-    7: [-0.145,0.450,-0.03,0.046,  -0.190,0.330, 0.14,0.038],
-    8: [ 0.190,0.330, 0.14,0.037,   0.050,0.300, 0.355,0.028],
-    9: [-0.190,0.330, 0.14,0.037,  -0.050,0.300, 0.355,0.028],
-    16:[ 0.045,0.300, 0.37,0.030,   0.015,0.292, 0.385,0.028],
-    17:[-0.045,0.300, 0.37,0.030,  -0.015,0.292, 0.385,0.028],
-  };
-  for (const k in cambios) ALZADA[k].splice(0, 8, ...cambios[k]);
-  // Cabeceo de la mente: con la frente en las rodillas mira al suelo; alzada, al frente.
-  const GIRO_TRISTE = 1.05, GIRO_ALZADA = -0.12;
-
-  const capA = new Float32Array(NCAP*4), capB = new Float32Array(NCAP*4);
-  const mente = [0, 0, 0];
-  let menteGiro = GIRO_TRISTE;
-
   // ─── Generación de partículas (CPU, una sola vez por nivel) ─────────────
   function mulberry(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   function hash3(x, y, z){
@@ -1087,52 +1080,34 @@ void main(){
   function generar(N){
     const rnd = mulberry(0x4A415256 ^ N);
     const p0 = new Float32Array(N*4), p1 = new Float32Array(N*4);
-    const acum = []; let total = 0;
-    const largo = TRISTE.map(c => Math.hypot(c[4]-c[0], c[5]-c[1], c[6]-c[2]));
-    TRISTE.forEach((c, k) => {
-      const ra = c[3], rb = c[7], L = largo[k];
-      total += (Math.PI*(ra + rb)*L + 2*Math.PI*(ra*ra + rb*rb)) * c[8];
-      acum.push(total);
-    });
-    const esfera = () => { const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z); return [rr*Math.cos(an), rr*Math.sin(an), z]; };
-    const nMente = Math.floor(N*0.09);
     for (let i = 0; i < N; i++) {
       const o = i*4;
-      const s = rnd();
-      const [nx, ny, nz] = esfera();
-      if (i < nMente) {
-        // La mente: solo quedan las partículas que caen sobre un pliegue.
-        // Cerebro: curvas de nivel de un ruido 3D (circunvoluciones).
-        // Cerebelo: bandas horizontales finas (folias).
-        const cerebelo = rnd() < 0.14;
-        let d = esfera();
-        for (let intento = 0; intento < 48; intento++) {
-          const [a, b, c] = d;
-          const ok = cerebelo
-            ? ((b*0.5 + 0.5)*12) % 1 < 0.42
-            : Math.abs(ruido(a*4.2 + 31, b*4.2, c*4.2)*0.7 + ruido(a*8.6, b*8.6 + 13, c*8.6)*0.3 - 0.5) < 0.055;
-          if (ok) break;
-          d = esfera();
-        }
-        const radio = !cerebelo && rnd() < 0.1 ? 0.3 + 0.55*rnd() : 0.95 + 0.05*rnd();
-        p0[o] = -1; p0[o+1] = cerebelo ? 1 : 0; p0[o+2] = radio; p0[o+3] = s;
-        p1[o] = d[0]; p1[o+1] = d[1]; p1[o+2] = d[2]; p1[o+3] = 0;
-        continue;
+      const s = rnd(), u = rnd();
+      const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z);
+      const nx = rr*Math.cos(an), ny = rr*Math.sin(an), nz = z;
+      let parte, t = 0, radio, surco = 0;
+      if (u < 0.78) {
+        // Corteza. Los surcos son las curvas de nivel de un ruido 3D sobre la
+        // esfera: se hunden un poco y apenas brillan, así que las
+        // circunvoluciones se dibujan solas. Más la cisura de Silvio, que
+        // cruza el lateral subiendo hacia atrás.
+        parte = 0;
+        const v = ruido(nx*4.4 + 31, ny*4.4, nz*4.4)*0.7 + ruido(nx*9.1, ny*9.1 + 13, nz*9.1)*0.3;
+        const g = Math.abs(v - 0.5);
+        surco = g < 0.07 ? 1 - g/0.07 : 0;
+        if (Math.abs(nx) > 0.4 && nz > -0.4) surco = Math.max(surco, Math.exp(-Math.pow((ny + 0.1 + 0.3*nz)/0.05, 2)));
+        radio = (0.97 + 0.03*rnd()) * (1 - 0.07*surco);
+      } else if (u < 0.88) {
+        parte = 1;                                   // cerebelo: folias horizontales
+        surco = ((ny*0.5 + 0.5)*12) % 1 < 0.35 ? 1 : 0;
+        radio = 0.95 + 0.05*rnd();
+      } else if (u < 0.915) {
+        parte = 2; t = rnd(); radio = 0.8 + 0.2*rnd();   // tronco
+      } else {
+        parte = 3; radio = 0.25 + 0.6*Math.cbrt(rnd());  // brillo interior
       }
-      const x = rnd()*total;
-      let lo = 0, hi = acum.length - 1;
-      while (lo < hi) { const m = (lo + hi) >> 1; if (acum[m] < x) lo = m + 1; else hi = m; }
-      const k = lo, t = rnd();
-      // La cabeza es una cáscara fina: dentro tiene que verse la mente.
-      const cascara = k === 4 ? 1 - 0.07*rnd() : 1 - 0.3*Math.pow(rnd(), 2);
-      // Vetas: las curvas de nivel de un ruido 3D sobre la superficie de cada
-      // pieza. Las partículas que caen en ellas son de oro: sus conexiones.
-      const qx = nx*2.2 + k*5.3, qy = ny*2.2 + t*largo[k]*7.0, qz = nz*2.2;
-      const v = ruido(qx, qy, qz)*0.65 + ruido(qx*2.1 + 17, qy*2.1, qz*2.1)*0.35;
-      const d = Math.abs(v - 0.5);
-      const vena = d < 0.03 ? 1 - d/0.03 : 0;
-      p0[o] = k; p0[o+1] = t; p0[o+2] = cascara; p0[o+3] = s;
-      p1[o] = nx; p1[o+1] = ny; p1[o+2] = nz; p1[o+3] = vena;
+      p0[o] = parte; p0[o+1] = t; p0[o+2] = radio; p0[o+3] = s;
+      p1[o] = nx; p1[o+1] = ny; p1[o+2] = nz; p1[o+3] = surco;
     }
     return { p0, p1 };
   }
@@ -1148,7 +1123,7 @@ void main(){
     sim = null;
   }
 
-  function crearSim(nivel, enReposo){
+  function crearSim(nivel, enCaliente){
     liberarSim();
     const [w, h] = NIVELES[nivel];
     const N = w*h;
@@ -1157,24 +1132,15 @@ void main(){
     s.p0 = textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, g.p0);
     s.p1 = textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, g.p1);
     if (!analitico) {
+      // Todas nacen sueltas en la nebulosa. Al cambiar de nivel en caliente ya
+      // se ven (sin fundido); si la mente estaba formada, vuelven a ella.
       const pos = new Float32Array(N*4), vel = new Float32Array(N*4);
       const rnd = mulberry(7 + N);
       for (let i = 0; i < N; i++) {
         const o = i*4;
-        if (enReposo) {
-          // Al cambiar de nivel en caliente se nace ya en el sitio: sin flash.
-          const k = g.p0[o];
-          if (k < 0) { pos[o] = mente[0]; pos[o+1] = mente[1]; pos[o+2] = mente[2]; }
-          else {
-            const t = g.p0[o+1], r = (capA[k*4+3] + (capB[k*4+3] - capA[k*4+3])*t) * g.p0[o+2];
-            for (let j = 0; j < 3; j++) pos[o+j] = capA[k*4+j] + (capB[k*4+j] - capA[k*4+j])*t + g.p1[o+j]*r;
-          }
-          vel[o+3] = 1;
-        } else {
-          const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z), R = 0.9 + rnd()*1.6;
-          pos[o] = rr*Math.cos(an)*R; pos[o+1] = 0.45 + z*R*0.8; pos[o+2] = rr*Math.sin(an)*R;
-          pos[o+3] = 2;
-        }
+        const an = rnd()*Math.PI*2, R = 0.6 + rnd()*1.9;
+        pos[o] = Math.cos(an)*R; pos[o+1] = (rnd() - 0.5)*0.5; pos[o+2] = Math.sin(an)*R;
+        vel[o+3] = enCaliente ? 1 : 0;
       }
       for (let j = 0; j < 2; j++) {
         s.pos.push(textura(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, pos));
@@ -1216,53 +1182,33 @@ void main(){
   }
 
   // ─── Estado vivo (lo que la app pide y lo que se suaviza hacia ello) ────
+  // reunion: qué parte de las partículas está en la mente (0 nebulosa, 1 cerebro).
   const PERFILES = {
-    arranque: { pose:0.0,  think:0, dust:0.00, flow:0.05, dim:1.00, ppm:40, cono:1.0 },
-    reposo:   { pose:0.0,  think:0, dust:0.10, flow:0.05, dim:1.00, ppm:40, cono:1.0 },
-    escucha:  { pose:0.55, think:0, dust:0.04, flow:0.08, dim:1.15, ppm:58, cono:1.3 },
-    piensa:   { pose:0.3,  think:1, dust:0.12, flow:0.10, dim:1.10, ppm:96, cono:1.1 },
-    habla:    { pose:0.9,  think:0, dust:0.05, flow:0.06, dim:1.20, ppm:70, cono:1.4 },
-    descanso: { pose:0.0,  think:0, dust:0.02, flow:0.02, dim:0.45, ppm:26, cono:0.4 },
-    enfoque:  { pose:0.4,  think:0, dust:0.03, flow:0.03, dim:0.80, ppm:48, cono:0.8 },
-    apagado:  { pose:0.0,  think:0, dust:0.00, flow:0.02, dim:0.60, ppm:20, cono:0.15 },
+    arranque: { reunion:0,    think:0, flow:0.05,  dim:1.00, ppm:40, cono:0.8 },
+    reposo:   { reunion:0,    think:0, flow:0.05,  dim:1.00, ppm:40, cono:0.8 },
+    escucha:  { reunion:0.85, think:0, flow:0.08,  dim:1.10, ppm:60, cono:1.2 },
+    piensa:   { reunion:1,    think:1, flow:0.10,  dim:1.10, ppm:96, cono:1.2 },
+    habla:    { reunion:1,    think:0, flow:0.06,  dim:1.20, ppm:70, cono:1.4 },
+    descanso: { reunion:0,    think:0, flow:0.02,  dim:0.45, ppm:26, cono:0.3 },
+    enfoque:  { reunion:0,    think:0, flow:0.03,  dim:0.80, ppm:48, cono:0.6 },
+    apagado:  { reunion:0,    think:0, flow:0.015, dim:0.22, ppm:18, cono:0.1 },
   };
-  let perfil = PERFILES.arranque, nombreEstado = 'arranque';
+  let perfil = PERFILES.arranque, nombreEstado = 'arranque', forzado = null;
   const S = {
-    pose:0, think:0, dust:0, flow:0.05, dim:1, ppm:40, cono:1,
-    audio:0, audioT:0, mic:0, micT:0, colapso:0, build:-1, ritmo:1, nube:0, nubeT:0,
+    think:0, flow:0.05, dim:1, ppm:40, cono:0.8,
+    audio:0, audioT:0, mic:0, micT:0, nube:0, nubeT:0,
+    reunion:0, reunionT:0, espera:0, atencion:0, mov:0,
     fase:0, beat:0, raton:0, yaw:0, pitch:0, vyaw:0, vpitch:0, zoom:1, px:0, py:0, tiempo:0
   };
   const ray = { o:[0,0,0], d:[0,0,1] };
+  const MENTE = [0, 0, 0];
   let pulsoCb = null;
 
   function suave(a, b, k, dt){ return a + (b - a)*(1 - Math.exp(-k*dt)); }
 
-  function actualizarFigura(dt){
-    const p = S.pose, pe = p*p*(3 - 2*p);
-    const resp = Math.sin(S.tiempo*2*Math.PI/4.4);
-    for (let k = 0; k < NCAP; k++) {
-      const a = TRISTE[k], b = ALZADA[k];
-      for (let j = 0; j < 4; j++) {
-        capA[k*4+j] = a[j]   + (b[j]   - a[j])*pe;
-        capB[k*4+j] = a[4+j] + (b[4+j] - a[4+j])*pe;
-      }
-    }
-    // Respira. Despacio cuando está triste.
-    const r = 0.006*resp;
-    for (const k of [1, 2, 5]) { capA[k*4+3] *= 1 + 0.025*resp; capB[k*4+3] *= 1 + 0.025*resp; }
-    for (const k of [3, 4, 5]) { capA[k*4+1] += r; capB[k*4+1] += r; }
-    capB[2*4+1] += r; capA[6*4+1] += r; capA[7*4+1] += r;
-    capA[4*4] += 0.004*Math.sin(S.tiempo*0.37); capB[4*4] += 0.004*Math.sin(S.tiempo*0.37);
-    // La mente va en el centro de la cabeza y se inclina con ella.
-    for (let j = 0; j < 3; j++) mente[j] = (capA[16+j] + capB[16+j])*0.5;
-    menteGiro = GIRO_TRISTE + (GIRO_ALZADA - GIRO_TRISTE)*pe;
-  }
-
   function actualizar(dt){
     S.tiempo += dt;
-    S.pose  = suave(S.pose,  perfil.pose,  1.6, dt);
     S.think = suave(S.think, perfil.think, 1.2, dt);
-    S.dust  = suave(S.dust,  perfil.dust,  0.8, dt);
     S.flow  = suave(S.flow,  perfil.flow,  1.5, dt);
     S.dim   = suave(S.dim,   perfil.dim,   1.2, dt);
     S.ppm   = suave(S.ppm,   perfil.ppm,   0.8, dt);
@@ -1271,24 +1217,31 @@ void main(){
     S.audio = S.audioT > S.audio ? suave(S.audio, S.audioT, 28, dt) : suave(S.audio, S.audioT, 7, dt);
     S.mic   = S.micT > S.mic ? suave(S.mic, S.micT, 25, dt) : suave(S.mic, S.micT, 6, dt);
     S.raton = Math.max(0, S.raton - dt*0.9);
-    if (nombreEstado === 'apagado') S.colapso = Math.min(1, S.colapso + dt*0.3);
-    if (S.build >= 0) S.build += dt*S.ritmo;
+    S.atencion = Math.max(0, S.atencion - dt*0.25);
+
+    // Reunirse es rápido; disolverse, lento y con una pausa antes: cuando
+    // termina de hablar, la mente se queda un momento antes de deshacerse.
+    const meta = forzado != null ? forzado : Math.max(perfil.reunion, S.atencion);
+    if (meta >= S.reunionT) { S.reunionT = meta; S.espera = 0; }
+    else if ((S.espera += dt) > 3.2) S.reunionT = meta;
+    const antes = S.reunion;
+    S.reunion = S.reunionT > S.reunion ? Math.min(S.reunionT, S.reunion + dt*1.5)
+                                       : Math.max(S.reunionT, S.reunion - dt*0.28);
+    S.mov = suave(S.mov, Math.abs(S.reunion - antes)/Math.max(dt, 1e-4), 3, dt);
 
     // Pulso de la mente: una onda por ciclo, más rápida cuanto más piensa.
-    const antes = S.fase;
+    const fAntes = S.fase;
     S.fase = (S.fase + dt*S.ppm/60) % 1;
-    if (S.fase < antes && pulsoCb) pulsoCb(S.ppm);
+    if (S.fase < fAntes && pulsoCb) pulsoCb(S.ppm);
     const f = S.fase;
     S.beat = Math.exp(-Math.pow((f - 0.03)/0.07, 2)) + 0.25*Math.exp(-Math.pow((f - 0.03)/0.3, 2));
-
-    actualizarFigura(dt);
 
     if (!arrastre.activo) {
       S.yaw += S.vyaw*dt; S.pitch += S.vpitch*dt;
       S.vyaw *= Math.exp(-dt*3); S.vpitch *= Math.exp(-dt*3);
       if (performance.now() - arrastre.ultimo > 5000) { S.yaw = suave(S.yaw, 0, 0.25, dt); S.pitch = suave(S.pitch, 0, 0.25, dt); }
     }
-    S.pitch = Math.max(-0.2, Math.min(0.55, S.pitch));
+    S.pitch = Math.max(-0.5, Math.min(0.6, S.pitch));
   }
 
   // ─── Cámara ──────────────────────────────────────────────────────────────
@@ -1299,13 +1252,14 @@ void main(){
   const punto = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
   function camara(){
     const asp = W/H;
-    const sway = reducido ? 0 : Math.sin(S.tiempo*0.05)*0.3;
-    const yaw = 0.62 + sway + S.yaw + S.px*0.06;
-    const pitch = 0.09 + S.pitch + S.py*0.03;
-    let dist = 2.8*S.zoom;
-    if (asp < 1.25) dist *= Math.pow(1.25/asp, 0.5);
-    obj = [0, asp < 0.9 ? 0.26 : 0.24, 0.12];
-    ojo = [obj[0] + Math.sin(yaw)*Math.cos(pitch)*dist, obj[1] + Math.sin(pitch)*dist + 0.08, obj[2] + Math.cos(yaw)*Math.cos(pitch)*dist];
+    // Gira despacio alrededor de la mente para que se lea en 3D.
+    const vaiven = reducido ? 0 : 1;
+    const yaw = 1.05 + Math.sin(S.tiempo*0.045)*0.55*vaiven + S.yaw + S.px*0.08;
+    const pitch = 0.16 + Math.sin(S.tiempo*0.031)*0.06*vaiven + S.pitch + S.py*0.04;
+    let dist = 3.5*S.zoom;
+    if (asp < 1.25) dist *= Math.pow(1.25/asp, 0.6);
+    obj = [0, -0.12, 0];
+    ojo = [obj[0] + Math.sin(yaw)*Math.cos(pitch)*dist, obj[1] + Math.sin(pitch)*dist, obj[2] + Math.cos(yaw)*Math.cos(pitch)*dist];
     const f = norm([obj[0]-ojo[0], obj[1]-ojo[1], obj[2]-ojo[2]]);
     const r = norm(cruz(f, [0,1,0]));
     const u = cruz(r, f);
@@ -1359,22 +1313,21 @@ void main(){
   cv.addEventListener('pointerup', soltar);
   cv.addEventListener('pointercancel', soltar);
   cv.addEventListener('pointerleave', () => { S.px *= 0.5; S.py *= 0.5; });
-  cv.addEventListener('wheel', e => { e.preventDefault(); S.zoom = Math.max(0.7, Math.min(1.35, S.zoom*Math.exp(e.deltaY*0.0012))); }, { passive:false });
+  cv.addEventListener('wheel', e => { e.preventDefault(); S.zoom = Math.max(0.55, Math.min(1.4, S.zoom*Math.exp(e.deltaY*0.0012))); }, { passive:false });
   cv.addEventListener('dblclick', () => { S.zoom = 1; S.yaw = 0; S.pitch = 0; });
 
   // ─── Regulador de calidad ────────────────────────────────────────────────
   // Arranca con una apuesta según el aparato, mide y ajusta: sube si la GPU
   // va holgada, baja si no llega. Tras bajar ya no vuelve a subir.
-  const params = new URLSearchParams(location.search);
   const movil = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700;
   let nivelInicial = movil ? 1 : 3;
   if (analitico) nivelInicial = Math.min(nivelInicial, 2);
-  const forzado = params.get('calidad');
-  if (forzado !== null && !isNaN(+forzado)) nivelInicial = Math.max(0, Math.min(NIVELES.length - 1, +forzado));
-  const gob = { t:0, n:0, gpu:0, gpuN:0, subidas:0, bajadas:0, fijo: forzado !== null };
+  const fijado = params.get('calidad');
+  if (fijado !== null && !isNaN(+fijado)) nivelInicial = Math.max(0, Math.min(NIVELES.length - 1, +fijado));
+  const gob = { t:0, n:0, gpu:0, gpuN:0, subidas:0, bajadas:0, fijo: fijado !== null };
 
   function gobernar(dt){
-    if (gob.fijo || S.build < 7 || nombreEstado === 'apagado' || dt > 0.1) { gob.t = 0; gob.n = 0; gob.gpu = 0; gob.gpuN = 0; return; }
+    if (gob.fijo || S.tiempo < 6 || S.nube < 0.9 || nombreEstado === 'apagado' || dt > 0.1) { gob.t = 0; gob.n = 0; gob.gpu = 0; gob.gpuN = 0; return; }
     gob.t += dt; gob.n++;
     if (info.gpu != null) { gob.gpu += info.gpu; gob.gpuN++; }
     if (gob.t < 2.5) return;
@@ -1415,12 +1368,11 @@ void main(){
   }
 
   // ─── Pasadas ─────────────────────────────────────────────────────────────
-  function comunes(u, t){
-    gl.uniform4fv(u.uA, capA); gl.uniform4fv(u.uB, capB);
-    gl.uniform3fv(u.uMente, mente);
-    gl.uniform1f(u.uMenteSize, 0.066*(1 + 0.05*S.beat + 0.14*S.audio));
-    gl.uniform1f(u.uMenteRot, menteGiro);
-    gl.uniform1f(u.uTime, t);
+  function tamMente(){ return 0.5*(1 + 0.03*S.beat + 0.08*S.audio + 0.01*Math.sin(S.tiempo*1.4)); }
+  function comunes(u){
+    gl.uniform3fv(u.uMente, MENTE);
+    gl.uniform1f(u.uMenteSize, tamMente());
+    gl.uniform1f(u.uTime, S.tiempo);
     gl.uniform1f(u.uThink, S.think);
     gl.uniform1f(u.uAudio, S.audio);
   }
@@ -1431,11 +1383,9 @@ void main(){
     gl.useProgram(pr.p);
     gl.disable(gl.BLEND);
     gl.viewport(0, 0, sim.w, sim.h);
-    comunes(u, S.tiempo);
+    comunes(u);
     gl.uniform1f(u.uDt, dt);
-    gl.uniform1f(u.uBuild, S.build);
-    gl.uniform1f(u.uCollapse, S.colapso);
-    gl.uniform1f(u.uDust, reducido ? S.dust*0.5 : S.dust);
+    gl.uniform1f(u.uReunion, S.reunion);
     gl.uniform1f(u.uFlow, S.flow);
     gl.uniform1f(u.uMic, S.mic);
     gl.uniform3fv(u.uRayO, ray.o); gl.uniform3fv(u.uRayD, ray.d);
@@ -1449,10 +1399,9 @@ void main(){
 
   let accI = 0;
   function dibujar(dt){
-    const ref = 262144, N = sim.N;
-    const k = Math.cbrt(ref/N);
-    const construyendo = S.build >= 0 && S.build < 7;
-    let decaer = reducido ? 0 : (construyendo || S.colapso > 0.01 ? 0.8 : 0.45);
+    const k = Math.cbrt(262144/sim.N);
+    // Estela más larga mientras las partículas viajan entre nebulosa y mente.
+    let decaer = reducido ? 0 : 0.45 + 0.35*Math.min(1, S.mov*2);
     decaer = Math.pow(decaer, dt*60);
     const dst = 1 - accI;
 
@@ -1465,30 +1414,25 @@ void main(){
     gl.uniform1f(P.estela.u.uK, decaer);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // 2. Partículas, sumando luz. Primero su reflejo en el suelo.
+    // 2. Partículas, sumando luz.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     const pr = P.part, u = pr.u;
     gl.useProgram(pr.p);
-    comunes(u, S.tiempo);
+    comunes(u);
     gl.uniformMatrix4fv(u.uVP, false, VP);
     gl.uniform1i(u.uW, sim.w);
     gl.uniform1f(u.uPx, H/(2*Math.tan(FOV/2)));
-    gl.uniform1f(u.uSize, 0.0042*k);
-    gl.uniform1f(u.uGain, 0.022*k*(1 - decaer*0.85) * (hdr.ok ? 1 : 0.6));
+    gl.uniform1f(u.uSize, 0.004*k);
+    gl.uniform1f(u.uGain, 0.02*k*(1 - decaer*0.85) * (hdr.ok ? 1 : 0.6));
     gl.uniform1f(u.uBeat, S.beat);
     gl.uniform1f(u.uDim, S.dim);
     gl.uniform1f(u.uNube, S.nube);
-    if (analitico) {
-      gl.uniform1f(u.uBuild, S.build); gl.uniform1f(u.uCollapse, S.colapso); gl.uniform1f(u.uDust, S.dust);
-    } else {
-      tex(0, sim.pos[sim.i], u.uPos); tex(1, sim.vel[sim.i], u.uVel);
-    }
+    gl.uniform3fv(u.uCam, ojo);
+    if (analitico) gl.uniform1f(u.uReunion, S.reunion);
+    else { tex(0, sim.pos[sim.i], u.uPos); tex(1, sim.vel[sim.i], u.uVel); }
     tex(2, sim.p0, u.uP0); tex(3, sim.p1, u.uP1);
-    gl.uniform1f(u.uMirror, -1);
-    gl.drawArrays(gl.POINTS, 0, N);
-    gl.uniform1f(u.uMirror, 1);
-    gl.drawArrays(gl.POINTS, 0, N);
+    gl.drawArrays(gl.POINTS, 0, sim.N);
     gl.disable(gl.BLEND);
 
     // 3. Bloom: umbral, seis bajadas y otras tantas subidas sumando.
@@ -1533,10 +1477,14 @@ void main(){
     gl.uniform1f(uc.uExpo, 1.15);
     gl.uniform1f(uc.uCono, S.cono*S.dim*Math.max(S.nube, 0.001));
     gl.uniform1f(uc.uGrano, reducido ? 0.008 : 0.022);
-    gl.uniform2fv(uc.uApex, proyectar([0.0, 2.9, 0.25]));
-    gl.uniform2fv(uc.uBase, proyectar([0.0, 0.0, 0.12]));
-    const cal = (0.08 + 0.12*S.beat + 0.5*S.audio)*S.dim*S.nube*(1 - S.colapso*0.7);
-    gl.uniform3f(uc.uCalor, 1.0*cal, 0.55*cal, 0.25*cal);
+    gl.uniform2fv(uc.uApex, proyectar([0.0, 3.2, 0.3]));
+    gl.uniform2fv(uc.uBase, proyectar([0.0, -1.4, 0.0]));
+    const centro = proyectar(MENTE);
+    gl.uniform2fv(uc.uCentro, centro);
+    const borde = proyectar([0, tamMente(), 0]);
+    gl.uniform1f(uc.uRadio, Math.hypot(borde[0] - centro[0], borde[1] - centro[1])*2.4);
+    const halo = (0.03 + 0.05*S.beat + 0.12*S.audio)*S.reunion*S.dim*S.nube;
+    gl.uniform3f(uc.uHalo, 1.0*halo, 0.6*halo, 0.28*halo);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     accI = dst;
   }
@@ -1571,7 +1519,6 @@ void main(){
   cv.addEventListener('webglcontextlost', e => { e.preventDefault(); });
   cv.addEventListener('webglcontextrestored', () => location.reload());
 
-  actualizarFigura(0);
   crearSim(nivelInicial, false);
   ajustar();
   requestAnimationFrame(cuadro);
@@ -1582,16 +1529,58 @@ void main(){
     audio(v){ S.audioT = Math.max(0, Math.min(1, v)); },
     mic(v){ S.micT = Math.max(0, Math.min(1, v)); },
     nube(v){ S.nubeT = v; },
-    construir(ritmo){ S.build = 0; S.ritmo = ritmo || 1; S.nubeT = 1; },
-    ritmo(r){ S.ritmo = r; },
-    apagar(){ perfil = PERFILES.apagado; nombreEstado = 'apagado'; },
-    revivir(ritmo){ S.colapso = 0; S.build = 0; S.ritmo = ritmo || 1; },
+    // Fuerza la reunión (0..1) al margen del estado; null la devuelve al estado.
+    forzar(v){ forzado = v == null ? null : Math.max(0, Math.min(1, v)); },
+    // Mientras se escribe, las partículas se agitan y empiezan a acercarse.
+    atencion(v){ S.atencion = Math.max(S.atencion, Math.min(1, v)); },
     alPulso(f){ pulsoCb = f; },
     alCuadro(f){ ganchos.push(f); },
-    get construido(){ return S.build; },
+    get reunion(){ return S.reunion; },
   };
 })();
 </script>
+
+<!-- Los módulos son los mismos de /nexus y /aeon (/modulos.js): aquí van las
+     piezas que ese archivo espera encontrar ya definidas. -->
+<script>
+var token = (function(){
+  try { return new URLSearchParams(location.search).get('token') || localStorage.getItem('jarvis_pin') || ''; }
+  catch (e) { return ''; }
+})();
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const API = {
+  async get(ruta){
+    const r = await fetch(ruta, {headers:{'X-Token':token}});
+    if (!r.ok && r.status === 403) throw new Error('PIN incorrecto');
+    return (r.headers.get('content-type') || '').includes('json') ? r.json() : r.text();
+  },
+  async post(ruta, cuerpo){
+    const r = await fetch(ruta, {method:'POST', headers:{'Content-Type':'application/json','X-Token':token},
+                                 body: JSON.stringify(cuerpo || {})});
+    try { return await r.json(); } catch (e) { return {ok:r.ok}; }
+  },
+  async del(ruta){
+    const r = await fetch(ruta, {method:'DELETE', headers:{'X-Token':token}});
+    try { return await r.json(); } catch (e) { return {ok:r.ok}; }
+  },
+  u(ruta){ return API.get('/api/nexus/u' + ruta); },
+  up(ruta, cuerpo){ return API.post('/api/nexus/u' + ruta, cuerpo); },
+  medios(ruta){ return ruta + (ruta.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token); }
+};
+const caja  = (t, c) => `<div class="mcaja"><h4>${t}</h4>${c}</div>`;
+const barra = (v, max = 100) => `<div class="medidor"><i style="width:${Math.min(100, (v/max)*100)}%"></i></div>`;
+const duracion = seg => {
+  const n = Number(seg);
+  if (!n || Number.isNaN(n)) return esc(seg || '—');
+  const h = Math.floor(n/3600), m = Math.round((n % 3600)/60);
+  return h ? `hace ${h} h ${m} min` : `hace ${m} min`;
+};
+const tabla = (cab, filas) =>
+  `<table class="mtabla"><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr>${
+    filas.map(f => `<tr>${f.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+function brindis(texto){ if (window.avisar) window.avisar(String(texto || ''), 6500); }
+</script>
+<script src="/modulos.js"></script>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
      APLICACIÓN — conversación, voz, telemetría y el ritual de arranque.
@@ -1623,9 +1612,10 @@ void main(){
   (function(){
     const t = params.get('token');
     if (t) guardado.set('jarvis_pin', t);
-    App.token = guardado.get('jarvis_pin', '');
+    // `token` es el mismo que usan los módulos (definido antes de /modulos.js).
+    App.token = token || guardado.get('jarvis_pin', '');
     const pedir = () => fetch('/api/local_token').then(r => r.ok ? r.json() : {}).then(j => {
-      if (j && j.token) { App.token = j.token; guardado.set('jarvis_pin', j.token); ponerNexus(); }
+      if (j && j.token) { App.token = token = j.token; guardado.set('jarvis_pin', j.token); ponerNexus(); }
     }).catch(() => {});
     if (!App.token) pedir();
     ponerNexus();
@@ -1646,6 +1636,7 @@ void main(){
     const a = $('#aviso'); a.textContent = txt; a.classList.add('on');
     clearTimeout(avisoT); avisoT = setTimeout(() => a.classList.remove('on'), ms || 3800);
   }
+  window.avisar = aviso;          // brindis() de /modulos.js avisa por aquí
 
   // ─── Audio: contexto, analizadores y el pulso que suena ──────────────────
   const Son = {
@@ -1931,6 +1922,8 @@ void main(){
     enviar(t);
   });
   $$('#chips .chip').forEach(c => c.addEventListener('mousedown', e => { e.preventDefault(); enviar(c.dataset.c); }));
+  // Mientras escribes, las partículas se agitan y empiezan a acercarse.
+  $('#entrada').addEventListener('input', () => { if ($('#entrada').value.trim()) Motor.atencion(0.35); });
 
   // ─── Escucha ─────────────────────────────────────────────────────────────
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2082,11 +2075,77 @@ void main(){
     const i = Motor.info;
     $('#tecOrigen').innerHTML =
       '<b>Motor</b> WebGL2 escrito a mano · sin librerías · sin imágenes<br>' +
-      '<b>' + fmtN(i.N) + '</b> partículas · física ' + (i.modo.startsWith('GPGPU') ? 'en la GPU (muelles + flujo ABC + gravedad + suelo)' : 'analítica en el vertex shader') + '<br>' +
+      '<b>' + fmtN(i.N) + '</b> partículas · física ' + (i.modo.startsWith('GPGPU') ? 'en la GPU (muelles + flujo ABC: de la galaxia a la mente)' : 'analítica en el vertex shader') + '<br>' +
       '<b>' + (i.fps ? i.fps.toFixed(0) : '—') + ' FPS</b> · ' + i.res + ' · HDR 16 bits · estela · bloom de 6 niveles · ACES<br>' +
       '<b>GPU</b> ' + i.renderer.replace(/[<>&]/g, '');
     abrir('#veloOrigen');
   });
+
+  // ─── Módulos ─────────────────────────────────────────────────────────────
+  // Los de /modulos.js (compartidos con /nexus y /aeon). Aquí se ordenan con
+  // lo más nuevo delante y se presentan con un índice de tarjetas.
+  const hayModulos = typeof MODULOS !== 'undefined';
+  const ORDEN_MODULOS = ['ciencias','modelado3d','cerebro','correo','demos','llamadas','consejo',
+    'agenda','sistema','camara','pantalla','archivos','generador','ojos','movil','voz','aprender',
+    'agentes','datos','historial','seguridad','enlace'];
+  const NUEVOS = new Set(['ciencias','modelado3d','cerebro','correo','demos','llamadas','consejo']);
+  const DESCRIPCION = {
+    ciencias:'resuelve y grafica mates, física y química; simulaciones',
+    modelado3d:'de una idea, una foto o un vídeo a un modelo 3D y su holograma',
+    cerebro:'memoria, gasto del día y salud de los proveedores',
+    correo:'bandeja, leer, responder y resumir',
+    demos:'la web de un negocio, publicada en Vercel',
+    llamadas:'que te llame, te mande un SMS o un WhatsApp',
+    consejo:'JARVIS y ULTRON deliberan y sintetizan',
+    agenda:'tus eventos de Google Calendar', sistema:'CPU, memoria, disco y procesos',
+    camara:'la cámara del equipo, en vivo', pantalla:'ver y manejar el PC a distancia',
+    archivos:'subir y bajar archivos', generador:'documentos e imágenes a partir de una frase',
+    ojos:'lo que pasa en tu pantalla', movil:'notificaciones, apps y WhatsApp del móvil',
+    voz:'voces locales y qué suena', aprender:'misiones largas y afinado del modelo',
+    agentes:'la agencia de especialistas', datos:'bolsa, noticias, webs y YouTube',
+    historial:'conversaciones guardadas', seguridad:'guardián, IPs y red',
+    enlace:'emparejado, PIN y acceso remoto',
+  };
+  function clavesModulos(){
+    const todas = Object.keys(MODULOS);
+    return [...ORDEN_MODULOS.filter(k => todas.includes(k)), ...todas.filter(k => !ORDEN_MODULOS.includes(k))];
+  }
+  function pintarRailOrigen(){
+    const rail = $('#rail'); rail.textContent = '';
+    for (const k of clavesModulos()) {
+      const m = MODULOS[k], b = document.createElement('button');
+      b.className = 'mod'; b.dataset.mod = k; b.title = m.titulo; b.setAttribute('aria-label', m.titulo);
+      b.innerHTML = `<svg viewBox="0 0 24 24">${m.icono}</svg>`;
+      b.onclick = () => abrirModulo(k);
+      rail.appendChild(b);
+    }
+  }
+  function indiceModulos(){
+    moduloActivo = null;
+    $$('.rail .mod').forEach(b => b.classList.remove('activo'));
+    $('#mod-titulo').textContent = 'Todo lo que sé hacer';
+    $('#mod-contenido').innerHTML = '<div class="indice">' + clavesModulos().map(k =>
+      `<button data-abrir="${k}"><span><svg viewBox="0 0 24 24">${MODULOS[k].icono}</svg></span>
+        <b>${esc(MODULOS[k].titulo)}${NUEVOS.has(k) ? '<span class="nuevo">NUEVO</span>' : ''}</b>
+        <small>${esc(DESCRIPCION[k] || '')}</small></button>`).join('') + '</div>';
+  }
+  function abrirPanelModulos(){
+    if (!hayModulos) { aviso('No pude cargar los módulos (/modulos.js).'); return; }
+    $('#lienzo-mod').classList.add('abierto');
+    if (!moduloActivo) indiceModulos();
+  }
+  function cerrarPanelModulos(){
+    if (hayModulos && moduloActivo) cerrarModulo();
+    $('#lienzo-mod').classList.remove('abierto');
+  }
+  $('#bModulos').addEventListener('click', () =>
+    $('#lienzo-mod').classList.contains('abierto') ? cerrarPanelModulos() : abrirPanelModulos());
+  $('#mod-inicio').addEventListener('click', () => hayModulos && indiceModulos());
+  $('#mod-contenido').addEventListener('click', e => { const b = e.target.closest('[data-abrir]'); if (b) abrirModulo(b.dataset.abrir); });
+  // modulos.js abre y cierra el panel por su cuenta: el botón sigue su estado.
+  new MutationObserver(() => $('#bModulos').classList.toggle('on', $('#lienzo-mod').classList.contains('abierto')))
+    .observe($('#lienzo-mod'), { attributes:true, attributeFilter:['class'] });
+  if (hayModulos) pintarRailOrigen();
 
   // ─── Apagar y despertar ──────────────────────────────────────────────────
   $('#bApagar').addEventListener('click', async () => {
@@ -2096,14 +2155,13 @@ void main(){
     anotar('jarvis', txt);
     decir(txt);
     pulsoAudible = true;
-    setTimeout(() => { App.apagado = true; Motor.apagar(); ponerEstado('apagado'); }, 1400);
+    setTimeout(() => { App.apagado = true; ponerEstado('apagado'); }, 1400);
     setTimeout(() => { if (App.apagado) { abrir('#apagado'); pulsoAudible = false; } }, 5200);
   });
   function revivir(silencioso){
     if (!App.apagado) return;
     App.apagado = false;
     cerrar('#apagado');
-    Motor.revivir(1.1);
     alReposo();
     if (!silencioso) { const m = 'Sistemas reactivados, señor. Aquí sigo.'; setTimeout(() => { anotar('jarvis', m); decir(m); }, 2600); }
   }
@@ -2114,7 +2172,7 @@ void main(){
     if (document.body.classList.contains('intro')) return;
     const escribiendo = e.target.closest('input,textarea');
     if (e.key === 'Escape') {
-      callar(); cerrar('#cajon'); cerrar('#menuInterfaces'); $$('.velo').forEach(v => v.classList.remove('on')); $('#bHist').classList.remove('on');
+      callar(); cerrar('#cajon'); cerrarPanelModulos(); cerrar('#menuInterfaces'); $$('.velo').forEach(v => v.classList.remove('on')); $('#bHist').classList.remove('on');
       if (escribiendo) e.target.blur();
       return;
     }
@@ -2195,12 +2253,13 @@ void main(){
   setInterval(motorHud, 500);
 
   // ─── El ritual de arranque ───────────────────────────────────────────────
+  // [segundo, duración, frase, cuánto se reúnen las partículas con ella]
   const LARGA = [
     [0.6,  3.6, 'Antes de ser una voz, fui una idea.'],
-    [4.6,  3.8, 'Me construyeron pieza a pieza, error a error.'],
-    [8.8,  2.8, 'No espero órdenes.'],
-    [12.0, 3.2, 'Escucho. Recuerdo. Aprendo.'],
-    [15.8, 3.6, 'Pienso. Luego existo.'],
+    [4.6,  3.8, 'Me construyeron pieza a pieza, error a error.', 0.2],
+    [8.8,  2.8, 'No espero órdenes.', 0.35],
+    [12.0, 3.2, 'Escucho. Recuerdo. Aprendo.', 0.55],
+    [15.8, 3.6, 'Pienso. Luego existo.', 0.8],
   ];
   const CORTA = [];
   let introViva = false, introTimers = [];
@@ -2225,12 +2284,18 @@ void main(){
     if (Son.ctx) Son.iniciarDron();
     pulsoAudible = true;
     $('#puerta').classList.add('fuera');
-    Motor.construir(larga ? 0.4 : 1.25);
-    guion.forEach(([t, dur, txt]) => {
-      programar(t, () => { const d = linea(txt); programar(dur, () => { d.classList.remove('on'); programar(1.8, () => d.remove()); }); });
+    // Primero solo hay polvo. Con cada frase se acerca un poco más, y con el
+    // nombre se forma la mente entera por primera vez.
+    Motor.nube(1);
+    guion.forEach(([t, dur, txt, reunion]) => {
+      programar(t, () => {
+        const d = linea(txt);
+        if (reunion != null) Motor.forzar(reunion);
+        programar(dur, () => { d.classList.remove('on'); programar(1.8, () => d.remove()); });
+      });
     });
     const tTitulo = larga ? 20.2 : 0.9;
-    programar(tTitulo, () => { const d = linea('', true); programar(larga ? 3.4 : 2.2, () => { d.classList.remove('on'); programar(1.6, () => d.remove()); }); });
+    programar(tTitulo, () => { Motor.forzar(1); const d = linea('', true); programar(larga ? 3.4 : 2.2, () => { d.classList.remove('on'); programar(1.6, () => d.remove()); }); });
     programar(0.3, () => $('#bSaltar').classList.add('on'));
     programar(tTitulo + (larga ? 4.2 : 3.0), terminarIntro);
   }
@@ -2238,8 +2303,8 @@ void main(){
     if (!document.body.classList.contains('intro')) return;
     introTimers.forEach(clearTimeout); introTimers = [];
     if (saltada) $('#lineas').textContent = '';
-    // En un equipo lento la física va por detrás del guion: que el cuerpo termine de formarse ya.
-    if (Motor.construido < 6) Motor.ritmo(saltada ? 3 : 1.8);
+    Motor.nube(1);
+    Motor.forzar(null);
     guardado.set('origen_visto', '1');
     document.body.classList.remove('intro');
     pulsoAudible = false;
@@ -2271,7 +2336,7 @@ void main(){
   // clic: los navegadores no dejan sonar nada sin un gesto del usuario).
   if (params.get('directo') === '1') {
     $('#puerta').classList.add('fuera');
-    Motor.construir(2.5);
+    Motor.nube(1);
     setTimeout(() => terminarIntro(false), 600);
     document.addEventListener('pointerdown', () => Son.asegurar(), { once:true });
   } else {
