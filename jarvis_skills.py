@@ -177,6 +177,7 @@ class SkillsManager:
             self._precio_borra, self._precio, self._recurrente_borra, self._recurrente_lista,
             self._recurrente, self._paquete, self._radio, self._pomodoro, self._nota_voz,
             self._espacio, self._alertas, self._preferencia, self._suspender, self._estado_pc,
+            self._webdemo, self._llamar_usuario, self._consejo_skill, self._email_skill,
             self._enviar_captura, self._vigilar, self._musica, self._lista, self._enlace_ultron, self._optimizacion_tactica, self._agenda,
             self._resumir, self._traducir, self._cine, self._receta, self._backup,
             self._limpieza, self._procesos, self._domotica,
@@ -7708,3 +7709,157 @@ $s.Dispose()
 
         threading.Thread(target=_do, daemon=True).start()
         return "Activando refrigeración máxima, señor. Los ventiladores irán al 100% por 5 minutos."
+    # ── NUEVAS SKILLS: WEBDEMO, LLAMADAS, CONSEJO, EMAIL ──────────────────────
+
+    def _webdemo(self, t: str):
+        """Crea demos web para empresas."""
+        m = re.search(
+            r"(?:crea|genera|haz|hacer|diseña)\s+(?:una?\s+)?(?:demo|demostración|sitio|página|web)\s+"
+            r"(?:web\s+)?(?:para\s+)?(?:la\s+empresa\s+|el\s+negocio\s+)?[\"']?([^\"'\n]{2,60})[\"']?",
+            t, re.IGNORECASE)
+        if not m:
+            m = re.search(r"demo\s+(?:para|de)\s+[\"']?([^\"'\n]{2,60})[\"']?", t, re.IGNORECASE)
+        if not m:
+            return None
+
+        nombre = m.group(1).strip().strip(".,")
+
+        # Extraer industria si se menciona
+        industria = "general"
+        for ind in ("restaurante", "tecnologia", "salud", "legal",
+                    "construccion", "educacion", "moda", "viajes"):
+            if ind in t.replace("ó", "o").replace("ú", "u"):
+                industria = ind
+                break
+
+        self.log(f"[SKILL] Demo web para: {nombre} ({industria})")
+
+        import threading
+        def _generar():
+            try:
+                import jarvis_webdemo
+                resultado = jarvis_webdemo.crear_demo(nombre, industria, log=self.log)
+                if resultado.get("ok"):
+                    url = resultado.get("url", "URL no disponible")
+                    self._avisar(
+                        f"Demo de {nombre} lista, señor. "
+                        f"Disponible en: {url}")
+                else:
+                    self._avisar(
+                        f"No pude crear la demo de {nombre}, señor: "
+                        f"{resultado.get('error', 'error desconocido')[:100]}")
+            except Exception as e:
+                self._avisar(f"Error al crear la demo, señor: {str(e)[:80]}")
+
+        threading.Thread(target=_generar, daemon=True).start()
+        return (f"Generando demo web para {nombre}, señor. "
+                "Le avisaré cuando esté lista en Vercel.")
+
+    def _llamar_usuario(self, t: str):
+        """Llama al celular del señor."""
+        if not re.search(
+            r"(?:llámame|llamame|llama(?:r)?(?:me|\s+al\s+(?:celular|movil|teléfono))|"
+            r"notificame\s+por\s+telefono|avísame\s+por\s+llamada)",
+            t, re.IGNORECASE):
+            return None
+
+        m_msg = re.search(r"(?:para\s+decirme|diciéndome|mensaje[:\s]+)(.*?)$", t, re.IGNORECASE)
+        mensaje = m_msg.group(1).strip() if m_msg else "JARVIS le llama, señor."
+
+        try:
+            import jarvis_llamadas
+            estado = jarvis_llamadas.estado()
+            if not estado.get("disponible"):
+                return (f"Señor, el servicio de llamadas no está configurado: "
+                        f"{estado.get('motivo', 'TWILIO_* no definidos')}.")
+            resultado = jarvis_llamadas.llamar(mensaje, log=self.log)
+            if resultado.get("ok"):
+                return f"Llamando al {estado.get('numero', 'su celular')}, señor."
+            return f"No pude realizar la llamada, señor: {resultado.get('error', '')[:80]}"
+        except Exception as e:
+            return f"Error en llamadas, señor: {str(e)[:80]}"
+
+    def _consejo_skill(self, t: str):
+        """Activa el modo consejo: deliberación Jarvis vs Ultron."""
+        if not re.search(
+            r"(?:consejo|delibera|deliberar|debate|pon\s+a\s+debate|deliberación\s+sobre|"
+            r"que\s+debo\s+hacer\s+con|dos\s+voces|modo\s+consejo)",
+            t, re.IGNORECASE):
+            return None
+
+        # Extraer asunto
+        m = re.search(
+            r"(?:consejo|delibera|deliberar|debate)\s*(?:sobre|acerca\s+de|en\s+torno\s+a)?\s*[:\-]?\s*"
+            r"(?:si\s+|que\s+)?(.{5,200})$",
+            t, re.IGNORECASE)
+        asunto = m.group(1).strip() if m else t
+
+        try:
+            import consejo
+            resultado = consejo.deliberar_estructurado(self.core, asunto, log=self.log)
+            if not resultado.get("ok"):
+                return f"No pude convocar el consejo, señor: {resultado.get('error', '')}"
+            ultron_pos = resultado.get("ultron", "")
+            jarvis_pos = resultado.get("jarvis", "")
+            sintesis = resultado.get("sintesis", "")
+            return (f"Consejo convocado, señor.\n"
+                    f"Ultron dice: {ultron_pos}\n"
+                    f"Jarvis dice: {jarvis_pos}\n"
+                    f"{'Conclusión: ' + sintesis if sintesis else ''}")
+        except Exception as e:
+            return f"Error convocando el consejo, señor: {str(e)[:80]}"
+
+    def _email_skill(self, t: str):
+        """Leer/resumir/responder correos."""
+        if re.search(
+            r"(?:lee|leer|revisa|revisar|abre|abrir)\s+(?:mis?\s+)?(?:correos?|emails?|mensajes?)",
+            t, re.IGNORECASE):
+            try:
+                import correo_gmail
+                mensajes = correo_gmail.bandeja(limite=5, log=self.log)
+                if not mensajes:
+                    return "No hay correos nuevos en la bandeja de entrada, señor."
+                resumen = f"Tiene {len(mensajes)} correo(s) reciente(s), señor: "
+                partes = []
+                for m in mensajes[:3]:
+                    de = m.get("from", "Desconocido")[:30]
+                    asunto = m.get("subject", "Sin asunto")[:40]
+                    partes.append(f"De {de}: \"{asunto}\"")
+                resumen += "; ".join(partes)
+                if len(mensajes) > 3:
+                    resumen += f" y {len(mensajes) - 3} más."
+                return resumen
+            except Exception as e:
+                return f"No pude acceder al correo, señor: {str(e)[:80]}"
+
+        m_resp = re.search(
+            r"(?:responde|responder|contesta|contestar)\s+(?:al?\s+)?(?:correo|email)?\s*"
+            r"(?:de\s+)?(.{2,60}?)\s+(?:diciendo|con|que)\s+(.{5,500})$",
+            t, re.IGNORECASE)
+        if m_resp:
+            destino = m_resp.group(1).strip()
+            cuerpo = m_resp.group(2).strip()
+            try:
+                import correo_gmail
+                asunto_auto = f"Re: Respuesta de JARVIS"
+                resultado = correo_gmail.enviar(destino, asunto_auto, cuerpo, log=self.log)
+                if resultado.get("ok"):
+                    return f"Correo enviado a {destino}, señor."
+                return f"No pude enviar el correo, señor: {resultado.get('error', '')[:80]}"
+            except Exception as e:
+                return f"Error enviando correo, señor: {str(e)[:80]}"
+
+        if re.search(
+            r"(?:resume|resumir|cuántos\s+correos|cuantos\s+correos|novedades\s+del\s+correo)",
+            t, re.IGNORECASE):
+            try:
+                import correo_gmail
+                mensajes = correo_gmail.bandeja(limite=10, log=self.log)
+                no_leidos = [m for m in mensajes if not m.get("read", True)]
+                if not no_leidos:
+                    return "No tiene correos sin leer, señor. La bandeja está al día."
+                return (f"Tiene {len(no_leidos)} correo(s) sin leer de {len(mensajes)} recientes, señor.")
+            except Exception as e:
+                return f"Error accediendo al correo, señor: {str(e)[:80]}"
+
+        return None

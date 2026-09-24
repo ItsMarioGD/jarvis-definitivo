@@ -8,6 +8,13 @@ export type HudState =
   | "error"
   | "remote";
 
+export type ActivePanel =
+  | "chat"
+  | "email"
+  | "demo"
+  | "consejo"
+  | "system";
+
 export type RemoteIcon = "calendar" | "home" | "android" | "graph" | "selfheal" | null;
 
 export interface SystemLog {
@@ -48,9 +55,40 @@ export interface RemoteOp {
   ts: number;
 }
 
+export interface EmailMessage {
+  id: string;
+  from: string;
+  subject: string;
+  body: string;
+  ts: number;
+  read: boolean;
+  vip: boolean;
+}
+
+export interface WebDemo {
+  id: string;
+  nombre: string;
+  industria: string;
+  url: string;
+  ts: number;
+  status: "generating" | "deploying" | "ready" | "error";
+}
+
+export interface ConsejoResult {
+  asunto: string;
+  ultron: string;
+  jarvis: string;
+  sintesis: string;
+  desacuerdo: boolean;
+  ts: number;
+}
+
 interface HudStore {
   state: HudState;
   setState: (s: HudState) => void;
+
+  activePanel: ActivePanel;
+  setActivePanel: (p: ActivePanel) => void;
 
   logs: SystemLog[];
   pushLog: (l: Omit<SystemLog, "id" | "ts">) => void;
@@ -59,8 +97,8 @@ interface HudStore {
   telemetry: Telemetry;
   setTelemetry: (t: Partial<Telemetry>) => void;
 
-  audioLevel: number;          // 0..1 RMS from mic
-  ttsLevel: number;            // 0..1 analyser from TTS playback
+  audioLevel: number;
+  ttsLevel: number;
   setAudioLevel: (v: number) => void;
   setTtsLevel: (v: number) => void;
 
@@ -79,11 +117,36 @@ interface HudStore {
 
   focusMode: boolean;
   toggleFocus: () => void;
+
+  // Email
+  emails: EmailMessage[];
+  setEmails: (emails: EmailMessage[]) => void;
+  markEmailRead: (id: string) => void;
+  emailsLoading: boolean;
+  setEmailsLoading: (b: boolean) => void;
+
+  // WebDemo
+  demos: WebDemo[];
+  addDemo: (d: Omit<WebDemo, "id" | "ts">) => void;
+  updateDemo: (id: string, patch: Partial<WebDemo>) => void;
+
+  // Consejo
+  consejoHistory: ConsejoResult[];
+  pushConsejo: (r: Omit<ConsejoResult, "ts">) => void;
+  consejoLoading: boolean;
+  setConsejoLoading: (b: boolean) => void;
+
+  // Llamadas
+  llamadaStatus: string;
+  setLlamadaStatus: (s: string) => void;
 }
 
 export const useHud = create<HudStore>((set) => ({
   state: "idle",
   setState: (s) => set({ state: s }),
+
+  activePanel: "chat",
+  setActivePanel: (p) => set({ activePanel: p }),
 
   logs: [],
   pushLog: (l) =>
@@ -135,4 +198,37 @@ export const useHud = create<HudStore>((set) => ({
 
   focusMode: false,
   toggleFocus: () => set((p) => ({ focusMode: !p.focusMode })),
+
+  // Email
+  emails: [],
+  setEmails: (emails) => set({ emails }),
+  markEmailRead: (id) =>
+    set((p) => ({
+      emails: p.emails.map((e) => (e.id === id ? { ...e, read: true } : e)),
+    })),
+  emailsLoading: false,
+  setEmailsLoading: (b) => set({ emailsLoading: b }),
+
+  // WebDemo
+  demos: [],
+  addDemo: (d) =>
+    set((p) => ({
+      demos: [{ ...d, id: crypto.randomUUID(), ts: Date.now() }, ...p.demos].slice(0, 50),
+    })),
+  updateDemo: (id, patch) =>
+    set((p) => ({
+      demos: p.demos.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+    })),
+
+  // Consejo
+  consejoHistory: [],
+  pushConsejo: (r) =>
+    set((p) => ({
+      consejoHistory: [{ ...r, ts: Date.now() }, ...p.consejoHistory].slice(0, 20),
+    })),
+  consejoLoading: false,
+  setConsejoLoading: (b) => set({ consejoLoading: b }),
+
+  llamadaStatus: "",
+  setLlamadaStatus: (s) => set({ llamadaStatus: s }),
 }));

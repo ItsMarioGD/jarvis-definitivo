@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Calendar, Home, Smartphone, Brain, Wrench } from "lucide-react";
 import { useHud, type RemoteIcon } from "../store/hudStore";
 
-const ICONS: Record<RemoteIcon, any> = {
+const ICONS: Record<NonNullable<RemoteIcon>, any> = {
   calendar: Calendar,
   home:     Home,
   android:  Smartphone,
@@ -10,7 +10,7 @@ const ICONS: Record<RemoteIcon, any> = {
   selfheal: Wrench,
 };
 
-const LABEL: Record<RemoteIcon, string> = {
+const LABEL: Record<NonNullable<RemoteIcon>, string> = {
   calendar: "MCP · Google Calendar",
   home:     "MCP · Home Assistant",
   android:  "Android · Accessibility",

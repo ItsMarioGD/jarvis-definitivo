@@ -2,22 +2,24 @@ import { useEffect, useRef } from "react";
 import { useHud } from "../store/hudStore";
 
 /**
- * WebSocket bridge to the Node.js BFF server (server/index.ts), which in turn
- * proxies to the Python `jarvis_core.py` runtime.
+ * WebSocket bridge to the Node.js BFF server (server/index.ts).
  *
  * Wire protocol (JSON):
  *   client → server:
- *     { type: "chat",      text: string }
- *     { type: "tts/play",  url:  string }
- *     { type: "wake" }
+ *     { type: "chat",             text: string }
+ *     { type: "email/list" }
+ *     { type: "email/read",       id: string }
+ *     { type: "demo/create",      nombre, industria, descripcion, id }
+ *     { type: "consejo/deliberar", asunto: string }
  *
  *   server → client:
- *     { type: "state",     value: HudState }
- *     { type: "log",       level, message }
- *     { type: "chat",      role: "assistant"|"system", text }
- *     { type: "media",     media: MediaItem }
- *     { type: "remote",    op: RemoteOp | null }
- *     { type: "tts/level", v: number }
+ *     { type: "state",        value: HudState }
+ *     { type: "log",          level, message }
+ *     { type: "chat",         role: "assistant"|"system"|"user", text }
+ *     { type: "media",        media: MediaItem }
+ *     { type: "remote",       op: RemoteOp | null }
+ *     { type: "tts/level",    v: number }
+ *     { type: "demo/update",  id, status, url? }
  */
 export function useBridge() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -37,7 +39,7 @@ export function useBridge() {
       ws.onopen = () => {
         retry = 0;
         useHud.getState().setConnected(true);
-        useHud.getState().pushLog({ level: "OK", message: "Enlace WebSocket establecido con el núcleo." });
+        useHud.getState().pushLog({ level: "OK", message: "Enlace WebSocket establecido con el núcleo unificado." });
       };
 
       ws.onmessage = (ev) => {
@@ -52,17 +54,40 @@ export function useBridge() {
               s.pushLog({ level: msg.level ?? "INFO", message: msg.message });
               break;
             case "chat":
-              s.pushChat({ role: msg.role ?? "assistant", text: msg.text });
+              // Special tagged messages for email data
+              if (msg.text?.startsWith("[EMAIL_DATA]")) {
+                try {
+                  const emails = JSON.parse(msg.text.replace("[EMAIL_DATA]", ""));
+                  s.setEmails(emails);
+                  s.setEmailsLoading(false);
+                } catch {
+                  s.pushChat({ role: msg.role ?? "assistant", text: msg.text });
+                }
+              } else {
+                s.pushChat({ role: msg.role ?? "assistant", text: msg.text });
+              }
               break;
             case "media":
               s.addMedia(msg.media);
               break;
             case "remote":
               if (msg.op) s.triggerRemote(msg.op);
-              else s.triggerRemote && (useHud.setState({ remoteOp: null }));
+              else useHud.setState({ remoteOp: null });
               break;
             case "tts/level":
               s.setTtsLevel(msg.v ?? 0);
+              break;
+            case "demo/update":
+              s.updateDemo(msg.id, { status: msg.status, url: msg.url });
+              if (msg.status === "ready") {
+                s.pushLog({ level: "OK", message: `Demo lista: ${msg.url}` });
+              }
+              break;
+            case "consejo/result":
+              if (msg.data) {
+                s.pushConsejo(msg.data);
+                s.setConsejoLoading(false);
+              }
               break;
           }
         } catch (e) {
@@ -77,9 +102,7 @@ export function useBridge() {
         window.setTimeout(connect, 500 * 2 ** retry);
       };
 
-      ws.onerror = () => {
-        ws.close();
-      };
+      ws.onerror = () => { ws.close(); };
     };
 
     connect();

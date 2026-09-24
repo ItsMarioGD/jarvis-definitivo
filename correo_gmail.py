@@ -134,21 +134,22 @@ def resumen(maximo: int = 8, log=print) -> str:
     return " ".join(partes)
 
 
-def enviar(para: str, asunto: str, cuerpo: str, log=print) -> str:
-    """Envia un correo. Requiere scope gmail.send y confirmacion del señor."""
+def enviar(para: str, asunto: str, cuerpo: str, log=print):
+    """Envia un correo. Requiere scope gmail.send y confirmacion del señor.
+    Devuelve dict {'ok', 'mensaje'} o str (retrocompatibilidad)."""
     svc = _servicio(log=log)
     if svc is None:
-        return "Señor, no tengo acceso a Gmail para enviar."
+        return {"ok": False, "mensaje": "Sin acceso a Gmail para enviar.", "error": "sin token"}
     try:
         mensaje = MIMEText(cuerpo or "", _charset="utf-8")
         mensaje["to"] = para
         mensaje["subject"] = asunto or "(sin asunto)"
         crudo = base64.urlsafe_b64encode(mensaje.as_bytes()).decode()
         svc.users().messages().send(userId="me", body={"raw": crudo}).execute()
-        return f"Correo enviado a {para}, señor."
+        return {"ok": True, "mensaje": f"Correo enviado a {para}, señor."}
     except Exception as e:
         log(f"[CORREO] no pude enviar: {e}")
-        return f"Señor, el envío falló: {str(e)[:120]}"
+        return {"ok": False, "mensaje": f"El envío falló: {str(e)[:120]}", "error": str(e)[:120]}
 
 
 def hallazgos_para_enjambre(log=print) -> list:
@@ -167,3 +168,60 @@ def hallazgos_para_enjambre(log=print) -> list:
         salida.append((f"{len(correos)} correos sin leer acumulados",
                        "La bandeja de entrada se está llenando.", 0.4))
     return salida
+
+
+def bandeja(limite: int = 10, log=print) -> list:
+    """
+    Alias moderno de `no_leidos` que devuelve una lista de dicts
+    compatible con la API REST y el HUD.
+    """
+    correos = no_leidos(maximo=min(limite, 25), log=log)
+    resultado = []
+    for c in correos:
+        resultado.append({
+            "id":      c.get("id", ""),
+            "from":    c.get("de", ""),
+            "subject": c.get("asunto", ""),
+            "body":    c.get("cuerpo", c.get("snippet", "")),
+            "snippet": c.get("snippet", ""),
+            "ts":      c.get("fecha_ts", 0),
+            "read":    False,
+            "vip":     c.get("vip", False),
+        })
+    return resultado
+
+
+def leer(msg_id: str, log=print) -> dict:
+    """Lee el contenido completo de un mensaje por su ID."""
+    srv = _servicio(log=log)
+    if not srv:
+        return {"ok": False, "error": "Sin servicio de Gmail"}
+    try:
+        msg = srv.users().messages().get(
+            userId="me", id=msg_id, format="full").execute()
+        payload = msg.get("payload", {})
+        asunto = _cabecera(payload, "subject")
+        remitente = _cabecera(payload, "from")
+
+        # Extraer cuerpo
+        cuerpo = ""
+        parts = payload.get("parts") or [payload]
+        for p in parts:
+            if p.get("mimeType") == "text/plain":
+                data = p.get("body", {}).get("data", "")
+                if data:
+                    import base64
+                    cuerpo = base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+                    break
+
+        return {
+            "ok": True,
+            "id": msg_id,
+            "from": remitente,
+            "subject": asunto,
+            "body": cuerpo[:3000],
+            "vip": bool(_REMITENTES_VIP.search(asunto + remitente)),
+        }
+    except Exception as e:
+        log(f"[CORREO] leer {msg_id}: {e}")
+        return {"ok": False, "error": str(e)[:120]}
