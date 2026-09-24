@@ -98,6 +98,8 @@ try:
 except ImportError:
     HAS_SR = False
 
+import audio_local
+
 try:
     import pygame
     pygame.mixer.init()
@@ -3928,22 +3930,17 @@ class JarvisCore:
                 return self._speak_with_windows(text)
 
             self.log("Reproduciendo audio...")
-            if HAS_PYGAME:
-                pygame.mixer.music.load(tmp)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.05)
-                pygame.mixer.music.unload()
-            else:
-                os.startfile(tmp)
-            return True
+            # Suena aquí dentro. Nunca os.startfile: abría el reproductor de
+            # Windows con cada frase.
+            if audio_local.reproducir(tmp):
+                return True
+            self.log("No hay reproductor de audio en este proceso; usando voz local.")
+            return self._speak_with_windows(text)
         except Exception as e:
             self.log(f"ElevenLabs no disponible ({type(e).__name__}); usando voz local.")
             return self._speak_with_windows(text)
         finally:
-            # pygame termina antes de este punto. Si Windows abrió un reproductor
-            # externo, no se borra el temporal para no cortar el audio.
-            if tmp and HAS_PYGAME:
+            if tmp:
                 try:
                     os.remove(tmp)
                 except OSError:
@@ -4042,6 +4039,7 @@ class JarvisCore:
     def stop_speaking(self):
         """Interrupción (Sprint 2): detiene la voz y descarta frases pendientes."""
         self._flush_tts_queue()
+        audio_local.callar()               # ElevenLabs y Piper
         try:
             import voz_rapida
             voz_rapida.callar()

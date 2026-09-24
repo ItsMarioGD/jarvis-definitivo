@@ -1442,6 +1442,82 @@ def test_holo_puente():
     _check('ctx.load_cert_chain' in fuente,
            "el escáner del móvil va por HTTPS o no va")
 
+# ── Voz: suena dentro de JARVIS, nunca en el reproductor de Windows ───────
+def test_voz_sin_reproductor_de_windows():
+    print("\n== VOZ SIN REPRODUCTOR DE WINDOWS ==")
+    import tempfile
+    import threading
+    import wave
+    import audio_local
+    import jarvis_piper
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for nombre in ("jarvis_core.py", "jarvis_piper.py"):
+        with open(os.path.join(raiz, nombre), encoding="utf-8") as f:
+            _check("os.startfile(" not in f.read(),
+                   f"{nombre} no le pasa la voz a Windows (abría su reproductor)")
+
+    wav = os.path.join(tempfile.gettempdir(), "jarvis_prueba_voz.wav")
+    with wave.open(wav, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(b"\0\0" * 800)
+
+    abiertos = []
+    antes = (getattr(os, "startfile", None), audio_local._sin_pygame,
+             audio_local._hay_mci, audio_local._orden_mci)
+    os.startfile = lambda *a, **k: abiertos.append(a)
+    try:
+        audio_local._sin_pygame = True
+        audio_local._hay_mci = lambda: False
+        _check(audio_local.reproducir(wav) is False,
+               "sin forma de sonar aquí dentro, dice que no (y JARVIS usa otra voz)")
+        try:
+            jarvis_piper._reproducir(wav)
+            _check(False, "Piper avisa de que no pudo sonar")
+        except RuntimeError:
+            _check(True, "Piper avisa de que no pudo sonar")
+        _check(not abiertos, "y no se abre ningún programa", f"-> {abiertos}")
+
+        # MCI de Windows (winmm): suena en este proceso, sin ventana.
+        ordenes, modos = [], iter(["playing", "playing", "stopped"])
+
+        def _mci(orden):
+            ordenes.append(orden)
+            if orden.endswith(" mode"):
+                return next(modos, "stopped")
+            return "100" if orden.endswith(" length") else ""
+        audio_local._hay_mci = lambda: True
+        audio_local._orden_mci = _mci
+        _check(audio_local.reproducir(wav) is True, "con MCI la voz suena")
+        _check(any(o.startswith('open "') and "type waveaudio" in o for o in ordenes)
+               and any(o.startswith("play ") for o in ordenes)
+               and ordenes[-1].startswith("close "),
+               "abre, reproduce y cierra el audio", f"-> {ordenes}")
+
+        # Interrumpirle corta la frase (antes jarvis_piper.callar no existía).
+        ordenes.clear()
+        audio_local._orden_mci = lambda o: (ordenes.append(o), "playing" if o.endswith(" mode") else "")[1]
+        hilo = threading.Thread(target=audio_local.reproducir, args=(wav,), daemon=True)
+        hilo.start()
+        time.sleep(0.2)
+        jarvis_piper.callar()
+        hilo.join(2)
+        _check(not hilo.is_alive() and any(o.startswith("stop ") for o in ordenes),
+               "«calla» corta la voz de Piper y ElevenLabs")
+    finally:
+        if antes[0] is None:
+            del os.startfile
+        else:
+            os.startfile = antes[0]
+        (audio_local._sin_pygame, audio_local._hay_mci, audio_local._orden_mci) = antes[1:]
+        try:
+            os.remove(wav)
+        except OSError:
+            pass
+
+
 def main():
     pruebas = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for prueba in pruebas:
