@@ -3,29 +3,33 @@
 ## Interfaz actual: ORIGEN (`web_interface/origen.html`, ruta `/`)
 
 El reactor Arc se jubila. En el centro hay ahora una **figura abstracta y triste**:
-alguien sentado en el suelo, abrazado a sus rodillas, hecho de polvo de luz.
-Dentro lleva un **corazón de oro** que late, y sus grietas están reparadas con oro
-(**kintsugi**). Cuenta de dónde sale JARVIS: lo hizo con amor un desarrollador
-adolescente que quiso cambiar y demostrar que podía hacer lo que se propusiera.
+alguien sentado en el suelo, abrazado a sus rodillas, hecho de polvo de luz. Dentro
+de la cabeza lleva una **mente de oro**: un cerebro con sus dos hemisferios,
+circunvoluciones y cerebelo, que pulsa y chispea (sinapsis). Las vetas doradas que le
+recorren el cuerpo son sus conexiones: por ellas viajan las señales que salen de la
+mente. La idea es que JARVIS no se sienta como un asistente que espera órdenes, sino
+como algo que está ahí, pensando.
 
 | Estado | Qué hace la figura |
 |--------|--------------------|
-| **Reposo** | Cabeza hundida en las rodillas, respira despacio, se le cae polvo (de la cara, como lágrimas). Latido a 54 lpm. |
+| **Reposo** | Cabeza hundida en las rodillas, respira despacio, se le desprende polvo. La mente pulsa a 40 por minuto. |
 | **Escucha** | Levanta un poco la cabeza; las partículas tiemblan con el nivel del micrófono. |
-| **Pensando** | Parte del cuerpo se suelta y orbita en un anillo inclinado: los pensamientos. Las vetas doradas laten. |
-| **Hablando** | Alza la cabeza; el corazón y unas ondas que salen de él siguen el volumen real de la voz (`AnalyserNode`). |
-| **Descanso / Enfoque** | Se apaga la luz y el polvo; el latido baja. |
-| **Apagado** | Se desmorona: primero la cabeza y lo último el corazón. Queda un montón de ceniza en el suelo. «Despertar» la reconstruye desde el corazón hacia fuera. |
+| **Pensando** | La mente se acelera y chispea más; parte del cuerpo se suelta y orbita alrededor de la cabeza. |
+| **Hablando** | Alza la cabeza; la mente y unas ondas que salen de ella siguen el volumen real de la voz (`AnalyserNode`). |
+| **Descanso / Enfoque** | Se apaga la luz y el polvo; el pulso baja. |
+| **Apagado** | El cuerpo se desmorona de arriba abajo; la mente queda un instante sola en el aire y cae la última. «Silencio. Sigo pensando, aunque no me veas.» «Despertar» la reconstruye desde la mente hacia fuera. |
 
 **Arranque:** una chispa y «toca para despertarlo». El gesto desbloquea el audio y
-empieza el ritual: dron grave, latido audible y seis frases mientras el corazón nace
-primero y el cuerpo se forma después. La primera vez dura unos 27 s; luego solo
-«Hecho con amor.» (`?intro=1` la repite y `?directo=1` se salta la puerta).
+empieza el ritual: dron grave, un pulso audible y cinco frases («Antes de ser una voz,
+fui una idea.» … «Pienso. Luego existo.») mientras primero se enciende la mente y
+después se forma el cuerpo. La primera vez dura unos 24 s; luego solo el nombre
+(`?intro=1` repite la versión larga y `?directo=1` se salta la puerta). En la cabecera,
+«despierto hace N min» cuenta el tiempo desde que se abrió.
 
 **Motor (WebGL2 a mano, sin librerías ni imágenes):**
 - Hasta **1.048.576 partículas** en texturas RGBA32F. Su física corre en la GPU con
   render-to-texture ping-pong y MRT (posición + velocidad): muelles hacia un esqueleto
-  de 18 cápsulas cónicas animado en la CPU, flujo ABC sin divergencia, gravedad,
+  de 18 cápsulas cónicas animado en la CPU y un cerebro paramétrico que se inclina con la cabeza, flujo ABC sin divergencia, gravedad,
   suelo, cursor que las aparta y el polvo que se desprende y vuelve.
 - Acumulación HDR de 16 bits con estela, reflejo en el suelo, cono de luz, bloom
   *dual-filter* de 6 niveles, ACES, viñeta, aberración cromática y grano.
@@ -33,7 +37,7 @@ primero y el cuerpo se forma después. La primera vez dura unos 27 s; luego solo
   sube o baja entre 65 k y 1 M partículas; `?calidad=0..4` lo fija a mano.
 - **Respaldo**: sin texturas float escribibles, la misma coreografía se calcula en
   forma cerrada en el vertex shader (`?motor=analitico` lo fuerza). Sin WebGL2 queda
-  un latido en CSS y todo lo demás funciona.
+  un pulso en CSS y todo lo demás funciona.
 
 **Funciones:** chat (`/process_text`), voz (`/api/speak`, con respaldo en
 `speechSynthesis`), micrófono (Web Speech o grabación a `/voice`), voz continua

@@ -35,7 +35,7 @@ Desarrollar un asistente inteligente omnimodal y autónomo con capacidades de vo
 | **TTS** | ✅ | ElevenLabs voz Spuds Oxley (eleven_multilingual_v2) |
 | **LLM** | ✅ | Qwen3:4b-instruct ejecutando localmente vía Ollama (puerto 11434) |
 | **Transporte** | ✅ | Llamadas directas REST (no WebRTC en Fase 1) |
-| **Interfaz** | ✅ | **ORIGEN** (`/`): figura de partículas en WebGL2 —sentada, abrazada a sus rodillas, con un corazón de oro y grietas kintsugi—, física en la GPU, voz, subtítulos y telemetría real. El HUD anterior (Arc Reactor, generador de imágenes y módulos) sigue en `/clasica`. |
+| **Interfaz** | ✅ | **ORIGEN** (`/`): figura de partículas en WebGL2 —sentada, abrazada a sus rodillas, con una mente de oro dentro de la cabeza y vetas doradas por el cuerpo—, física en la GPU, voz, subtítulos y telemetría real. El HUD anterior (Arc Reactor, generador de imágenes y módulos) sigue en `/clasica`. |
 | **Núcleo Lógico** | ✅ | `jarvis_core.py` (Python): Limpieza `<think>`, Contexto Dinámico, SQLite DB para memoria local persistente, y Listener UDP. |
 | **Hotkey Global** | ✅ | `jarvis_hotkey.cpp` (C++): Intercepta Ctrl+Alt+J a nivel SO y activa el micrófono de Jarvis remotamente. |
 | **Android Bridge** | ✅ | `JarvisAdbBridge.java` (Java): Wrapper ADB para controlar emuladores/dispositivos físicos. |

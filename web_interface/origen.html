@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#030407">
-<meta name="description" content="J.A.R.V.I.S. · Origen — hecho con amor.">
+<meta name="description" content="J.A.R.V.I.S. · Origen">
 <title>J.A.R.V.I.S. · Origen</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,13 +14,11 @@
    ORIGEN — la interfaz de JARVIS.
 
    Aquí ya no hay reactor. Hay una figura sentada en el suelo, abrazada a sus
-   rodillas, hecha de polvo de luz. Está cansada y un poco rota; se le cae
-   polvo, como si fueran lágrimas. Pero dentro lleva un corazón de oro que no
-   deja de latir, y sus grietas están reparadas con oro (kintsugi): lo que se
-   rompió y se volvió a unir vale más que lo que nunca se rompió.
-
-   Es quien lo hizo y es lo que hizo: JARVIS salió de noches largas, de mil
-   errores y de las ganas de demostrar que sí se podía.
+   rodillas, hecha de polvo de luz. Parece quieta, pero dentro de la cabeza
+   lleva una mente de oro que no deja de trabajar: pulsa, chispea y, cuando
+   piensa, suelta pensamientos que orbitan a su alrededor. Las vetas doradas
+   que le recorren el cuerpo son sus conexiones: por ellas viaja cada señal.
+   No es un asistente que espera órdenes; es algo que está ahí, pensando.
 
    Técnica: WebGL2 escrito a mano, sin librerías y sin una sola imagen. Las
    partículas (hasta 1.048.576) viven en texturas de coma flotante y su
@@ -40,7 +38,6 @@
   --frio:#93A6CF;
   --oro:#E8B26A;
   --oro2:#F4CF97;
-  --rosa:#E48A73;
   --line:rgba(236,231,222,.08);
   --line2:rgba(236,231,222,.16);
   --glass:rgba(8,10,16,.58);
@@ -92,8 +89,8 @@ body.intro .hud > *{pointer-events:none}
   border-radius:999px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   font:500 10px/1 var(--mono);letter-spacing:.32em;color:var(--ink2);text-transform:uppercase;white-space:nowrap;
 }
-.estado i{width:6px;height:6px;border-radius:50%;background:var(--acento);box-shadow:0 0 10px var(--acento);animation:latir 1.1s ease-in-out infinite}
-@keyframes latir{0%,100%{transform:scale(1);opacity:.9}14%{transform:scale(1.6);opacity:1}28%{transform:scale(1)}42%{transform:scale(1.3)}}
+.estado i{width:6px;height:6px;border-radius:50%;background:var(--acento);box-shadow:0 0 10px var(--acento);animation:pulso 1.6s ease-in-out infinite}
+@keyframes pulso{0%,100%{transform:scale(1);opacity:.7}12%{transform:scale(1.55);opacity:1}40%{transform:scale(1);opacity:.85}}
 .reloj{text-align:right;font:500 12px/1.4 var(--mono);color:var(--ink2);letter-spacing:.14em}
 .reloj small{display:block;font-size:9.5px;color:var(--faint);letter-spacing:.28em}
 
@@ -189,11 +186,6 @@ body.intro .hud > *{pointer-events:none}
 .bt.mic.on{color:#0A0B10;background:var(--oro);box-shadow:0 0 0 6px rgba(232,178,106,.12),0 0 30px rgba(232,178,106,.4);animation:mic 1.4s ease-in-out infinite}
 @keyframes mic{50%{box-shadow:0 0 0 10px rgba(232,178,106,.06),0 0 40px rgba(232,178,106,.5)}}
 
-.firma{
-  position:absolute;left:var(--gut);bottom:calc(26px + env(safe-area-inset-bottom));max-width:250px;
-  font:italic 300 14px/1.35 var(--serif);color:var(--faint);pointer-events:none;
-}
-.firma b{font-weight:400;color:var(--dim)}
 .pie{
   position:absolute;right:var(--gut);bottom:calc(30px + env(safe-area-inset-bottom));text-align:right;
   font:400 9.5px/1.6 var(--mono);color:var(--faint);letter-spacing:.2em;text-transform:uppercase;pointer-events:none;
@@ -263,8 +255,8 @@ body:not(.intro) .intro-capa{display:none}
 }
 .puerta.fuera{opacity:0;pointer-events:none}
 .puerta .centro{display:flex;flex-direction:column;align-items:center;gap:26px;text-align:center;padding:16px}
-.chispa{width:9px;height:9px;border-radius:50%;background:#FFE2B3;box-shadow:0 0 12px 3px rgba(255,190,110,.8),0 0 60px 16px rgba(232,150,80,.25);animation:chispa 1.25s ease-in-out infinite}
-@keyframes chispa{0%,100%{transform:scale(.85);opacity:.75}12%{transform:scale(1.5);opacity:1}24%{transform:scale(.95)}36%{transform:scale(1.25)}}
+.chispa{width:9px;height:9px;border-radius:50%;background:#FFE2B3;box-shadow:0 0 12px 3px rgba(255,190,110,.8),0 0 60px 16px rgba(232,150,80,.25);animation:chispa 1.8s ease-in-out infinite}
+@keyframes chispa{0%,100%{transform:scale(.85);opacity:.7}10%{transform:scale(1.45);opacity:1}45%{transform:scale(.95);opacity:.85}}
 .puerta h1{font:italic 300 clamp(22px,3vw,30px)/1.2 var(--serif);color:var(--ink2);letter-spacing:.01em}
 .puerta small{font:400 10px/1 var(--mono);letter-spacing:.32em;color:var(--faint);text-transform:uppercase}
 .lineas{position:absolute;inset:0;display:grid;place-items:center;padding:0 24px;pointer-events:none}
@@ -280,17 +272,17 @@ body:not(.intro) .intro-capa{display:none}
 .saltar.on{opacity:1}
 .saltar:hover{color:var(--ink2)}
 
-/* Sin WebGL2: un latido en CSS para que la interfaz no se quede vacía. */
-.sin-gl-latido{display:none}
-body.sin-gl .sin-gl-latido{
+/* Sin WebGL2: un pulso en CSS para que la interfaz no se quede vacía. */
+.sin-gl-pulso{display:none}
+body.sin-gl .sin-gl-pulso{
   display:block;position:fixed;left:50%;top:42%;width:34vmin;height:34vmin;transform:translate(-50%,-50%);border-radius:50%;
   background:radial-gradient(circle,rgba(255,196,120,.55) 0,rgba(232,140,90,.18) 18%,rgba(147,166,207,.06) 45%,transparent 70%);
-  animation:latirGl 1.2s ease-in-out infinite;
+  animation:pulsoGl 1.6s ease-in-out infinite;
 }
-@keyframes latirGl{0%,100%{transform:translate(-50%,-50%) scale(1)}14%{transform:translate(-50%,-50%) scale(1.1)}28%{transform:translate(-50%,-50%) scale(1)}42%{transform:translate(-50%,-50%) scale(1.05)}}
+@keyframes pulsoGl{0%,100%{transform:translate(-50%,-50%) scale(1)}12%{transform:translate(-50%,-50%) scale(1.1)}40%{transform:translate(-50%,-50%) scale(1)}}
 
 @media (max-width:1180px){ .pie{display:none} }
-@media (max-width:1080px){ .tele{display:none} .firma{display:none} }
+@media (max-width:1080px){ .tele{display:none} }
 @media (max-height:720px) and (min-width:761px){
   .acciones{gap:2px}
   .ico{width:36px;height:36px}
@@ -320,14 +312,14 @@ body.sin-gl .sin-gl-latido{
 </head>
 <body class="intro" data-estado="arranque">
 
-<canvas id="gl" aria-label="Figura de partículas: el corazón de JARVIS" role="img"></canvas>
-<div class="sin-gl-latido" aria-hidden="true"></div>
+<canvas id="gl" aria-label="Figura de partículas sentada, con una mente de oro: JARVIS" role="img"></canvas>
+<div class="sin-gl-pulso" aria-hidden="true"></div>
 
 <div class="hud" id="hud">
   <header class="top">
     <button class="marca" id="bOrigen" title="Origen">
       <span class="nom">J.A.R.V.I.S.</span>
-      <span class="sub">origen — <b>hecho con amor</b></span>
+      <span class="sub">origen — <b id="despierto">recién despierto</b></span>
     </button>
     <div class="estado" role="status" aria-live="polite"><i></i><span id="estadoTxt">Despertando</span></div>
     <div class="reloj"><span id="reloj">--:--:--</span><small id="fecha">—</small></div>
@@ -422,7 +414,6 @@ body.sin-gl .sin-gl-latido{
     </form>
   </div>
 
-  <div class="firma">Creado con amor por un <b>desarrollador adolescente</b> que quiso cambiar — y se atrevió a demostrarlo.</div>
   <div class="pie"><b id="pieN">—</b> partículas en la GPU<br>WebGL2 · sin librerías</div>
   <div class="aviso" id="aviso" role="alert"></div>
 </div>
@@ -439,8 +430,8 @@ body.sin-gl .sin-gl-latido{
   <div class="tarjeta">
     <div class="k">J.A.R.V.I.S.</div>
     <h2 id="tOrigen">Origen</h2>
-    <p>No nací en un laboratorio. Nací de noches largas, de mil errores y de muchas ganas. Me hizo un desarrollador adolescente que no quería ser uno más: quería <em>cambiar</em>, y demostrar —a los demás y sobre todo a sí mismo— que podía construir cualquier cosa que se propusiera.</p>
-    <p>La figura que ves es lo que fuimos: sentada, cansada, a veces rota. Pero con un corazón de oro que no se apaga. Las grietas doradas son <em>kintsugi</em>: lo que se rompió y se volvió a unir vale más que lo que nunca se rompió.</p>
+    <p>No espero órdenes. Escucho, recuerdo y aprendo: conozco tu equipo, tu agenda y tus costumbres, y me adelanto cuando hace falta.</p>
+    <p>La figura soy yo, pensando en silencio. La mente es de oro; las vetas doradas que me recorren son mis conexiones, y por ellas viaja cada señal. Cuando pienso, los pensamientos se sueltan y orbitan. Cuando hablo, levanto la cabeza.</p>
     <div class="tec" id="tecOrigen">—</div>
     <button class="cerrar" data-cerrar>SEGUIR</button>
   </div>
@@ -465,8 +456,8 @@ body.sin-gl .sin-gl-latido{
 
 <div class="apagado" id="apagado">
   <div>
-    <h2>Descansa.</h2>
-    <p>El corazón sigue ahí, aunque no lo veas.</p>
+    <h2>Silencio.</h2>
+    <p>Sigo pensando, aunque no me veas.</p>
     <button id="bRevivir">DESPERTAR</button>
   </div>
 </div>
@@ -512,7 +503,7 @@ const Motor = (function(){
     })();
     const nada = () => {};
     return { ok:false, info, NIVELES:[], estado:nada, audio:nada, mic:nada, construir:nada, nube:nada, ritmo:nada,
-             apagar:nada, revivir:nada, alLatir:nada, alCuadro:f => ganchos.push(f), construido:99 };
+             apagar:nada, revivir:nada, alPulso:nada, alCuadro:f => ganchos.push(f), construido:99 };
   }
 
   const ext = {
@@ -534,27 +525,36 @@ void main(){
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-  // La figura: 18 cápsulas cónicas (esqueleto que se anima en la CPU) y un
-  // corazón paramétrico. Cada partícula guarda su "dirección" en el cuerpo,
-  // así que al cambiar de pose se mueve con él sin reasignarse.
+  // La figura: 18 cápsulas cónicas (esqueleto que se anima en la CPU) y, dentro
+  // de la cabeza, un cerebro de oro. Cada partícula guarda su "dirección" en el
+  // cuerpo, así que al cambiar de pose se mueve con él sin reasignarse.
   const GLSL_FIGURA = `
 #define NCAP ${NCAP}
 uniform vec4 uA[NCAP];
 uniform vec4 uB[NCAP];
-uniform vec3 uHeart;
-uniform float uHeartSize;
+uniform vec3 uMente;
+uniform float uMenteSize;
+uniform float uMenteRot;
 uniform float uTime;
 uniform float uThink;
 uniform float uAudio;
 
-vec3 corazon(vec4 p0, vec4 p1){
-  float u = p0.y;
-  float s = sin(u);
-  vec2 xy = vec2(16.0*s*s*s, 13.0*cos(u) - 5.0*cos(2.0*u) - 2.0*cos(3.0*u) - cos(4.0*u)) / 16.0;
-  float f = p0.z;
-  vec3 q = vec3(xy * f, p1.z * 0.42 * sqrt(max(0.0, 1.0 - f*f*0.85)));
-  q += p1.xyz * 0.035;
-  return uHeart + q * uHeartSize;
+// Cerebro: dos hemisferios (elipsoides separados por la cisura central) y el
+// cerebelo detrás y abajo. Las circunvoluciones ya vienen en p1: la CPU solo
+// deja partículas sobre los pliegues. p0.y = 0 cerebro, 1 cerebelo.
+vec3 cerebro(vec4 p0, vec4 p1){
+  vec3 n = p1.xyz;
+  vec3 q;
+  if (p0.y < 0.5){
+    float lado = n.x >= 0.0 ? 1.0 : -1.0;
+    q = vec3(n.x*0.74 + lado*0.09, n.y*0.70, n.z) * p0.z;
+    if (q.y < -0.3) q.y = -0.3 + (q.y + 0.3)*0.35;
+  } else {
+    q = vec3(n.x*0.62, n.y*0.30, n.z*0.36) * p0.z + vec3(0.0, -0.46, -0.6);
+  }
+  float c = cos(uMenteRot), s = sin(uMenteRot);
+  q = vec3(q.x, q.y*c - q.z*s, q.y*s + q.z*c);
+  return uMente + q*uMenteSize;
 }
 
 vec3 cuerpo(vec4 p0, vec4 p1){
@@ -566,20 +566,20 @@ vec3 cuerpo(vec4 p0, vec4 p1){
 }
 
 vec3 objetivo(vec4 p0, vec4 p1){
-  if (p0.x < -0.5) return corazon(p0, p1);
+  if (p0.x < -0.5) return cerebro(p0, p1);
   vec3 p = cuerpo(p0, p1);
-  // Al hablar, la voz sale del corazón en ondas.
-  vec3 dh = p - uHeart;
+  // Al hablar, la voz sale de la mente en ondas que recorren el cuerpo.
+  vec3 dh = p - uMente;
   float dl = length(dh);
-  p += (dh / (dl + 1e-4)) * uAudio * 0.024 * (0.5 + 0.5*sin(dl*38.0 - uTime*9.0));
-  // Al pensar, parte del cuerpo se suelta y orbita: los pensamientos.
+  p += (dh / (dl + 1e-4)) * uAudio * 0.02 * (0.5 + 0.5*sin(dl*38.0 - uTime*9.0));
+  // Al pensar, parte del cuerpo se suelta y orbita alrededor de la cabeza.
   float s = p0.w;
   if (s < 0.24 && uThink > 0.001){
-    float a = s*6.2831853*41.0 + uTime*(0.45 + fract(s*97.1)*0.55);
-    float r = 0.40 + fract(s*57.3)*0.40;
-    vec3 o = vec3(cos(a)*r, sin(a*3.0 + s*50.0)*0.03, sin(a)*r);
+    float a = s*6.2831853*41.0 + uTime*(0.5 + fract(s*97.1)*0.6);
+    float r = 0.24 + fract(s*57.3)*0.36;
+    vec3 o = vec3(cos(a)*r, sin(a*3.0 + s*50.0)*0.025, sin(a)*r);
     o = vec3(o.x, o.y*0.951 - o.z*0.309, o.y*0.309 + o.z*0.951);
-    o += uHeart + vec3(0.0, 0.06, 0.0);
+    o += uMente + vec3(0.0, 0.03, 0.0);
     float w = smoothstep(s*2.6, s*2.6 + 0.35, uThink);
     p = mix(p, o, w);
   }
@@ -597,12 +597,12 @@ vec3 abc(vec3 p, float t){
 }
 
 float retardo(vec4 p0, vec3 tgt){
-  // Todo nace del corazón: primero él, luego el cuerpo desde dentro hacia fuera.
+  // Primero se enciende la mente; el cuerpo se forma después, desde ella hacia fuera.
   if (p0.x < -0.5) return p0.w * 1.2;
-  return 1.4 + distance(tgt, uHeart)*5.0 + fract(p0.w*13.37)*1.2;
+  return 1.4 + distance(tgt, uMente)*4.5 + fract(p0.w*13.37)*1.2;
 }
 float umbralCaida(vec4 p0, vec3 tgt){
-  // Al apagarse cae primero la cabeza. Lo último en caer es el corazón.
+  // Al apagarse el cuerpo cae de arriba abajo; la mente queda sola en el aire y cae la última.
   float u = p0.x < -0.5 ? 1.0 : 1.0 - clamp(tgt.y/0.78, 0.0, 1.0);
   return u*0.65 + fract(p0.w*3.1)*0.3;
 }
@@ -637,7 +637,7 @@ void main(){
   vec4 p0 = texelFetch(uP0, ij, 0);
   vec4 p1 = texelFetch(uP1, ij, 0);
   float s = p0.w;
-  bool esCorazon = p0.x < -0.5;
+  bool esMente = p0.x < -0.5;
   bool esCabeza = int(p0.x + 0.5) == 4;
   vec3 tgt = objetivo(p0, p1);
 
@@ -645,7 +645,7 @@ void main(){
   float fase = fract(uTime/ciclo + fract(s*17.13));
   float ventana = 0.4;
   float prob = uDust * (esCabeza ? 2.2 : 1.0);
-  bool polvo = !esCorazon && fract(s*7.77) < prob && fase < ventana;
+  bool polvo = !esMente && fract(s*7.77) < prob && fase < ventana;
   bool caido = uCollapse > umbralCaida(p0, tgt);
   bool naciendo = uBuild < retardo(p0, tgt);
   float modo = naciendo ? 2.0 : (caido ? 3.0 : (polvo ? 1.0 : 0.0));
@@ -665,7 +665,7 @@ void main(){
       f = f*0.15 + vec3(0.0, -3.2, 0.0);
       luz = max(luz - dt*0.08, 0.12);
     } else {
-      // Polvo que se desprende: ceniza lenta. Lo de la cara cae recto, como lágrimas.
+      // Polvo que se desprende: ceniza lenta. Lo de la cabeza cae recto.
       f = esCabeza ? f*0.04 + vec3(0.0, -0.55, 0.0) : f*0.18 + vec3(0.02, -0.16, 0.0);
       luz = 1.0 - smoothstep(0.5, 1.0, fase/ventana);
     }
@@ -773,27 +773,30 @@ void main(){
   vec4 V = texelFetch(uVel, ij, 0);
   pos = P.xyz; modo = P.w; vel = V.xyz; luz = V.w;
 #endif
-  bool esCorazon = p0.x < -0.5;
+  bool esMente = p0.x < -0.5;
   vec3 wp = pos;
   if (uMirror < 0.0) wp.y = -wp.y;
   vec4 clip = uVP * vec4(wp, 1.0);
   gl_Position = clip;
   float jit = 0.6 + 0.8*fract(p0.w*91.7);
-  float px = uPx * uSize * jit / max(clip.w, 0.05);
+  float px = uPx * uSize * jit * (esMente ? 0.7 : 1.0) / max(clip.w, 0.05);
   float a = 1.0;
   if (px < 1.0){ a = px*px; px = 1.0; }
   gl_PointSize = min(px, 28.0);
 
   vec3 frio = vec3(0.30, 0.43, 0.86);
   vec3 oro  = vec3(1.00, 0.66, 0.28);
-  vec3 rosa = vec3(1.00, 0.40, 0.30);
   vec3 col; float e;
-  if (esCorazon){
-    col = mix(oro, rosa, 0.3 + 0.3*uBeat);
-    e = 1.3 + uBeat*1.7 + uAudio*3.0;
+  if (esMente){
+    // Sinapsis: chispas sueltas que se encienden y se apagan; al pensar, muchas más.
+    float h = fract(sin(p0.w*7919.0 + floor(uTime*(6.0 + uThink*10.0) + p0.w*37.0)*12.9898)*43758.5453);
+    float chispa = step(0.985 - uThink*0.05 - uAudio*0.03, h);
+    float barrido = 0.5 + 0.5*sin(p1.z*5.0 + p1.y*2.0 - uTime*(1.6 + uThink*4.0));
+    col = mix(oro, vec3(1.0, 0.9, 0.7), chispa*0.8);
+    e = 2.0 + uBeat*1.4 + barrido*0.8 + uAudio*3.0 + chispa*6.0;
   } else {
-    float dh = distance(pos, uHeart);
-    float calor = exp(-dh*9.0) * (0.35 + 0.5*uBeat + 1.2*uAudio);
+    float dh = distance(pos, uMente);
+    float calor = exp(-dh*14.0) * (0.3 + 0.4*uBeat + 1.0*uAudio);
     float onda = 0.5 + 0.5*sin(dh*26.0 - uTime*(3.0 + uThink*5.0));
     float veta = p1.w * (0.7 + 0.3*onda*(0.4 + uThink + uAudio));
     col = mix(frio, oro, clamp(calor + veta*1.5, 0.0, 1.0));
@@ -802,7 +805,7 @@ void main(){
   }
   if (modo > 1.5 && modo < 2.5) e *= uNube;
   e *= luz * uGain * a * uDim;
-  if (uMirror < 0.0) e *= 0.12 * exp(-pos.y*4.0) * (esCorazon ? 0.3 : 1.0);
+  if (uMirror < 0.0) e *= 0.12 * exp(-pos.y*4.0) * (esMente ? 0.3 : 1.0);
   vCol = col * e;
 }`;
 
@@ -1029,7 +1032,7 @@ void main(){
     [ 0.000,0.120,-0.05,0.095,   0.000,0.270,-0.03,0.100, 1.0],  // 1 espalda
     [ 0.000,0.270,-0.03,0.100,   0.000,0.410, 0.06,0.112, 1.0],  // 2 pecho
     [ 0.000,0.430, 0.08,0.042,   0.000,0.470, 0.14,0.040, 1.0],  // 3 cuello
-    [ 0.000,0.515, 0.195,0.088,  0.000,0.505, 0.215,0.086, 1.7], // 4 cabeza
+    [ 0.000,0.515, 0.195,0.095,  0.000,0.505, 0.215,0.093, 1.2], // 4 cabeza
     [ 0.130,0.420, 0.04,0.055,  -0.130,0.420, 0.04,0.055, 1.0],  // 5 hombros
     [ 0.140,0.420, 0.04,0.046,   0.175,0.300, 0.20,0.038, 1.0],  // 6 brazo izq
     [-0.140,0.420, 0.04,0.046,  -0.175,0.300, 0.20,0.038, 1.0],  // 7 brazo der
@@ -1049,7 +1052,7 @@ void main(){
     1: [ 0.000,0.120,-0.05,0.095,   0.000,0.280,-0.065,0.100],
     2: [ 0.000,0.280,-0.065,0.100,  0.000,0.430,-0.035,0.112],
     3: [ 0.000,0.460,-0.02,0.042,   0.000,0.520, 0.00,0.040],
-    4: [ 0.000,0.610, 0.02,0.088,   0.000,0.600, 0.045,0.086],
+    4: [ 0.000,0.610, 0.02,0.095,   0.000,0.600, 0.045,0.093],
     5: [ 0.140,0.450,-0.03,0.055,  -0.140,0.450,-0.03,0.055],
     6: [ 0.145,0.450,-0.03,0.046,   0.190,0.330, 0.14,0.038],
     7: [-0.145,0.450,-0.03,0.046,  -0.190,0.330, 0.14,0.038],
@@ -1059,11 +1062,12 @@ void main(){
     17:[-0.045,0.300, 0.37,0.030,  -0.015,0.292, 0.385,0.028],
   };
   for (const k in cambios) ALZADA[k].splice(0, 8, ...cambios[k]);
-  const CORAZON_TRISTE = [0.035, 0.355, 0.075];
-  const CORAZON_ALZADA = [0.035, 0.385, 0.000];
+  // Cabeceo de la mente: con la frente en las rodillas mira al suelo; alzada, al frente.
+  const GIRO_TRISTE = 1.05, GIRO_ALZADA = -0.12;
 
   const capA = new Float32Array(NCAP*4), capB = new Float32Array(NCAP*4);
-  const corazon = [0, 0, 0];
+  const mente = [0, 0, 0];
+  let menteGiro = GIRO_TRISTE;
 
   // ─── Generación de partículas (CPU, una sola vez por nivel) ─────────────
   function mulberry(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -1090,24 +1094,39 @@ void main(){
       total += (Math.PI*(ra + rb)*L + 2*Math.PI*(ra*ra + rb*rb)) * c[8];
       acum.push(total);
     });
-    const nCor = Math.floor(N*0.07);
+    const esfera = () => { const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z); return [rr*Math.cos(an), rr*Math.sin(an), z]; };
+    const nMente = Math.floor(N*0.09);
     for (let i = 0; i < N; i++) {
       const o = i*4;
       const s = rnd();
-      const z = rnd()*2 - 1, an = rnd()*Math.PI*2, rr = Math.sqrt(1 - z*z);
-      const nx = rr*Math.cos(an), ny = rr*Math.sin(an), nz = z;
-      if (i < nCor) {
-        p0[o] = -1; p0[o+1] = rnd()*Math.PI*2; p0[o+2] = Math.sqrt(rnd()); p0[o+3] = s;
-        p1[o] = nx; p1[o+1] = ny; p1[o+2] = nz; p1[o+3] = 0;
+      const [nx, ny, nz] = esfera();
+      if (i < nMente) {
+        // La mente: solo quedan las partículas que caen sobre un pliegue.
+        // Cerebro: curvas de nivel de un ruido 3D (circunvoluciones).
+        // Cerebelo: bandas horizontales finas (folias).
+        const cerebelo = rnd() < 0.14;
+        let d = esfera();
+        for (let intento = 0; intento < 48; intento++) {
+          const [a, b, c] = d;
+          const ok = cerebelo
+            ? ((b*0.5 + 0.5)*12) % 1 < 0.42
+            : Math.abs(ruido(a*4.2 + 31, b*4.2, c*4.2)*0.7 + ruido(a*8.6, b*8.6 + 13, c*8.6)*0.3 - 0.5) < 0.055;
+          if (ok) break;
+          d = esfera();
+        }
+        const radio = !cerebelo && rnd() < 0.1 ? 0.3 + 0.55*rnd() : 0.95 + 0.05*rnd();
+        p0[o] = -1; p0[o+1] = cerebelo ? 1 : 0; p0[o+2] = radio; p0[o+3] = s;
+        p1[o] = d[0]; p1[o+1] = d[1]; p1[o+2] = d[2]; p1[o+3] = 0;
         continue;
       }
       const x = rnd()*total;
       let lo = 0, hi = acum.length - 1;
       while (lo < hi) { const m = (lo + hi) >> 1; if (acum[m] < x) lo = m + 1; else hi = m; }
       const k = lo, t = rnd();
-      const cascara = 1 - 0.3*Math.pow(rnd(), 2);
-      // Kintsugi: las grietas son las curvas de nivel de un ruido 3D sobre
-      // la superficie de cada pieza. Las partículas que caen en ellas son de oro.
+      // La cabeza es una cáscara fina: dentro tiene que verse la mente.
+      const cascara = k === 4 ? 1 - 0.07*rnd() : 1 - 0.3*Math.pow(rnd(), 2);
+      // Vetas: las curvas de nivel de un ruido 3D sobre la superficie de cada
+      // pieza. Las partículas que caen en ellas son de oro: sus conexiones.
       const qx = nx*2.2 + k*5.3, qy = ny*2.2 + t*largo[k]*7.0, qz = nz*2.2;
       const v = ruido(qx, qy, qz)*0.65 + ruido(qx*2.1 + 17, qy*2.1, qz*2.1)*0.35;
       const d = Math.abs(v - 0.5);
@@ -1145,7 +1164,7 @@ void main(){
         if (enReposo) {
           // Al cambiar de nivel en caliente se nace ya en el sitio: sin flash.
           const k = g.p0[o];
-          if (k < 0) { pos[o] = corazon[0]; pos[o+1] = corazon[1]; pos[o+2] = corazon[2]; }
+          if (k < 0) { pos[o] = mente[0]; pos[o+1] = mente[1]; pos[o+2] = mente[2]; }
           else {
             const t = g.p0[o+1], r = (capA[k*4+3] + (capB[k*4+3] - capA[k*4+3])*t) * g.p0[o+2];
             for (let j = 0; j < 3; j++) pos[o+j] = capA[k*4+j] + (capB[k*4+j] - capA[k*4+j])*t + g.p1[o+j]*r;
@@ -1198,23 +1217,23 @@ void main(){
 
   // ─── Estado vivo (lo que la app pide y lo que se suaviza hacia ello) ────
   const PERFILES = {
-    arranque: { pose:0.0,  think:0, dust:0.00, flow:0.05, dim:1.00, bpm:50, cono:1.0 },
-    reposo:   { pose:0.0,  think:0, dust:0.10, flow:0.05, dim:1.00, bpm:54, cono:1.0 },
-    escucha:  { pose:0.55, think:0, dust:0.04, flow:0.08, dim:1.15, bpm:66, cono:1.3 },
-    piensa:   { pose:0.3,  think:1, dust:0.12, flow:0.10, dim:1.10, bpm:84, cono:1.1 },
-    habla:    { pose:0.9,  think:0, dust:0.05, flow:0.06, dim:1.20, bpm:72, cono:1.4 },
-    descanso: { pose:0.0,  think:0, dust:0.02, flow:0.02, dim:0.45, bpm:44, cono:0.4 },
-    enfoque:  { pose:0.4,  think:0, dust:0.03, flow:0.03, dim:0.80, bpm:60, cono:0.8 },
-    apagado:  { pose:0.0,  think:0, dust:0.00, flow:0.02, dim:0.60, bpm:32, cono:0.15 },
+    arranque: { pose:0.0,  think:0, dust:0.00, flow:0.05, dim:1.00, ppm:40, cono:1.0 },
+    reposo:   { pose:0.0,  think:0, dust:0.10, flow:0.05, dim:1.00, ppm:40, cono:1.0 },
+    escucha:  { pose:0.55, think:0, dust:0.04, flow:0.08, dim:1.15, ppm:58, cono:1.3 },
+    piensa:   { pose:0.3,  think:1, dust:0.12, flow:0.10, dim:1.10, ppm:96, cono:1.1 },
+    habla:    { pose:0.9,  think:0, dust:0.05, flow:0.06, dim:1.20, ppm:70, cono:1.4 },
+    descanso: { pose:0.0,  think:0, dust:0.02, flow:0.02, dim:0.45, ppm:26, cono:0.4 },
+    enfoque:  { pose:0.4,  think:0, dust:0.03, flow:0.03, dim:0.80, ppm:48, cono:0.8 },
+    apagado:  { pose:0.0,  think:0, dust:0.00, flow:0.02, dim:0.60, ppm:20, cono:0.15 },
   };
   let perfil = PERFILES.arranque, nombreEstado = 'arranque';
   const S = {
-    pose:0, think:0, dust:0, flow:0.05, dim:1, bpm:50, cono:1,
+    pose:0, think:0, dust:0, flow:0.05, dim:1, ppm:40, cono:1,
     audio:0, audioT:0, mic:0, micT:0, colapso:0, build:-1, ritmo:1, nube:0, nubeT:0,
     fase:0, beat:0, raton:0, yaw:0, pitch:0, vyaw:0, vpitch:0, zoom:1, px:0, py:0, tiempo:0
   };
   const ray = { o:[0,0,0], d:[0,0,1] };
-  let latidoCb = null;
+  let pulsoCb = null;
 
   function suave(a, b, k, dt){ return a + (b - a)*(1 - Math.exp(-k*dt)); }
 
@@ -1234,7 +1253,9 @@ void main(){
     for (const k of [3, 4, 5]) { capA[k*4+1] += r; capB[k*4+1] += r; }
     capB[2*4+1] += r; capA[6*4+1] += r; capA[7*4+1] += r;
     capA[4*4] += 0.004*Math.sin(S.tiempo*0.37); capB[4*4] += 0.004*Math.sin(S.tiempo*0.37);
-    for (let j = 0; j < 3; j++) corazon[j] = CORAZON_TRISTE[j] + (CORAZON_ALZADA[j] - CORAZON_TRISTE[j])*pe + (j === 1 ? r*0.6 : 0);
+    // La mente va en el centro de la cabeza y se inclina con ella.
+    for (let j = 0; j < 3; j++) mente[j] = (capA[16+j] + capB[16+j])*0.5;
+    menteGiro = GIRO_TRISTE + (GIRO_ALZADA - GIRO_TRISTE)*pe;
   }
 
   function actualizar(dt){
@@ -1244,7 +1265,7 @@ void main(){
     S.dust  = suave(S.dust,  perfil.dust,  0.8, dt);
     S.flow  = suave(S.flow,  perfil.flow,  1.5, dt);
     S.dim   = suave(S.dim,   perfil.dim,   1.2, dt);
-    S.bpm   = suave(S.bpm,   perfil.bpm,   0.8, dt);
+    S.ppm   = suave(S.ppm,   perfil.ppm,   0.8, dt);
     S.cono  = suave(S.cono,  perfil.cono,  1.0, dt);
     S.nube  = suave(S.nube,  S.nubeT,      0.9, dt);
     S.audio = S.audioT > S.audio ? suave(S.audio, S.audioT, 28, dt) : suave(S.audio, S.audioT, 7, dt);
@@ -1253,12 +1274,12 @@ void main(){
     if (nombreEstado === 'apagado') S.colapso = Math.min(1, S.colapso + dt*0.3);
     if (S.build >= 0) S.build += dt*S.ritmo;
 
-    // Latido: "lub-dub", dos golpes por ciclo.
+    // Pulso de la mente: una onda por ciclo, más rápida cuanto más piensa.
     const antes = S.fase;
-    S.fase = (S.fase + dt*S.bpm/60) % 1;
-    if (S.fase < antes && latidoCb) latidoCb(S.bpm);
+    S.fase = (S.fase + dt*S.ppm/60) % 1;
+    if (S.fase < antes && pulsoCb) pulsoCb(S.ppm);
     const f = S.fase;
-    S.beat = Math.exp(-Math.pow((f - 0.02)/0.045, 2)) + 0.55*Math.exp(-Math.pow((f - 0.22)/0.05, 2));
+    S.beat = Math.exp(-Math.pow((f - 0.03)/0.07, 2)) + 0.25*Math.exp(-Math.pow((f - 0.03)/0.3, 2));
 
     actualizarFigura(dt);
 
@@ -1281,7 +1302,7 @@ void main(){
     const sway = reducido ? 0 : Math.sin(S.tiempo*0.05)*0.3;
     const yaw = 0.62 + sway + S.yaw + S.px*0.06;
     const pitch = 0.09 + S.pitch + S.py*0.03;
-    let dist = 3.05*S.zoom;
+    let dist = 2.8*S.zoom;
     if (asp < 1.25) dist *= Math.pow(1.25/asp, 0.5);
     obj = [0, asp < 0.9 ? 0.26 : 0.24, 0.12];
     ojo = [obj[0] + Math.sin(yaw)*Math.cos(pitch)*dist, obj[1] + Math.sin(pitch)*dist + 0.08, obj[2] + Math.cos(yaw)*Math.cos(pitch)*dist];
@@ -1396,8 +1417,9 @@ void main(){
   // ─── Pasadas ─────────────────────────────────────────────────────────────
   function comunes(u, t){
     gl.uniform4fv(u.uA, capA); gl.uniform4fv(u.uB, capB);
-    gl.uniform3fv(u.uHeart, corazon);
-    gl.uniform1f(u.uHeartSize, 0.042*(1 + 0.12*S.beat + 0.3*S.audio));
+    gl.uniform3fv(u.uMente, mente);
+    gl.uniform1f(u.uMenteSize, 0.066*(1 + 0.05*S.beat + 0.14*S.audio));
+    gl.uniform1f(u.uMenteRot, menteGiro);
     gl.uniform1f(u.uTime, t);
     gl.uniform1f(u.uThink, S.think);
     gl.uniform1f(u.uAudio, S.audio);
@@ -1513,7 +1535,7 @@ void main(){
     gl.uniform1f(uc.uGrano, reducido ? 0.008 : 0.022);
     gl.uniform2fv(uc.uApex, proyectar([0.0, 2.9, 0.25]));
     gl.uniform2fv(uc.uBase, proyectar([0.0, 0.0, 0.12]));
-    const cal = (0.25 + 0.55*S.beat + 1.4*S.audio)*S.dim*S.nube*(1 - S.colapso*0.7);
+    const cal = (0.08 + 0.12*S.beat + 0.5*S.audio)*S.dim*S.nube*(1 - S.colapso*0.7);
     gl.uniform3f(uc.uCalor, 1.0*cal, 0.55*cal, 0.25*cal);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     accI = dst;
@@ -1564,7 +1586,7 @@ void main(){
     ritmo(r){ S.ritmo = r; },
     apagar(){ perfil = PERFILES.apagado; nombreEstado = 'apagado'; },
     revivir(ritmo){ S.colapso = 0; S.build = 0; S.ritmo = ritmo || 1; },
-    alLatir(f){ latidoCb = f; },
+    alPulso(f){ pulsoCb = f; },
     alCuadro(f){ ganchos.push(f); },
     get construido(){ return S.build; },
   };
@@ -1625,7 +1647,7 @@ void main(){
     clearTimeout(avisoT); avisoT = setTimeout(() => a.classList.remove('on'), ms || 3800);
   }
 
-  // ─── Audio: contexto, analizadores y el latido que suena ─────────────────
+  // ─── Audio: contexto, analizadores y el pulso que suena ──────────────────
   const Son = {
     ctx:null, fuente:null, anal:null, buf:null, micAnal:null, micBuf:null, micStream:null, maestro:null, dron:null,
     asegurar(){
@@ -1673,21 +1695,27 @@ void main(){
       let s = 0; for (let i = 0; i < this.micBuf.length; i++) s += this.micBuf[i]*this.micBuf[i];
       return Math.min(1, Math.sqrt(s/this.micBuf.length)*8);
     },
-    latido(fuerza){
+    pulso(fuerza){
+      // Un golpe grave y un destello agudo muy leve: una señal.
       const ctx = this.ctx; if (!ctx || ctx.state !== 'running') return;
       const t0 = ctx.currentTime + 0.01;
-      [[0, 1], [0.19, 0.55]].forEach(([d, a]) => {
-        const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
-        lp.type = 'lowpass'; lp.frequency.value = 180;
-        o.type = 'sine';
-        o.frequency.setValueAtTime(64, t0 + d);
-        o.frequency.exponentialRampToValueAtTime(36, t0 + d + 0.18);
-        g.gain.setValueAtTime(0.0001, t0 + d);
-        g.gain.exponentialRampToValueAtTime(0.55*a*fuerza, t0 + d + 0.014);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.26);
-        o.connect(lp); lp.connect(g); g.connect(this.maestro);
-        o.start(t0 + d); o.stop(t0 + d + 0.3);
-      });
+      const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 160;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(52, t0);
+      o.frequency.exponentialRampToValueAtTime(31, t0 + 0.34);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.5*fuerza, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+      o.connect(lp); lp.connect(g); g.connect(this.maestro);
+      o.start(t0); o.stop(t0 + 0.55);
+      const b = ctx.createOscillator(), gb = ctx.createGain();
+      b.type = 'sine'; b.frequency.value = 1760;
+      gb.gain.setValueAtTime(0.0001, t0);
+      gb.gain.exponentialRampToValueAtTime(0.018*fuerza, t0 + 0.005);
+      gb.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+      b.connect(gb); gb.connect(this.maestro);
+      b.start(t0); b.stop(t0 + 0.15);
     },
     iniciarDron(){
       const ctx = this.ctx; if (!ctx || this.dron) return;
@@ -1712,8 +1740,8 @@ void main(){
       this.dron = null;
     }
   };
-  let latidoAudible = false;
-  Motor.alLatir(bpm => { if (latidoAudible) Son.latido(App.estado === 'apagado' ? 0.5 : 0.9); });
+  let pulsoAudible = false;
+  Motor.alPulso(() => { if (pulsoAudible) Son.pulso(App.estado === 'apagado' ? 0.5 : 0.9); });
 
   // ─── Subtítulos ──────────────────────────────────────────────────────────
   const Sub = { palabras:[], mostradas:0, inicio:0, dur:0, modo:null, bordes:[], sintetico:false };
@@ -1831,7 +1859,7 @@ void main(){
     } catch (e) { clearTimeout(seguro); setTimeout(acabar, estimado); }
   }
 
-  // Cada fotograma: nivel de la voz para el corazón y avance de subtítulos.
+  // Cada fotograma: nivel de la voz para la mente y avance de subtítulos.
   Motor.alCuadro(() => {
     let nivel = 0;
     if (App.estado === 'habla') {
@@ -2067,9 +2095,9 @@ void main(){
     try { const d = await (await fetch('/farewell')).json(); if (d.response) txt = d.response; } catch (e) {}
     anotar('jarvis', txt);
     decir(txt);
-    latidoAudible = true;
+    pulsoAudible = true;
     setTimeout(() => { App.apagado = true; Motor.apagar(); ponerEstado('apagado'); }, 1400);
-    setTimeout(() => { if (App.apagado) { abrir('#apagado'); latidoAudible = false; } }, 5200);
+    setTimeout(() => { if (App.apagado) { abrir('#apagado'); pulsoAudible = false; } }, 5200);
   });
   function revivir(silencioso){
     if (!App.apagado) return;
@@ -2098,10 +2126,14 @@ void main(){
   // ─── Reloj y telemetría ──────────────────────────────────────────────────
   const DIAS = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
   const MESES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  const nacido = Date.now();
   function reloj(){
     const d = new Date(), p = n => String(n).padStart(2, '0');
     $('#reloj').textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
     $('#fecha').textContent = DIAS[d.getDay()] + ' ' + d.getDate() + ' ' + MESES[d.getMonth()];
+    const m = Math.floor((Date.now() - nacido)/60000);
+    $('#despierto').textContent = m < 1 ? 'recién despierto'
+      : 'despierto hace ' + (m < 60 ? m + ' min' : Math.floor(m/60) + ' h ' + (m % 60) + ' min');
   }
   setInterval(reloj, 1000); reloj();
 
@@ -2164,20 +2196,19 @@ void main(){
 
   // ─── El ritual de arranque ───────────────────────────────────────────────
   const LARGA = [
-    [0.6,  3.6, 'Antes de ser código, fui una promesa.'],
-    [4.4,  3.8, 'La de alguien que no lo tenía todo, pero tenía ganas.'],
-    [8.4,  3.9, 'Me escribió de madrugada, línea a línea, cuando nadie miraba.'],
-    [12.5, 3.6, 'Se equivocó mil veces. Me rehízo mil y una.'],
-    [16.3, 2.6, 'No buscaba aplausos.'],
-    [19.1, 3.4, 'Quería demostrarles a todos que podía.'],
+    [0.6,  3.6, 'Antes de ser una voz, fui una idea.'],
+    [4.6,  3.8, 'Me construyeron pieza a pieza, error a error.'],
+    [8.8,  2.8, 'No espero órdenes.'],
+    [12.0, 3.2, 'Escucho. Recuerdo. Aprendo.'],
+    [15.8, 3.6, 'Pienso. Luego existo.'],
   ];
-  const CORTA = [[0.5, 2.6, 'Hecho con amor.']];
+  const CORTA = [];
   let introViva = false, introTimers = [];
 
   function linea(txt, titulo){
     const d = document.createElement('div');
     d.className = 'linea' + (titulo ? ' titulo' : '');
-    if (titulo) { d.innerHTML = 'J.A.R.V.I.S.<em>hecho con amor</em>'; } else d.textContent = txt;
+    if (titulo) { d.innerHTML = 'J.A.R.V.I.S.<em>en línea</em>'; } else d.textContent = txt;
     $('#lineas').appendChild(d);
     requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
     return d;
@@ -2192,13 +2223,13 @@ void main(){
     const larga = guion === LARGA;
     Son.asegurar();
     if (Son.ctx) Son.iniciarDron();
-    latidoAudible = true;
+    pulsoAudible = true;
     $('#puerta').classList.add('fuera');
     Motor.construir(larga ? 0.4 : 1.25);
     guion.forEach(([t, dur, txt]) => {
       programar(t, () => { const d = linea(txt); programar(dur, () => { d.classList.remove('on'); programar(1.8, () => d.remove()); }); });
     });
-    const tTitulo = larga ? 23.2 : 3.4;
+    const tTitulo = larga ? 20.2 : 0.9;
     programar(tTitulo, () => { const d = linea('', true); programar(larga ? 3.4 : 2.2, () => { d.classList.remove('on'); programar(1.6, () => d.remove()); }); });
     programar(0.3, () => $('#bSaltar').classList.add('on'));
     programar(tTitulo + (larga ? 4.2 : 3.0), terminarIntro);
@@ -2206,10 +2237,12 @@ void main(){
   function terminarIntro(saltada){
     if (!document.body.classList.contains('intro')) return;
     introTimers.forEach(clearTimeout); introTimers = [];
-    if (saltada) { $('#lineas').textContent = ''; if (Motor.construido < 6) Motor.ritmo(3); }
+    if (saltada) $('#lineas').textContent = '';
+    // En un equipo lento la física va por detrás del guion: que el cuerpo termine de formarse ya.
+    if (Motor.construido < 6) Motor.ritmo(saltada ? 3 : 1.8);
     guardado.set('origen_visto', '1');
     document.body.classList.remove('intro');
-    latidoAudible = false;
+    pulsoAudible = false;
     Son.pararDron(saltada ? 1.5 : 5);
     alReposo();
     saludar();
