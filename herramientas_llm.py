@@ -1151,6 +1151,12 @@ def pensar_con_herramientas(core, texto: str, mensajes: list, log=print):
             # dos llamadas al modelo para una sola frase del señor. Si la
             # respuesta ya sirve, se usa; si vino vacía, entonces sí se cae al
             # camino normal.
+            # Pero si se quedó sin tokens a mitad («length»), entregarla era
+            # dejar al señor con media explicación: el camino normal la
+            # continúa sola hasta terminarla.
+            if getattr(resp.choices[0], "finish_reason", "") == "length":
+                log("[HERRAMIENTAS] Respuesta cortada por longitud; sigo por la conversación.")
+                return None
             if len(contenido) > 15:
                 return contenido, []
             return None
