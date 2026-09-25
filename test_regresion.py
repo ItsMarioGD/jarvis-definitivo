@@ -2956,13 +2956,11 @@ def test_respuestas_completas():
     _check(all(len(m["content"]) == 3000 for m in hist if m["role"] == "assistant"),
            "el historial guardado no se toca")
 
-    # Sin tope de 700 caracteres salvo que el señor lo ponga en cerebro.json.
-    largo = "Una frase de una explicación larga. " * 100
-    _check(JarvisCore._recortar_respuesta(types.SimpleNamespace(_cerebro={}), largo) == largo,
-           "una respuesta larga no se recorta por defecto")
-    corto = JarvisCore._recortar_respuesta(types.SimpleNamespace(
-        _cerebro={"respuesta_max": 100}), largo)
-    _check(len(corto) <= 102, "respuesta_max sigue funcionando si se pone a mano")
+    # Ya no hay tope de 700 caracteres: la respuesta se guarda y se devuelve entera.
+    _check(not hasattr(JarvisCore, "_recortar_respuesta"),
+           "no queda ningún recorte de la respuesta")
+    _check("reply_clean = full_reply.strip()" in inspect.getsource(JarvisCore._procesar),
+           "la respuesta se devuelve entera")
 
     # El prompt ya no limita a tres oraciones ni prohíbe explicar.
     fuente = inspect.getsource(JarvisCore.__init__)
