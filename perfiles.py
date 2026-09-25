@@ -188,10 +188,14 @@ def verbosidad(core) -> str:
 def instruccion_prompt(core) -> str:
     """Línea que se añade al prompt para que el tono siga al perfil."""
     nivel = verbosidad(core)
+    # La brevedad es para la charla y las órdenes. Si el señor pide que se le
+    # explique algo, el perfil no puede dejarle la explicación a medias.
     if nivel == "minima":
-        return "[Perfil juego: responde en menos de diez palabras, sin cortesías.]"
+        return ("[Perfil juego: responde en menos de diez palabras, sin cortesías, "
+                "salvo que el señor pida expresamente una explicación.]")
     if nivel == "breve":
-        return "[Perfil de concentración: una o dos frases, sin rodeos.]"
+        return ("[Perfil de concentración: una o dos frases, sin rodeos. Si el señor "
+                "pide explicar o desarrollar algo, explícalo completo.]")
     return ""
 
 
