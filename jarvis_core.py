@@ -456,11 +456,14 @@ class JarvisCore:
         except Exception as e:
             self.log(f"Motor proactivo desactivado: {e}")
 
-        # Escucha continua y conversación (jarvis_escucha.py). JARVIS la
-        # enciende solo al arrancar: el señor quiere hablarle sin tocar ningún
-        # botón. Se apaga con «deja de escucharme» (queda guardado) o con
-        # JARVIS_ESCUCHA=0. ULTRON sigue siendo opt-in: los dos a la vez
-        # pelearían por el mismo micrófono.
+        # Escucha continua y conversación (jarvis_escucha.py). Opt-in: sin
+        # huella de voz registrada, cualquier audio que el detector de eco no
+        # reconozca como propio (ruido, TV, reverberación de la propia voz)
+        # se trata como una orden real, y JARVIS se contesta solo. Por eso ya
+        # NO se enciende sola al arrancar; se activa a mano con «actívate»/
+        # «escúchame siempre» o con JARVIS_ESCUCHA=1, y se apaga con «deja de
+        # escucharme» o JARVIS_ESCUCHA=0. ULTRON sigue siendo opt-in por lo
+        # mismo: los dos a la vez pelearían por el mismo micrófono.
         self.escucha = None
         try:
             from jarvis_escucha import EscuchaContinua
@@ -476,8 +479,7 @@ class JarvisCore:
             # El bot de Telegram carga su propio núcleo: si oyera también,
             # cada orden hablada se ejecutaría en dos procesos.
             hijo_telegram = os.getenv("JARVIS_TELEGRAM_CHILD") == "1"
-            if not hijo_telegram and (forzada == "1" or (forzada != "0" and (
-                    pref == "1" or (pref == "" and agente == "JARVIS")))):
+            if not hijo_telegram and (forzada == "1" or (forzada != "0" and pref == "1")):
                 ok, motivo = self.escucha.start()
                 if not ok:
                     self.log(f"[ESCUCHA] No pude activarla: {motivo}")
@@ -1235,18 +1237,6 @@ class JarvisCore:
         self._llm_hora.append(time.time())
         if len(self._llm_hora) > 200:
             self._llm_hora = self._llm_hora[-100:]
-
-    def _recortar_respuesta(self, texto: str) -> str:
-        """Respuestas compactas: corta en frontera de frase para que el TTS no se alargue."""
-        max_c = int(self._cerebro.get("respuesta_max") or 700)
-        if len(texto) <= max_c:
-            return texto
-        corte = texto.rfind(". ", 0, max_c)
-        if corte < max_c // 2:
-            corte = texto.rfind(" ", 0, max_c)
-        if corte < max_c // 2:
-            corte = max_c
-        return texto[:corte + 1].rstrip() + "…"
 
     def probar_cerebro(self) -> dict:
         """Valida cada proveedor con una llamada mínima (Validate del Admin UI de FCC)."""
@@ -3703,7 +3693,7 @@ class JarvisCore:
                                                    _ctx_txt, full_reply, log=self.log)
             except Exception:
                 pass
-            reply_clean = self._recortar_respuesta(full_reply.strip())
+            reply_clean = full_reply.strip()
             self._marcar_uso()
             self.history.append({"role": "assistant", "content": reply_clean})
             self.save_to_memory("assistant", reply_clean)
