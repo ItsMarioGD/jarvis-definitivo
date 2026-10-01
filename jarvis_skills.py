@@ -210,10 +210,12 @@ class SkillsManager:
         if not m:
             return None
         name = m.group(2).strip().rstrip(".")
-        # Descartar comandos que no son apps
-        if any(k in name for k in ("volumen", "musica de", "nota", "captura", "busqueda")):
-            return None
         cmd = APP_MAP.get(name)
+        # Descartar comandos que no son apps. El nombre exacto va antes: «bloc
+        # de notas» lleva «nota» dentro y este filtro lo tiraba, así que «abre
+        # el bloc de notas» nunca lo abría la habilidad.
+        if not cmd and any(k in name for k in ("volumen", "musica de", "nota", "captura", "busqueda")):
+            return None
         if not cmd:
             # búsqueda aproximada: contiene palabra clave
             for key, val in APP_MAP.items():

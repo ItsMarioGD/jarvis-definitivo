@@ -439,6 +439,26 @@ Funciona igual desde el PC o desde el móvil:
 - **Simulaciones en 3D** — «simula el péndulo doble», «anima la órbita de la
   Tierra y la Luna», «quiero ver el efecto mariposa», «simula x'' = -9.8».
   Ver [CIENCIAS.md](CIENCIAS.md).
+- **Escribir de verdad** — JARVIS redacta el texto entero, lo guarda y lo abre
+  YA ESCRITO en el programa que toque:
+  - «abre el bloc de notas y escribe un poema sobre la luna»
+  - «hazme un documento de Word sobre la Revolución Mexicana», «redacta una
+    carta de renuncia», «escribe un ensayo de 1000 palabras sobre la IA y
+    guárdalo en el escritorio»
+  - «crea un Excel con mis gastos del mes» (con fórmulas y totales), «hazme una
+    presentación de PowerPoint sobre el cambio climático» (con notas del orador),
+    «genera un PDF con un informe de ventas»
+  - «hazme un script en Python que ordene archivos por fecha» (se abre en el
+    editor, **nunca** se ejecuta), «hazme una página web para mi taller»
+  - «escribe en el bloc de notas: mañana compro pan» (tal cual, sin cerebro),
+    «guarda eso en un Word» o «pásalo al bloc de notas» (lo que acaba de decir)
+  - Y sobre el último: «hazlo más largo», «añádele un párrafo sobre…»,
+    «tradúcelo al inglés», «pásalo a PDF», «ábrelo», «¿dónde está?»,
+    «mándamelo al móvil». «Deshaz eso» lo manda a la papelera.
+
+  Van a `Documentos\JARVIS` salvo que diga otra carpeta (`JARVIS_DOCUMENTOS`
+  para cambiarla). Nunca sobrescribe: si el nombre existe, numera. Si ningún
+  cerebro contesta, lo dice y no crea nada: nada de plantillas de relleno.
 - **Abrir y cerrar programas** — «abre el bloc de notas», «cierra Chrome»
 - **Sonido** — «sube el volumen», «silencia»
 - **Estado del equipo** — «cuánta RAM estoy usando», «cuánta batería queda»

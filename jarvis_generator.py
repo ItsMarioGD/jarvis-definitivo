@@ -18,19 +18,67 @@ def _safe_name(text, maxlen=40):
 
 
 class JarvisGenerator:
-    def __init__(self, log=print):
+    def __init__(self, log=print, core=None):
         self.log = log
+        # El núcleo trae la cadena de cerebros (Pollinations, el de casa,
+        # Anthropic) con relevo entre ellos. Sin él solo quedaba un proveedor.
+        self.core = core
 
     def _llm_generate(self, system_prompt, user_prompt, max_tokens=1024):
-        """Claude para el contenido inteligente (antes era Llama 3 por Ollama)."""
+        """El texto, con la cadena de cerebros del núcleo y relevo si uno falla.
+
+        Antes iba fijo a Anthropic, que se quedó sin saldo: la llamada fallaba
+        en silencio y cada documento salía con las plantillas de más abajo
+        («Este documento aborda el tema de…»). Parecía que escribía y no.
+        """
+        if getattr(self, "_sin_cerebro", False):
+            return ""        # ya se probó toda la cadena y no contestó nadie
         try:
-            import proveedor_claude
-            return proveedor_claude.responder(
-                user_prompt, sistema=system_prompt, max_tokens=max_tokens,
-                timeout=90, log=self.log)
+            import redactor
+            return redactor.preguntar(self.core, system_prompt, user_prompt,
+                                      tope=max(max_tokens, 1500), log=self.log)
         except Exception as e:
-            self.log(f"Error Claude: {e}")
+            self.log(f"Error del cerebro: {e}")
             return ""
+
+    def _via_redactor(self, prompt, formato, subcarpeta, tipo):
+        """El archivo escrito DE VERDAD por redactor.py, o None si no hay cerebro.
+
+        Las plantillas de cada gen_* quedan solo como último recurso sin red, y
+        entonces el resultado lo dice («plantilla»: True) en vez de colar un
+        documento de relleno como si fuera el encargo.
+        """
+        try:
+            import redactor
+            carpeta = os.path.dirname(_out(subcarpeta, "x"))
+            r = redactor.generar_archivo(self.core, prompt, formato, carpeta_destino=carpeta,
+                                         abrir_al_final=False, log=self.log)
+        except Exception as e:
+            self.log(f"[GENERADOR] El redactor falló: {e}")
+            return None
+        if not r.get("ok"):
+            self.log(f"[GENERADOR] Sin contenido de verdad: {r.get('mensaje', '')[:160]}")
+            return None
+        return {"type": tipo, "path": r["ruta"], "prompt": prompt,
+                "format": os.path.splitext(r["ruta"])[1].lstrip(".").upper(),
+                "title": r.get("titulo", ""), "message": r.get("mensaje", "")}
+
+    def _plantilla(self, hacer, prompt):
+        """La plantilla de repuesto, marcada y dicha en el registro.
+
+        Sin volver a preguntar al cerebro: si el redactor no sacó nada es que
+        toda la cadena falló, y repetirla solo hacía esperar el doble.
+        """
+        self._sin_cerebro = True
+        try:
+            resultado = hacer(prompt)
+        finally:
+            self._sin_cerebro = False
+        if isinstance(resultado, dict) and resultado.get("path"):
+            resultado["plantilla"] = True
+            self.log("[GENERADOR] Ningún cerebro contestó: va una PLANTILLA, no el "
+                     "documento pedido. Revise el cerebro («prueba tu cerebro»).")
+        return resultado
 
     def _llm_sections(self, prompt, n_sections=5):
         """Genera secciones de contenido usando Claude"""
@@ -71,7 +119,7 @@ class JarvisGenerator:
                     if clean:
                         return clean
             except Exception as e:
-                self.log(f"Error parseando JSON Llama 3: {e}")
+                self.log(f"Error parseando el JSON del cerebro: {e}")
         return None
 
     def generate(self, request_text):
@@ -488,6 +536,12 @@ class JarvisGenerator:
     # DOCUMENTOS
     # ═══════════════════════════════════════════════════════════════════════════
     def gen_document(self, prompt):
+        hecho = self._via_redactor(prompt, "pdf", "Documentos", "document")
+        if hecho:
+            return hecho
+        return self._plantilla(self._gen_document_plantilla, prompt)
+
+    def _gen_document_plantilla(self, prompt):
         try:
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -533,7 +587,7 @@ class JarvisGenerator:
     def _expand_content(self, prompt):
         llm_sections = self._llm_sections(prompt)
         if llm_sections:
-            self.log(f"Contenido generado con Llama 3 ({len(llm_sections)} secciones)")
+            self.log(f"Contenido generado por el cerebro ({len(llm_sections)} secciones)")
             return llm_sections
         t = prompt.lower()
         if any(k in t for k in ["plan", "proyecto", "roadmap"]):
@@ -568,6 +622,12 @@ class JarvisGenerator:
     # EXCEL
     # ═══════════════════════════════════════════════════════════════════════════
     def gen_excel(self, prompt):
+        hecho = self._via_redactor(prompt, "xlsx", "Documentos", "excel")
+        if hecho:
+            return hecho
+        return self._plantilla(self._gen_excel_plantilla, prompt)
+
+    def _gen_excel_plantilla(self, prompt):
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -647,6 +707,12 @@ class JarvisGenerator:
     # POWERPOINT
     # ═══════════════════════════════════════════════════════════════════════════
     def gen_pptx(self, prompt):
+        hecho = self._via_redactor(prompt, "pptx", "Documentos", "pptx")
+        if hecho:
+            return hecho
+        return self._plantilla(self._gen_pptx_plantilla, prompt)
+
+    def _gen_pptx_plantilla(self, prompt):
         try:
             from pptx import Presentation
             from pptx.util import Inches as In, Pt
@@ -668,12 +734,12 @@ class JarvisGenerator:
             p2.text = f"Generado por JARVIS AI - {datetime.now().strftime('%Y-%m-%d')}"
             p2.font.size = Pt(16); p2.font.color.rgb = RGBColor(0x5a, 0x7a, 0x8a); p2.alignment = 1
 
-            # Slides de contenido - Llama 3 o fallback
+            # Slides de contenido - el cerebro o el repuesto
             slides_data = []
             llm_slides = self._llm_sections(prompt, 5)
             if llm_slides:
                 slides_data = [(s.get("title", f"Slide {i+1}"), s.get("body", "")) for i, s in enumerate(llm_slides)]
-                self.log(f"PPTX contenido generado con Llama 3 ({len(slides_data)} slides)")
+                self.log(f"PPTX: contenido del cerebro ({len(slides_data)} diapositivas)")
             else:
                 t = prompt.lower()
                 if any(k in t for k in ["plan", "proyecto", "roadmap"]):
@@ -719,6 +785,12 @@ class JarvisGenerator:
     # WORD
     # ═══════════════════════════════════════════════════════════════════════════
     def gen_word(self, prompt):
+        hecho = self._via_redactor(prompt, "docx", "Documentos", "word")
+        if hecho:
+            return hecho
+        return self._plantilla(self._gen_word_plantilla, prompt)
+
+    def _gen_word_plantilla(self, prompt):
         try:
             from docx import Document
             from docx.shared import Pt as DocPt, RGBColor
@@ -756,6 +828,24 @@ class JarvisGenerator:
     # CODIGO
     # ═══════════════════════════════════════════════════════════════════════════
     def gen_code(self, prompt):
+        try:
+            import redactor
+            lenguaje = redactor._detectar_lenguaje(redactor._plano(prompt))
+        except Exception:
+            lenguaje = ""
+        if not lenguaje:
+            t = prompt.lower()
+            lenguaje = ("html" if any(k in t for k in ["html", "pagina", "web page", "sitio"])
+                        else "css" if any(k in t for k in ["css", "estilo", "style"])
+                        else "js" if any(k in t for k in ["javascript", "react", "node"])
+                        else "py")
+        hecho = self._via_redactor(prompt, lenguaje, "Codigo", "code")
+        if hecho:
+            hecho["language"] = lenguaje
+            return hecho
+        return self._plantilla(self._gen_code_plantilla, prompt)
+
+    def _gen_code_plantilla(self, prompt):
         t = prompt.lower()
         ts = datetime.now().strftime('%Y-%m-%d %H:%M')
 

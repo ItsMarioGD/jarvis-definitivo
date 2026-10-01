@@ -1353,6 +1353,49 @@ def test_holo_puente():
     _check('ctx.load_cert_chain' in fuente,
            "el escáner del móvil va por HTTPS o no va")
 
+# ── 44. Escribir de verdad: ni tecleo literal ni programa vacío ─────────────
+def test_redactor_escribe_de_verdad():
+    print("\n== 44. REDACTOR ==")
+    import tempfile
+    import redactor
+    # Estado aparte: el último documento del señor no debe torcer las rutas.
+    previo = os.environ.get("JARVIS_REDACTOR_ESTADO")
+    os.environ["JARVIS_REDACTOR_ESTADO"] = os.path.join(tempfile.mkdtemp(), "ultimo.json")
+    redactor._ULTIMO.clear()
+    try:
+        for frase, app in (("abre el bloc de notas y escribe un poema sobre la luna", "notepad"),
+                           ("escríbeme en el bloc de notas una carta para mi madre", "notepad"),
+                           ("hazme un documento de Word sobre la Revolución Mexicana", "word"),
+                           ("crea un excel con mis gastos del mes", "excel")):
+            e = redactor.entender(frase)
+            _check(bool(e) and e["modo"] == "generar" and e["app"] == app,
+                   f"«{frase}» se REDACTA y se abre en {app}", f"-> {e and (e['modo'], e['app'])}")
+        for frase in ("escribe hola mundo", "escríbele a Juan que llego tarde",
+                      "anota que mañana tengo dentista", "hazme un resumen de la fotosíntesis",
+                      "abre el bloc de notas", "describe esta imagen"):
+            _check(redactor.entender(frase) is None, f"«{frase}» no es un encargo de escribir")
+    finally:
+        redactor._ULTIMO.clear()
+        if previo is None:
+            os.environ.pop("JARVIS_REDACTOR_ESTADO", None)
+        else:
+            os.environ["JARVIS_REDACTOR_ESTADO"] = previo
+
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pc_control.py"),
+              encoding="utf-8") as f:
+        fuente = f.read()
+    _check("pyautogui.typewrite(mm.group(1)" not in fuente,
+           "pc_control ya no teclea la frase literal sin tildes en la ventana de JARVIS")
+    import permisos
+    from herramientas_llm import Herramientas
+    caja = Herramientas(None, log=lambda *a: None)
+    _check("crear_documento" in [d["function"]["name"] for d in caja.definiciones()]
+           and hasattr(caja, "_t_crear_documento"),
+           "el modelo tiene una herramienta para escribir documentos con contenido")
+    _check(permisos.evaluar("crear_documento") == "directo",
+           "crear un documento nuevo no se queda esperando un «confirma»")
+
+
 def main():
     pruebas = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for prueba in pruebas:
