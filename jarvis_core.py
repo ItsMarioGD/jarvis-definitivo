@@ -2877,6 +2877,15 @@ class JarvisCore:
         """Divide «haz X y haz Y» solo si ambas partes parecen órdenes reales."""
         if " y " not in texto.lower():
             return [texto]
+        # «Abre el bloc de notas y escribe un resumen de la reunión» es UN
+        # encargo: partido en dos, la primera mitad abría el Bloc de notas
+        # vacío y la segunda escribía en otro archivo.
+        try:
+            import redactor
+            if redactor.es_encargo(texto, core=self):
+                return [texto]
+        except Exception as e:
+            self.log(f"[REDACTOR] No pude mirar si era un encargo: {e}")
         partes = [p.strip() for p in texto.split(" y ") if p.strip()]
         if len(partes) < 2:
             return [texto]
@@ -2951,6 +2960,19 @@ class JarvisCore:
         """
         import ojo_global
         return ojo_global.orden(self, text, log=self.log)
+
+    def _orden_redactar(self, text: str, speak_server: bool = True):
+        """«Escríbeme un ensayo…», «abre el bloc de notas y escribe…», «hazme un
+        Excel de…», «pásalo a Word». Devuelve {mensaje, voz} o None.
+
+        Va delante de la agencia, del router y de las habilidades: pc_control
+        tecleaba la frase literal en la ventana con el foco (la del propio
+        JARVIS) y las habilidades abrían el programa vacío. Mientras se redacta se avisa por
+        voz, porque un documento largo con el cerebro de casa lleva su rato.
+        """
+        import redactor
+        avisar = (lambda frase: self.tts_queue.put(frase)) if speak_server else None
+        return redactor.atender_detalle(self, text, log=self.log, avisar=avisar)
 
     def _orden_ciencias(self, text: str):
         """Matemáticas, física o química dictadas. Devuelve texto o None.
@@ -3072,6 +3094,31 @@ class JarvisCore:
             if speak_server:
                 self.tts_queue.put(_r_meta)
             return _r_meta
+
+        # ── Escribir de verdad (redactor.py): el texto se redacta con el
+        # cerebro, se guarda en el formato pedido y se abre YA ESCRITO en el
+        # Bloc de notas, Word, Excel o PowerPoint. Antes de la agencia (que se
+        # quedaba «usa Word y escríbeme…» como si fuera un especialista) y del
+        # router (que lo reformulaba como «abre el bloc de notas», sin contenido). ──
+        try:
+            _rred = None if skip_skills else self._orden_redactar(text, speak_server=speak_server)
+        except Exception as e:
+            self.log(f"[REDACTOR] orden falló: {type(e).__name__}: {e}")
+            _rred = None
+        if _rred and _rred.get("mensaje"):
+            respuesta = _rred["mensaje"]
+            self.history.append({"role": "user", "content": text})
+            self.save_to_memory("user", text)
+            self.history.append({"role": "assistant", "content": respuesta})
+            self.save_to_memory("assistant", respuesta)
+            if len(self.history) > 17:
+                self.history = [self.history[0]] + self.history[-16:]
+            if speak_server and _rred.get("voz"):
+                # A la voz solo va el titular; la ruta y el comienzo se leen.
+                self.tts_queue.put(_rred["voz"])
+            self._registrar_cognicion(text, respuesta)
+            self._contexto_append(text, respuesta)
+            return respuesta
 
         # ── Agencia de especialistas: prioridad máxima (frases inequívocas) ──
         if getattr(self, "agentes_ia", None) is not None:
@@ -3539,6 +3586,16 @@ class JarvisCore:
                 except Exception as e:
                     self.log(f"Mem0 search error: {e}")
 
+            # Si el señor pedía ESCRIBIR algo y el modelo contesta con
+            # [OPEN:bloc de notas], el programa no se abre vacío: se aplaza y,
+            # al terminar la respuesta, se abre con el texto dentro.
+            try:
+                import redactor as _red
+                self._escritura_en_curso = _red.pide_escribir(text)
+            except Exception:
+                self._escritura_en_curso = False
+            self._abrir_con_texto = None
+
             import metricas
             _cronometro = metricas.medir("cerebro", modelo=self.model)
             _cronometro.__enter__()
@@ -3704,6 +3761,19 @@ class JarvisCore:
             except Exception:
                 pass
             reply_clean = self._recortar_respuesta(full_reply.strip())
+            _pendiente = getattr(self, "_abrir_con_texto", None)
+            self._escritura_en_curso, self._abrir_con_texto = False, None
+            if _pendiente:
+                try:
+                    import redactor as _red
+                    # La respuesta ENTERA, no la recortada para la voz.
+                    _nota = _red.guardar_respuesta(self, full_reply.strip(), _pendiente,
+                                                   log=self.log)
+                    if _nota:
+                        reply_clean = (reply_clean + "\n\n" + _nota).strip()
+                except Exception as e:
+                    self.log(f"[REDACTOR] No pude dejar la respuesta escrita: {e}")
+                    self._open_app(_pendiente)
             self._marcar_uso()
             self.history.append({"role": "assistant", "content": reply_clean})
             self.save_to_memory("assistant", reply_clean)
@@ -3780,6 +3850,16 @@ class JarvisCore:
         Pasa por el ejecutor común: si la aplicación no existe, el proceso
         muere al instante y queda registrado en vez de dar por buena la orden.
         """
+        if getattr(self, "_escritura_en_curso", False):
+            try:
+                import redactor
+                if redactor.app_de_escritura(name):
+                    # Abrirlo ahora sería abrirlo vacío: se abre al terminar,
+                    # con lo que el modelo haya escrito (ver _procesar).
+                    self._abrir_con_texto = name
+                    return
+            except Exception:
+                pass
         cmd = APP_MAP.get(name, name)
         try:
             import ejecutor

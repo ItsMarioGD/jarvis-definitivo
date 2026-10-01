@@ -336,7 +336,9 @@ core = _CoreProxy()
 
 try:
     from jarvis_generator import JarvisGenerator
-    generator = JarvisGenerator()
+    # Con el núcleo: así el contenido sale de la misma cadena de cerebros que
+    # el chat, con relevo, y no de un proveedor fijo sin saldo.
+    generator = JarvisGenerator(core=core)
     print("Generador universal JARVIS cargado")
 except Exception as e:
     print(f"Error cargando generador: {e}")

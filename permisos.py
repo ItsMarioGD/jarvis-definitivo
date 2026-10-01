@@ -68,8 +68,15 @@ _CONFIRMAR = {
     "borrador_entrega", "informe_practica",
 }
 
-# Todo lo demás (abrir_app, crear_nota, temporizador, recordatorio, captura,
-# deshacer_ultimo, orden_libre, mcp__*...) queda en "directo".
+# Todo lo demás (abrir_app, crear_nota, crear_documento, temporizador,
+# recordatorio, captura, deshacer_ultimo, orden_libre, mcp__*...) queda en
+# "directo".
+#
+# `crear_documento` va en directo a propósito, al contrario que
+# `escribir_archivo`: solo crea archivos NUEVOS (si el nombre existe, numera),
+# nunca toca uno del señor, y «deshaz eso» lo manda a la papelera. Pedir un
+# «confirma» para escribir la carta que el señor acaba de pedir es lo que hacía
+# que JARVIS «no trabajara»: abría el programa y se quedaba esperando.
 #
 # `ajustar_volumen` estaba en "confirmar" y contradecía la regla de arriba:
 # "directo = cosas triviales y reversibles". Subir el volumen es exactamente

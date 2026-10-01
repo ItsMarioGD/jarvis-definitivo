@@ -85,9 +85,34 @@ class Herramientas:
         entero = {"type": "integer"}
 
         return [
-            h("abrir_app", "Abre una aplicación o web en el PC del señor.",
+            h("abrir_app", "Abre una aplicación o web VACÍA en el PC del señor. Si "
+                           "hay que escribir algo en ella (Bloc de notas, Word, "
+                           "Excel, PowerPoint), NO uses esta: usa crear_documento, "
+                           "que la abre ya con el texto dentro.",
               {"nombre": {"type": "string", "description": "spotify, chrome, word, calculadora..."}},
               ["nombre"]),
+            h("crear_documento",
+              "Escribe un documento o archivo CON CONTENIDO REAL y lo abre ya escrito: "
+              "ensayos, cartas, poemas, informes, listas, resúmenes, currículums, "
+              "contratos, código, páginas web, hojas de Excel o presentaciones de "
+              "PowerPoint, en Bloc de notas, Word, PDF, Excel, PowerPoint o el "
+              "formato que pida. Redacta el texto ella misma a partir del encargo; "
+              "si ya tienes el texto exacto, pásalo en «contenido». Úsala SIEMPRE "
+              "que el señor pida escribir, redactar o guardar algo en un archivo o "
+              "en un programa. Nunca sobrescribe y se deshace con «deshaz eso».",
+              {"encargo": {"type": "string",
+                           "description": "lo que hay que escribir, con todo el detalle que dio el señor"},
+               "formato": {"type": "string",
+                           "description": "txt, docx, pdf, md, rtf, xlsx, csv, pptx, html, py, js... "
+                                          "(vacío = el que pegue con el encargo)"},
+               "nombre": {"type": "string", "description": "nombre del archivo, si lo dijo"},
+               "ubicacion": {"type": "string",
+                             "description": "escritorio, documentos, descargas o una ruta (vacío = Documentos\\JARVIS)"},
+               "abrir_con": {"type": "string",
+                             "description": "bloc de notas, word, excel, powerpoint, vscode o navegador"},
+               "contenido": {"type": "string",
+                             "description": "el texto exacto, si ya está escrito (si no, se redacta)"}},
+              ["encargo"]),
             h("cerrar_app", "Cierra una aplicación que esté abierta.",
               {"nombre": texto}, ["nombre"]),
             h("apagar_equipo", "Programa el apagado del PC.",
@@ -202,7 +227,10 @@ class Herramientas:
                "hasta": {"type": "integer", "description": "última línea (0 = hasta el final)"}},
               ["ruta"]),
             h("escribir_archivo", "Crea o reescribe por completo un archivo de "
-                                  "texto. Reversible con «deshaz eso».",
+                                  "texto del proyecto o de configuración, con su ruta "
+                                  "completa. Reversible con «deshaz eso». Para "
+                                  "documentos nuevos del señor (cartas, ensayos, "
+                                  "listas, Word, Excel...) usa crear_documento.",
               {"ruta": texto, "contenido": texto}, ["ruta", "contenido"]),
             h("editar_archivo", "Cambia UN fragmento exacto de un archivo por otro. "
                                 "El fragmento a buscar debe aparecer una sola vez. "
@@ -799,8 +827,27 @@ class Herramientas:
 
     def _t_escribir_archivo(self, a):
         import herramientas_fs
-        return herramientas_fs.escribir_archivo(a.get("ruta", ""),
-                                                a.get("contenido", ""), log=self.log)
+        ruta = (a.get("ruta") or "").strip().strip('"')
+        # «poema.txt» a secas se resolvía contra la carpeta del PROYECTO: el
+        # documento del señor acababa dentro de JARVIS, donde nadie lo busca.
+        # Un nombre suelto de documento que no es del proyecto va a Documentos.
+        if ruta and not os.path.isabs(os.path.expanduser(ruta)) and \
+                not os.path.dirname(ruta) and \
+                os.path.splitext(ruta)[1].lower() in (".txt", ".md", ".csv", ".html", ".rtf",
+                                                       ".json", ".xml") and \
+                not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), ruta)):
+            import redactor
+            ruta = redactor.ruta_documento(ruta)
+        return herramientas_fs.escribir_archivo(ruta, a.get("contenido", ""), log=self.log)
+
+    def _t_crear_documento(self, a):
+        import redactor
+        return redactor.crear_documento(self.core, encargo=a.get("encargo", ""),
+                                        formato=a.get("formato", ""),
+                                        nombre=a.get("nombre", ""),
+                                        ubicacion=a.get("ubicacion", ""),
+                                        abrir_con=a.get("abrir_con", ""),
+                                        contenido=a.get("contenido", ""), log=self.log)
 
     def _t_editar_archivo(self, a):
         import herramientas_fs

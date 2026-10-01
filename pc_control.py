@@ -115,6 +115,8 @@ class PCControl:
         t = _norm(text)
         if not t:
             return None
+        # El original, con mayúsculas y tildes, para lo que haya que escribir.
+        self._orig = text
 
         # 1) estado de poder (preguntas sobre modo admin / permisos)
         r = self._admin_mode(t)
@@ -412,12 +414,19 @@ class PCControl:
             hacia_abajo = "baja" in t or "abajo" in t or "scroll" in t
             pyautogui.scroll(-n * 120 if hacia_abajo else n * 120)
             return f"Desplazando la página {'hacia abajo' if hacia_abajo else 'hacia arriba'}, señor."
-        if re.search(r"escribe\s+«?([^»]+)»?|teclea\s+", t):
-            import pyautogui
-            mm = re.search(r"(?:escribe|teclea)\s+«?([^»\n]+)»?", t)
-            if mm:
-                pyautogui.typewrite(mm.group(1).strip(), interval=0.02)
-                return f"Escribí «{mm.group(1).strip()}», señor."
+        if re.search(r"\b(?:escribe|teclea)\s+\S", t):
+            # Antes: pyautogui.typewrite() con la frase NORMALIZADA (sin tildes
+            # ni eñes, que además typewrite se salta) en la ventana con el foco,
+            # que casi siempre era la del propio JARVIS: escribía en sí mismo.
+            # Y sin \b, «describe esta imagen» tecleaba «esta imagen». Ahora va
+            # por el portapapeles, con el texto tal como lo dijo el señor, y si
+            # el foco es de JARVIS el texto acaba en un Bloc de notas.
+            import redactor
+            texto = redactor.texto_a_teclear(getattr(self, "_orig", "") or t)
+            if texto:
+                if self.safe:
+                    return f"(modo seguro: escribiría «{texto[:60]}»)"
+                return redactor.teclear(None, texto, log=self.log)
         atajos = {
             "copia": ("ctrl", "c"), "pega": ("ctrl", "v"), "corta": ("ctrl", "x"),
             "deshace": ("ctrl", "z"), "selecciona todo": ("ctrl", "a"),
